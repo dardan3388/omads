@@ -1,0 +1,1971 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OMADS</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --bg2: #16213e;
+    --bg3: #0f3460;
+    --accent: #e94560;
+    --text: #e8e8e8;
+    --text-dim: #777;
+    --green: #4ade80;
+    --yellow: #fbbf24;
+    --blue: #60a5fa;
+    --magenta: #c084fc;
+    --red: #f87171;
+    --border: #2a2a4a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── Header ─── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo { font-size: 18px; font-weight: bold; color: var(--accent); }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: var(--bg3); color: var(--text-dim);
+  }
+  .badge.on { background: #064e3b; color: var(--green); }
+  .badge.limit-ok { background: #052e16; color: #86efac; }
+  .badge.limit-warn { background: #450a0a; color: #fecaca; }
+  .badge.limit-unknown { background: var(--bg3); color: var(--text-dim); }
+  .header-right { display: flex; align-items: center; gap: 14px; }
+  .btn-sm {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 12px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 12px;
+  }
+  .btn-sm:hover { background: #1a4a7a; }
+
+  /* ─── Main ─── */
+  .main { flex: 1; display: flex; overflow: hidden; }
+
+  /* ─── Projekt-Sidebar ─── */
+  .sidebar {
+    width: 260px; min-width: 260px; background: var(--bg2);
+    border-right: 1px solid var(--border); display: flex;
+    flex-direction: column; overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sidebar-title { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .btn-new-project {
+    background: var(--accent); border: none; color: white;
+    padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; font-size: 11px; font-weight: bold;
+  }
+  .btn-new-project:hover { opacity: 0.85; }
+  .project-list { flex: 1; overflow-y: auto; }
+  .project-item {
+    padding: 10px 14px; cursor: pointer;
+    border-bottom: 1px solid rgba(42,42,74,0.4);
+    transition: background 0.1s;
+  }
+  .project-item:hover { background: var(--bg3); }
+  .project-item.active { background: var(--bg3); border-left: 3px solid var(--accent); }
+  .project-name { font-size: 13px; font-weight: bold; color: var(--text); margin-bottom: 2px; }
+  .project-path { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .project-meta { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+  .sidebar-toggle {
+    position: absolute; left: 260px; top: 50%;
+    transform: translateY(-50%); background: var(--bg2);
+    border: 1px solid var(--border); border-left: none;
+    color: var(--text-dim); padding: 8px 4px; cursor: pointer;
+    border-radius: 0 4px 4px 0; font-size: 10px; z-index: 10;
+  }
+  .sidebar-toggle:hover { color: var(--text); }
+  .sidebar.collapsed { width: 0; min-width: 0; overflow: hidden; border: none; }
+  .sidebar.collapsed + .sidebar-toggle { left: 0; }
+
+  .history-empty { padding: 14px; font-size: 12px; color: var(--text-dim); text-align: center; }
+
+  /* ─── Timestamp im Chat-Stream ─── */
+  .msg-timestamp {
+    font-size: 10px; color: var(--text-dim); padding: 12px 0 4px;
+    text-align: center; opacity: 0.6;
+  }
+  .msg-history-divider {
+    text-align: center; padding: 8px 0; margin: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px; color: var(--text-dim);
+  }
+
+  /* ─── New Project Modal ─── */
+  .new-project-form { padding: 0; }
+  .new-project-form .form-group { margin-bottom: 12px; }
+
+  /* ─── Chat Stream (Hauptbereich) ─── */
+  .stream-wrapper {
+    flex: 1; display: flex; overflow: hidden;
+  }
+  .stream-panel {
+    flex: 1; display: flex; flex-direction: column;
+    max-width: 900px; margin: 0 auto; width: 100%;
+    min-width: 0;
+  }
+
+  /* ─── Live-Log Panel (rechts, ein-/ausblendbar) ─── */
+  .livelog-panel {
+    width: 0; min-width: 0; overflow: hidden;
+    background: #0d1117; border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    transition: width 0.2s, min-width 0.2s;
+  }
+  .livelog-panel.open {
+    width: 50%; min-width: 380px;
+  }
+  .livelog-header {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: #161b22; flex-shrink: 0;
+  }
+  .livelog-tabs { display: flex; gap: 0; }
+  .livelog-tab {
+    padding: 4px 12px; font-size: 11px; cursor: pointer; color: var(--text-dim);
+    border: none; background: none; font-family: inherit;
+    border-bottom: 2px solid transparent;
+  }
+  .livelog-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .livelog-tab:hover { color: var(--text); }
+  .livelog-close {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 16px; padding: 0 4px;
+  }
+  .livelog-close:hover { color: var(--red); }
+  .livelog-content {
+    flex: 1; overflow-y: auto; padding: 8px 12px;
+    font-size: 11px; line-height: 1.5;
+  }
+  .livelog-content .log-line {
+    padding: 2px 0; border-bottom: 1px solid rgba(42,42,74,0.2);
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .log-time { color: #484f58; flex-shrink: 0; min-width: 60px; }
+  .log-agent { font-weight: bold; flex-shrink: 0; min-width: 70px; }
+  .log-agent.claude { color: var(--blue); }
+  .log-agent.codex { color: var(--magenta); }
+  .log-agent.system { color: var(--yellow); }
+  .log-type { color: #484f58; flex-shrink: 0; min-width: 55px; }
+  .log-msg { color: #c9d1d9; white-space: pre-wrap; word-break: break-word; flex: 1; min-width: 0; }
+  .log-msg.error { color: var(--red); }
+  .log-msg.tool { color: var(--yellow); }
+  .log-msg.text { color: #c9d1d9; }
+  .log-msg.thinking { color: #8b949e; font-style: italic; }
+  .log-msg.result { color: #7ee787; }
+  .livelog-empty { padding: 20px; text-align: center; color: #484f58; }
+
+  /* Toggle-Button im Header */
+  .btn-log-toggle {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 11px;
+  }
+  .btn-log-toggle:hover { color: var(--text); }
+  .btn-log-toggle.active { color: var(--blue); border-color: var(--blue); }
+  .stream-area {
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+
+  /* Nachrichten */
+  .msg { padding: 6px 0; font-size: 14px; line-height: 1.6; }
+  .msg-user {
+    padding: 10px 16px; background: var(--bg3); border-radius: 10px;
+    margin: 8px 0; max-width: 80%; align-self: flex-end;
+    border: 1px solid var(--border); word-wrap: break-word;
+  }
+  .msg-system {
+    color: var(--text-dim); font-size: 12px; text-align: center;
+    padding: 4px; margin: 4px 0;
+  }
+
+  /* Onboarding-Banner */
+  .onboard-banner {
+    background: var(--bg-secondary, #1a1a2e);
+    border: 1px solid var(--yellow, #e5c07b);
+    border-radius: 8px; padding: 16px 20px; margin: 8px 12px;
+    font-size: 13px; line-height: 1.6; text-align: left;
+  }
+  .onboard-banner h3 { color: var(--yellow, #e5c07b); margin: 0 0 10px; font-size: 15px; }
+  .onboard-banner .cli-status { display: flex; gap: 12px; margin: 8px 0; }
+  .onboard-banner .cli-card {
+    flex: 1; padding: 10px 14px; border-radius: 6px;
+    background: var(--bg-primary, #0d1117); border: 1px solid var(--border, #333);
+  }
+  .onboard-banner .cli-card.ok { border-color: var(--green, #98c379); }
+  .onboard-banner .cli-card.missing { border-color: var(--red, #e06c75); }
+  .onboard-banner .cli-name { font-weight: bold; font-size: 13px; }
+  .onboard-banner .cli-name.ok::before { content: '\2713 '; color: var(--green, #98c379); }
+  .onboard-banner .cli-name.missing::before { content: '\2717 '; color: var(--red, #e06c75); }
+  .onboard-banner .cli-ver { color: var(--text-dim); font-size: 11px; }
+  .onboard-banner .cli-hint { color: var(--red, #e06c75); font-size: 12px; margin-top: 4px; }
+  .onboard-banner code {
+    background: var(--bg-primary, #0d1117); padding: 2px 6px; border-radius: 3px;
+    font-size: 12px; color: var(--cyan, #56b6c2);
+  }
+  .onboard-banner .install-cmd {
+    background: var(--bg-primary, #0d1117); padding: 8px 12px; border-radius: 4px;
+    margin: 4px 0; font-family: monospace; font-size: 12px; color: var(--text);
+    user-select: all; cursor: pointer;
+  }
+  .onboard-banner .onboard-ok {
+    color: var(--green, #98c379); font-weight: bold; text-align: center; padding: 8px;
+  }
+  .onboard-banner .dismiss-btn {
+    background: none; border: 1px solid var(--border, #333); color: var(--text-dim);
+    padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: 8px;
+  }
+  .onboard-banner .dismiss-btn:hover { border-color: var(--text); color: var(--text); }
+
+  /* Agent-Nachrichten (Text) */
+  .msg-agent {
+    padding: 2px 0; word-wrap: break-word;
+  }
+  .msg-agent .agent-name {
+    font-size: 11px; font-weight: bold; margin-right: 8px;
+  }
+  .agent-name.claude { color: var(--blue); }
+  .agent-name.codex { color: var(--magenta); }
+  .agent-name.system { color: var(--yellow); }
+  .agent-name.omads { color: var(--accent); }
+
+  /* Tool-Call Block (klappbar, wie Claude Code) */
+  .tool-block {
+    margin: 3px 0; border-left: 3px solid var(--border);
+    background: rgba(15,52,96,0.3); border-radius: 0 6px 6px 0;
+    overflow: hidden; min-height: 32px;
+  }
+  .tool-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; cursor: pointer; font-size: 13px;
+    color: var(--text-dim); min-height: 32px;
+  }
+  .tool-header:hover { background: rgba(255,255,255,0.05); }
+  .tool-icon { font-size: 14px; color: var(--yellow); flex-shrink: 0; }
+  .tool-name { color: var(--blue); font-weight: bold; font-size: 12px; flex-shrink: 0; }
+  .tool-desc { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-chevron {
+    margin-left: auto; font-size: 10px; color: var(--text-dim);
+    transition: transform 0.15s; flex-shrink: 0;
+  }
+  .tool-block.open .tool-chevron { transform: rotate(90deg); }
+  .tool-detail {
+    display: none; padding: 10px 12px;
+    font-size: 12px; color: var(--text-dim);
+    background: rgba(0,0,0,0.2); border-top: 1px solid var(--border);
+    white-space: pre-wrap; word-break: break-all;
+    max-height: 300px; overflow-y: auto;
+  }
+  .tool-block.open .tool-detail { display: block; }
+
+  /* Ergebnis-Karten */
+  .result-card {
+    margin: 12px 0; border-radius: 10px; overflow: hidden;
+    font-size: 13px; max-width: 480px;
+  }
+  .result-card .rc-header {
+    padding: 14px 16px 10px; display: flex; align-items: center; gap: 10px;
+  }
+  .result-card .rc-icon { font-size: 22px; flex-shrink: 0; }
+  .result-card .rc-title { font-weight: bold; font-size: 14px; }
+  .result-card .rc-subtitle { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+  .result-card .rc-body { padding: 0 16px 12px; }
+  .result-card .rc-details {
+    display: none; margin-top: 8px; padding: 8px 12px;
+    background: rgba(0,0,0,0.15); border-radius: 6px; font-size: 12px;
+  }
+  .result-card .rc-details.open { display: block; }
+  .result-card .rc-detail-item {
+    padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: flex-start; gap: 6px;
+  }
+  .result-card .rc-detail-item:last-child { border-bottom: none; }
+  .result-card .rc-detail-dot {
+    width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0;
+  }
+  .result-card .rc-toggle {
+    background: none; border: none; color: inherit; cursor: pointer;
+    font-size: 12px; opacity: 0.7; padding: 4px 0; text-align: left;
+  }
+  .result-card .rc-toggle:hover { opacity: 1; }
+  .result-card .rc-actions {
+    padding: 8px 16px 14px; display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .result-card .rc-btn {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.08); color: inherit; cursor: pointer;
+    font-size: 12px; font-family: inherit; transition: background 0.15s;
+  }
+  .result-card .rc-btn:hover { background: rgba(255,255,255,0.15); }
+  .result-card .rc-btn.primary {
+    background: rgba(255,255,255,0.15); font-weight: bold;
+  }
+  .result-card .rc-btn.primary:hover { background: rgba(255,255,255,0.22); }
+  .result-card .rc-btn.danger {
+    border-color: rgba(239,68,68,0.3); color: #fca5a5;
+  }
+  .result-card .rc-btn.danger:hover { background: rgba(239,68,68,0.15); }
+
+  .result-card.accept {
+    background: #064e3b; color: #86efac; border: 1px solid #166534;
+  }
+  .result-card.reject {
+    background: #450a0a; color: #fca5a5; border: 1px solid #991b1b;
+  }
+  .result-card.escalate {
+    background: #451a03; color: #fcd34d; border: 1px solid #92400e;
+  }
+
+  /* Altes Banner für History-Einträge (Kompatibilität) */
+  .result-banner {
+    margin: 10px 0; padding: 10px 16px; border-radius: 8px;
+    font-size: 13px; font-weight: bold;
+  }
+  .result-banner.accept { background: #064e3b; color: var(--green); border: 1px solid #166534; }
+  .result-banner.reject { background: #450a0a; color: var(--red); border: 1px solid #991b1b; }
+  .result-banner.escalate { background: #451a03; color: var(--yellow); border: 1px solid #92400e; }
+
+  /* ─── Input Area ─── */
+  .input-area {
+    padding: 12px 24px; border-top: 1px solid var(--border);
+    background: var(--bg2); display: flex; gap: 8px; align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .chat-input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 14px; border-radius: 8px;
+    font-family: inherit; font-size: 14px; outline: none; resize: none;
+    min-height: 42px; max-height: 120px;
+  }
+  .chat-input:focus { border-color: var(--blue); }
+  .btn-send {
+    background: var(--accent); border: none; color: white;
+    padding: 10px 18px; border-radius: 8px; cursor: pointer;
+    font-family: inherit; font-size: 14px; font-weight: bold;
+    min-width: 80px;
+  }
+  .btn-send:hover { opacity: 0.9; }
+  .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-stop {
+    background: var(--red); border: none; color: white;
+    padding: 10px 18px; border-radius: 8px; cursor: pointer;
+    font-family: inherit; font-size: 14px; font-weight: bold;
+    min-width: 80px;
+  }
+  .btn-stop:hover { opacity: 0.85; }
+  .btn-review {
+    background: var(--blue); border: none; color: white;
+    padding: 10px 14px; border-radius: 8px; cursor: pointer;
+    font-family: inherit; font-size: 13px; font-weight: bold;
+    min-width: 70px; white-space: nowrap;
+  }
+  .btn-review:hover { opacity: 0.9; }
+  .btn-review:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ─── Review Modal ─── */
+  .review-modal {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .review-modal.open { display: flex; }
+  .review-dialog {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; width: 420px;
+  }
+  .review-dialog h3 { margin: 0 0 16px 0; color: var(--text); font-size: 16px; }
+  .review-group { margin-bottom: 14px; }
+  .review-group label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .review-group select, .review-group input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 10px; border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .review-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .review-actions button {
+    padding: 8px 16px; border-radius: 6px; border: none;
+    font-family: inherit; font-size: 13px; cursor: pointer;
+  }
+  .review-actions .btn-start { background: var(--blue); color: white; font-weight: bold; }
+  .review-actions .btn-cancel { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+  /* ─── Settings Modal ─── */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; width: 600px;
+    max-height: 85vh; overflow-y: auto;
+  }
+  .modal h2 { margin-bottom: 16px; color: var(--accent); font-size: 18px; }
+  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 8px 16px; font-size: 13px; cursor: pointer; color: var(--text-dim);
+    border-bottom: 2px solid transparent; font-family: inherit; background: none; border-top: none; border-left: none; border-right: none;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--text); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .section-title { font-size: 12px; color: var(--accent); margin: 14px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .form-group { flex: 1; }
+  .hint { font-size: 11px; color: var(--text-dim); margin-top: 2px; font-style: italic; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label {
+    display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px;
+  }
+  .form-group select, .form-group input[type="text"] {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 7px 10px; border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .form-group select:focus, .form-group input:focus { outline: none; border-color: var(--blue); }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .btn-m {
+    padding: 7px 18px; border-radius: 6px; border: none;
+    font-family: inherit; font-size: 13px; cursor: pointer;
+  }
+  .btn-m.primary { background: var(--accent); color: white; }
+  .btn-m.secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+
+  /* Folder Picker */
+  .folder-picker {
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); max-height: 220px; overflow-y: auto; margin-top: 4px;
+  }
+  .fp-path {
+    padding: 6px 10px; font-size: 11px; color: var(--accent);
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .fp-breadcrumb { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn-pick {
+    background: var(--green); color: #000; border: none;
+    padding: 3px 10px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; font-size: 11px; font-weight: bold; flex-shrink: 0;
+  }
+  .fp-list { list-style: none; }
+  .fp-item {
+    padding: 5px 10px; font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    border-bottom: 1px solid rgba(42,42,74,0.5);
+  }
+  .fp-item:hover { background: var(--bg3); }
+  .fp-up { color: var(--text-dim); font-style: italic; }
+  .status-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+  }
+  .status-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .status-card-title {
+    font-size: 12px;
+    color: var(--text);
+    font-weight: bold;
+  }
+  .status-body {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .status-pre {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    min-height: 72px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <span class="logo">OMADS</span>
+    <span class="badge" id="connBadge">Verbinde...</span>
+    <span class="badge" id="repoBadge" title="Klick zum Ändern" style="cursor:pointer" onclick="openSettings()">Kein Projekt</span>
+  </div>
+  <div class="header-right">
+    <span class="badge on" title="Codex Auto-Review aktiv">Auto-Review</span>
+    <span class="badge limit-unknown" id="claudeLimitBadge" title="Claude-Limit noch nicht abgefragt">Claude ?</span>
+    <button class="btn-log-toggle" id="btnLogToggle" onclick="toggleLiveLog()">Live-Log</button>
+    <button class="btn-sm" onclick="openSettings()">Einstellungen</button>
+  </div>
+</div>
+
+<!-- Main mit Sidebar -->
+<div class="main">
+  <!-- Projekt-Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Projekte</span>
+      <button class="btn-new-project" onclick="openNewProject()">+ Neu</button>
+    </div>
+    <div class="project-list" id="projectList"></div>
+  </div>
+
+  <!-- Chat + Live-Log Wrapper -->
+  <div class="stream-wrapper">
+    <!-- Chat Stream -->
+    <div class="stream-panel">
+      <div class="stream-area" id="stream">
+        <div class="msg-system">Willkommen bei OMADS. Schreib einfach los — ich verstehe Fragen und Aufträge.</div>
+        <div id="onboardBanner" style="display:none"></div>
+      </div>
+      <div class="input-area">
+        <textarea class="chat-input" id="input" rows="1"
+          placeholder="Schreib was du brauchst..."
+          onkeydown="onKey(event)"></textarea>
+        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Code-Review mit Claude + Codex">Review</button>
+        <button class="btn-send" id="btnSend" onclick="send()">Senden</button>
+      </div>
+    </div>
+
+    <!-- Live-Log Panel (rechts, ein-/ausblendbar) -->
+    <div class="livelog-panel" id="livelogPanel">
+      <div class="livelog-header">
+        <div class="livelog-tabs">
+          <button class="livelog-tab active" onclick="switchLogTab('all')" id="logTabAll">Alle</button>
+          <button class="livelog-tab" onclick="switchLogTab('claude')" id="logTabClaude">Claude Code</button>
+          <button class="livelog-tab" onclick="switchLogTab('codex')" id="logTabCodex">Codex</button>
+        </div>
+        <button class="livelog-close" onclick="toggleLiveLog()">&times;</button>
+      </div>
+      <div class="livelog-content" id="livelogContent">
+        <div class="livelog-empty">Warte auf Aktivit&auml;t...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Neues Projekt Modal -->
+<div class="modal-overlay" id="newProjectModal">
+  <div class="modal" style="width:500px;">
+    <h2>Neues Projekt</h2>
+    <div class="new-project-form">
+      <div class="form-group">
+        <label>Projektname</label>
+        <input type="text" id="npName" placeholder="z.B. CleanSnap, MeinWebshop...">
+      </div>
+      <div class="form-group">
+        <label>Projekt-Verzeichnis</label>
+        <div class="folder-picker" id="npFolderPicker">
+          <div class="fp-path">
+            <span class="fp-breadcrumb" id="npFpPath">Lade...</span>
+            <button class="btn-pick" onclick="pickNewProjectFolder()">Ausw&auml;hlen</button>
+          </div>
+          <ul class="fp-list" id="npFpList"></ul>
+        </div>
+        <input type="hidden" id="npPath">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-m secondary" onclick="closeNewProject()">Abbrechen</button>
+      <button class="btn-m primary" onclick="createProject()">Projekt anlegen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Review Modal -->
+<div class="review-modal" id="reviewModal" onclick="if(event.target===this)closeReviewDialog()">
+  <div class="review-dialog">
+    <h3>Code-Review starten</h3>
+    <div class="review-group">
+      <label>Scope</label>
+      <select id="reviewScope" onchange="toggleCustomScope()">
+        <option value="project">Ganzes Projekt</option>
+        <option value="last_task">Letzter Task</option>
+        <option value="custom">Eigene Auswahl</option>
+      </select>
+    </div>
+    <div class="review-group" id="customScopeGroup" style="display:none">
+      <label>Dateien / Ordner (kommagetrennt)</label>
+      <input type="text" id="reviewCustomScope" placeholder="src/auth/, src/api/routes.py">
+    </div>
+    <div class="review-group">
+      <label>Fokus</label>
+      <select id="reviewFocus">
+        <option value="all">Alles (Security, Bugs, Performance)</option>
+        <option value="security">Security</option>
+        <option value="bugs">Bugs &amp; Logikfehler</option>
+        <option value="performance">Performance</option>
+      </select>
+    </div>
+    <div class="review-actions">
+      <button class="btn-cancel" onclick="closeReviewDialog()">Abbrechen</button>
+      <button class="btn-start" onclick="startReview()">Review starten</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h2>Einstellungen</h2>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('tabProject')">Projekt</button>
+      <button class="tab" onclick="switchTab('tabClaude')">Claude Code</button>
+      <button class="tab" onclick="switchTab('tabCodex')">Codex</button>
+    </div>
+
+    <!-- Tab: Projekt -->
+    <div class="tab-content active" id="tabProject">
+      <div class="form-group">
+        <label>Projekt-Verzeichnis</label>
+        <div class="folder-picker" id="folderPicker">
+          <div class="fp-path">
+            <span class="fp-breadcrumb" id="fpPath">Lade...</span>
+            <button class="btn-pick" onclick="pickFolder()">Ausw&auml;hlen</button>
+          </div>
+          <ul class="fp-list" id="fpList"></ul>
+        </div>
+        <input type="hidden" id="sRepo">
+      </div>
+      <div class="form-group">
+        <label>Codex Auto-Review</label>
+        <select id="sAutoReview">
+          <option value="true">Aktiviert</option>
+          <option value="false">Deaktiviert</option>
+        </select>
+        <div class="hint">Codex pr&uuml;ft automatisch nach jeder Code-&Auml;nderung.</div>
+      </div>
+    </div>
+
+    <!-- Tab: Claude Code -->
+    <div class="tab-content" id="tabClaude">
+      <div class="section-title">Modell</div>
+      <div class="form-group">
+        <label>Claude Modell</label>
+        <select id="sClaude">
+          <option value="sonnet">Sonnet 4.6 (schnell, Standard)</option>
+          <option value="opus">Opus 4.6 (leistungsst&auml;rkste)</option>
+          <option value="haiku">Haiku 4.5 (am schnellsten)</option>
+        </select>
+      </div>
+
+      <div class="section-title">Berechtigungen</div>
+      <div class="form-group">
+        <label>Permission-Modus</label>
+        <select id="sPerms">
+          <option value="default">Standard (fragt nach)</option>
+          <option value="auto">Auto-Accept (akzeptiert alles)</option>
+          <option value="plan">Plan-Modus (nur lesen, kein Schreiben)</option>
+          <option value="bypassPermissions">Bypass (keine Checks)</option>
+        </select>
+        <div class="hint">Auto-Accept: Claude darf alles ohne R&uuml;ckfrage. Nur f&uuml;r vertrauensw&uuml;rdige Projekte.</div>
+      </div>
+
+      <div class="section-title">Reasoning</div>
+      <div class="form-group">
+        <label>Effort (Denktiefe)</label>
+        <select id="sClaudeEffort">
+          <option value="low">Low (schnell, weniger gr&uuml;ndlich)</option>
+          <option value="medium">Medium</option>
+          <option value="high">High (Standard)</option>
+          <option value="max">Max (gr&uuml;ndlichste, langsamer)</option>
+        </select>
+        <div class="hint">Steuert wie gr&uuml;ndlich Claude nachdenkt. H&ouml;her = bessere Ergebnisse, aber langsamer und teurer.</div>
+      </div>
+
+      <div class="section-title">Limits</div>
+      <div class="form-group">
+        <label>Max Turns (Arbeitschritte pro Task)</label>
+        <input type="text" id="sMaxTurns" value="25">
+        <div class="hint">Mehr Turns erlauben komplexere Aufgaben, dauern aber l&auml;nger.</div>
+      </div>
+
+      <div class="form-group status-card">
+        <div class="status-card-head">
+          <div class="status-card-title">Echter Claude-Limit-Status</div>
+          <button class="btn-sm" id="btnClaudeLimitRefresh" onclick="refreshClaudeLimit()">Jetzt pr&uuml;fen</button>
+        </div>
+        <div class="status-body" id="claudeLimitDetails">Noch keine echten Claude-Daten vorhanden.</div>
+        <div class="hint" id="claudeLimitHint">Es wird nur gezeigt, was Claude selbst liefert. Kein Rest-%-Wert, weil Claude ihn nicht ausgibt.</div>
+      </div>
+    </div>
+
+    <!-- Tab: Codex -->
+    <div class="tab-content" id="tabCodex">
+      <div class="section-title">Auto-Review</div>
+      <div class="form-group">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <span style="display:inline-block;padding:4px 12px;border-radius:4px;font-size:13px;font-weight:bold;background:#1a2e1a;color:#74d4a5;border:1px solid #74d4a5;">Codex CLI</span>
+          <span style="color:var(--text-dim);font-size:12px;">Automatischer Code-Reviewer</span>
+        </div>
+        <div class="hint">Nach jeder Code-&Auml;nderung pr&uuml;ft Codex automatisch auf Probleme.</div>
+      </div>
+
+      <div class="section-title">Modell</div>
+      <div class="form-group">
+        <label>Codex-Modell</label>
+        <input type="text" id="sCodexModel" value="" placeholder="Standard (gpt-5.4)" style="font-family:monospace;">
+        <div class="hint">Leer = Codex-Standard (gpt-5.4). Andere Optionen: o4-mini, gpt-4.1, etc.</div>
+      </div>
+
+      <div class="section-title">Reasoning</div>
+      <div class="form-group">
+        <label>Reasoning Effort (Denktiefe)</label>
+        <select id="sCodexReasoning">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High (Standard)</option>
+          <option value="xhigh">XHigh (gr&uuml;ndlichste)</option>
+        </select>
+        <div class="hint">Steuert wie gr&uuml;ndlich Codex nachdenkt. XHigh = beste Ergebnisse, aber langsamer.</div>
+      </div>
+
+      <div class="form-group">
+        <label>Fast Mode</label>
+        <select id="sCodexFast">
+          <option value="false">Aus (Standard-Geschwindigkeit)</option>
+          <option value="true">An (schnellere Antworten)</option>
+        </select>
+        <div class="hint">Fast Mode bevorzugt schnellere Antworten.</div>
+      </div>
+
+      <div class="section-title">Einstellungen</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Timeout (Sekunden)</label>
+          <input type="text" id="sBreakerTimeout" value="120">
+        </div>
+      </div>
+      <div class="section-title">Status</div>
+      <div class="form-group status-card">
+        <div class="status-card-head">
+          <div class="status-card-title">Codex /status</div>
+          <button class="btn-sm" id="btnCodexStatusRefresh" onclick="refreshCodexStatus()">Status abrufen</button>
+        </div>
+        <div class="status-pre" id="codexStatusText">Noch nicht abgerufen.</div>
+        <div class="hint" id="codexStatusHint">Zeigt die Antwort von Codex auf <code>/status</code>. Keine exakte lokale Usage-Anzeige.</div>
+      </div>
+      <div class="hint" style="margin-top:12px;color:var(--text-dim);font-size:12px">
+        <strong>Claude Code</strong> baut und beantwortet.<br>
+        <strong>Codex</strong> pr&uuml;ft automatisch nach &Auml;nderungen.<br>
+        <span style="color:var(--text-dim);">Die GUI zeigt bewusst nur die Einstellungen, die hier wirklich benutzt werden.</span>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-m secondary" onclick="closeSettings()">Abbrechen</button>
+      <button class="btn-m primary" onclick="saveSettings()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let ws = null, busy = false, fpPath = '~';
+let _logFilter = 'all';  // 'all', 'claude', 'codex'
+let _runtimeStatus = { claude_limit: {}, codex_status: {} };
+
+// ─── WebSocket ─────────────────────────
+function connect() {
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${protocol}://${location.host}/ws`);
+  ws.onopen = () => {
+    el('connBadge').textContent = 'Verbunden';
+    el('connBadge').classList.add('on');
+    loadSettings();
+    loadRuntimeStatus();
+    loadProjects();  // Historie nach Reconnect/Neustart neu laden
+  };
+  ws.onclose = () => {
+    el('connBadge').textContent = 'Getrennt';
+    el('connBadge').classList.remove('on');
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = (e) => handle(JSON.parse(e.data));
+}
+
+function handle(msg) {
+  const s = el('stream');
+
+  // === Live-Log: JEDES Event loggen ===
+  logEvent(msg);
+
+  switch (msg.type) {
+
+    // ─ Chat-Antwort (einfache Fragen) ─
+    case 'chat_response':
+      addAgent(msg.agent || 'OMADS', msg.text);
+      unlock();
+      break;
+
+    // ─ Task Start ─
+    case 'task_start':
+      addSystem(`Task gestartet`);
+      break;
+
+    // ─ Live Text vom Agent ─
+    case 'stream_text':
+      if (msg.text && msg.text.trim()) addAgent(msg.agent, msg.text);
+      break;
+
+    // ─ Tool-Call (klappbarer Block) ─
+    case 'stream_tool':
+      if (msg.tool) addToolBlock(msg.agent, msg.tool, msg.description || '', msg.detail || '');
+      break;
+
+    // ─ Agent Status ─
+    case 'agent_status':
+      addStatus(msg.agent, msg.status);
+      break;
+
+    // ─ Agent Activity (Breaker etc.) ─
+    case 'agent_activity':
+      if (msg.activity === 'finding') {
+        addAgent(msg.agent, `Hinweis: ${msg.text}`);
+      } else if (msg.activity === 'analysis') {
+        addToolBlock(msg.agent, 'Analyse', 'Code-Review Ergebnis', msg.text);
+      } else {
+        addAgent(msg.agent, msg.text);
+      }
+      break;
+
+    // ─ Task fertig — Result-Card ─
+    case 'task_complete': {
+      const card = buildResultCard(msg);
+      s.appendChild(card);
+      scrollDown();
+      unlock();
+      break;
+    }
+
+    case 'task_stopped':
+      addSystem(msg.text);
+      unlock();
+      break;
+
+    case 'task_error':
+      addAgent('System', msg.text);
+      unlock();
+      break;
+
+    case 'claude_limit_update':
+      renderClaudeLimit(msg.limit);
+      break;
+
+    case 'codex_status_update':
+      renderCodexStatus(msg.codex_status);
+      break;
+
+    case 'unlock':
+      unlock();
+      break;
+
+    case 'review_fixes_available':
+      // Button "Fixes anwenden?" anzeigen
+      const fixDiv = document.createElement('div');
+      fixDiv.className = 'msg msg-system';
+      fixDiv.innerHTML = `
+        <div style="padding:12px;background:var(--bg);border:1px solid var(--blue);border-radius:8px;margin:8px 0;">
+          <div style="margin-bottom:10px;color:var(--text);">${formatMsg(msg.text)}</div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="applyFixes()" style="background:var(--green);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:bold;">Fixes anwenden</button>
+            <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background:var(--bg2);color:var(--muted);border:1px solid var(--border);padding:8px 16px;border-radius:6px;cursor:pointer;">Nein, danke</button>
+          </div>
+        </div>`;
+      el('stream').appendChild(fixDiv);
+      scrollDown();
+      break;
+
+    case 'system':
+      el('repoBadge').textContent = shortPath(msg.text);
+      break;
+  }
+}
+
+// ─── Review Dialog ─────────────────────
+function openReviewDialog() {
+  el('reviewModal').classList.add('open');
+}
+function closeReviewDialog() {
+  el('reviewModal').classList.remove('open');
+}
+function toggleCustomScope() {
+  const show = el('reviewScope').value === 'custom';
+  el('customScopeGroup').style.display = show ? 'block' : 'none';
+}
+function startReview() {
+  if (!ws) return;
+  const scope = el('reviewScope').value;
+  const focus = el('reviewFocus').value;
+  const customScope = el('reviewCustomScope') ? el('reviewCustomScope').value : '';
+
+  closeReviewDialog();
+
+  // Review-Start im Chat anzeigen
+  const focusMap = { all: 'Alles', security: 'Security', bugs: 'Bugs', performance: 'Performance' };
+  const scopeMap = { project: 'Ganzes Projekt', last_task: 'Letzter Task', custom: customScope || 'Eigene Auswahl' };
+  const d = document.createElement('div');
+  d.className = 'msg msg-user';
+  d.innerHTML = formatMsg(`Review starten — Scope: ${scopeMap[scope]}, Fokus: ${focusMap[focus]}`);
+  el('stream').appendChild(d);
+  scrollDown();
+
+  ws.send(JSON.stringify({ type: 'review', scope, focus, custom_scope: customScope }));
+  lock();
+}
+
+// ─── Fixes anwenden ────────────────────
+function applyFixes() {
+  if (!ws) return;
+  const d = document.createElement('div');
+  d.className = 'msg msg-user';
+  d.innerHTML = formatMsg('Fixes anwenden');
+  el('stream').appendChild(d);
+  scrollDown();
+  ws.send(JSON.stringify({ type: 'apply_fixes' }));
+  lock();
+}
+
+// ─── Nachricht senden ──────────────────
+function send() {
+  const inp = el('input');
+  const text = inp.value.trim();
+  if (!text || !ws) return;
+
+  // User-Nachricht anzeigen
+  const d = document.createElement('div');
+  d.className = 'msg msg-user';
+  d.innerHTML = formatMsg(text);
+  el('stream').appendChild(d);
+  scrollDown();
+
+  ws.send(JSON.stringify({ type: 'chat', text }));
+  inp.value = '';
+  inp.style.height = 'auto';
+  lock();
+}
+
+function stop() {
+  if (ws) ws.send(JSON.stringify({ type: 'stop' }));
+}
+
+function onKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  setTimeout(() => {
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+  }, 0);
+}
+
+function lock() {
+  busy = true;
+  // Send-Button durch Stop-Button ersetzen
+  el('btnSend').outerHTML = '<button class="btn-stop" id="btnStop" onclick="stop()">Stop</button>';
+  // Review-Button deaktivieren
+  const rb = document.getElementById('btnReview');
+  if (rb) rb.disabled = true;
+}
+
+function unlock() {
+  busy = false;
+  const btn = document.getElementById('btnStop');
+  if (btn) {
+    btn.outerHTML = '<button class="btn-send" id="btnSend" onclick="send()">Senden</button>';
+  }
+  // Review-Button reaktivieren
+  const rb = document.getElementById('btnReview');
+  if (rb) rb.disabled = false;
+}
+
+// ─── Stream-Elemente ───────────────────
+function addAgent(agent, text) {
+  if (!text || !text.trim()) return;  // Leere Nachrichten ignorieren
+  const s = el('stream');
+  const d = document.createElement('div');
+  d.className = 'msg msg-agent';
+  const cls = agentClass(agent);
+  d.innerHTML = `<span class="agent-name ${cls}">${esc(agent)}</span>${formatMsg(text)}`;
+  s.appendChild(d);
+  scrollDown();
+}
+
+function addToolBlock(agent, tool, desc, detail) {
+  // Leere Tool-Blöcke ignorieren
+  if (!tool && !desc) return;
+
+  const s = el('stream');
+  const d = document.createElement('div');
+  d.className = 'tool-block';
+
+  const icons = {
+    Read: '📖', Edit: '✏️', Write: '📝', Bash: '⚡',
+    Glob: '🔍', Grep: '🔎', Agent: '🤖', Skill: '🎯',
+    TodoWrite: '📋', WebFetch: '🌐', WebSearch: '🔍',
+    NotebookEdit: '📓', ToolSearch: '🔧',
+  };
+  const icon = icons[tool] || '🔧';
+  const displayDesc = desc || tool || '...';
+
+  d.innerHTML = `
+    <div class="tool-header">
+      <span class="tool-icon">${icon}</span>
+      <span class="tool-name">${esc(tool)}</span>
+      <span class="tool-desc">${esc(displayDesc)}</span>
+    </div>
+  `;
+  s.appendChild(d);
+  scrollDown();
+}
+
+function addStatus(agent, text) {
+  const s = el('stream');
+  const d = document.createElement('div');
+  d.className = 'msg msg-agent';
+  const cls = agentClass(agent);
+  d.innerHTML = `<span class="agent-name ${cls}">${esc(agent)}</span><em style="color:var(--text-dim)">${esc(text)}</em>`;
+  s.appendChild(d);
+  scrollDown();
+}
+
+function addSystem(text) {
+  if (!text || !text.trim()) return;
+  const d = document.createElement('div');
+  d.className = 'msg-system';
+  d.textContent = text;
+  el('stream').appendChild(d);
+  scrollDown();
+}
+
+// ─── Result-Card Builder ────────────────
+function buildResultCard(msg) {
+  const decision = msg.decision || 'reject';
+  const score = msg.score || 0;
+  const intent = msg.intent || '';
+  const summary = msg.summary || '';
+  const filesChanged = msg.files_changed || 0;
+  const findings = msg.findings || [];
+  const conformance = msg.conformance_issues || [];
+
+  const card = document.createElement('div');
+  card.className = `result-card ${decision}`;
+
+  // Konfiguration pro Decision-Typ
+  const config = {
+    accept: {
+      icon: '✓',
+      title: 'Erfolgreich abgeschlossen',
+      subtitle: _buildAcceptSubtitle(filesChanged, findings),
+      detailLabel: 'Details anzeigen',
+    },
+    reject: {
+      icon: '✗',
+      title: 'Nicht abgeschlossen',
+      subtitle: _buildRejectSubtitle(findings, conformance, summary),
+      detailLabel: 'Gründe anzeigen',
+    },
+    escalate: {
+      icon: '⚠',
+      title: 'Deine Entscheidung nötig',
+      subtitle: _buildEscalateSubtitle(findings),
+      detailLabel: 'Gründe anzeigen',
+    },
+  };
+  const c = config[decision] || config.reject;
+
+  // Alle Details sammeln (Findings + Conformance)
+  const details = [];
+  for (const f of findings) {
+    const dotColor = f.severity === 'high' ? '#ef4444' : f.severity === 'medium' ? '#f59e0b' : '#6b7280';
+    details.push({ text: f.text, color: dotColor });
+  }
+  for (const ci of conformance) {
+    details.push({ text: ci, color: '#f59e0b' });
+  }
+
+  // Detail-ID für Toggle
+  const detailId = 'rc-detail-' + Math.random().toString(36).slice(2, 8);
+
+  let html = `
+    <div class="rc-header">
+      <span class="rc-icon">${c.icon}</span>
+      <div>
+        <div class="rc-title">${esc(c.title)}</div>
+        <div class="rc-subtitle">${esc(c.subtitle)}</div>
+      </div>
+    </div>
+    <div class="rc-body">`;
+
+  // Details (aufklappbar)
+  if (details.length > 0) {
+    html += `<button class="rc-toggle" onclick="document.getElementById('${detailId}').classList.toggle('open'); this.textContent = this.textContent.startsWith('▶') ? '▼ ${esc(c.detailLabel)}' : '▶ ${esc(c.detailLabel)}'">▶ ${esc(c.detailLabel)}</button>`;
+    html += `<div class="rc-details" id="${detailId}">`;
+    for (const d of details) {
+      html += `<div class="rc-detail-item"><span class="rc-detail-dot" style="background:${d.color}"></span><span>${esc(d.text)}</span></div>`;
+    }
+    html += `</div>`;
+  } else if (summary && decision !== 'accept') {
+    html += `<div style="font-size:12px;opacity:0.7;margin-top:4px">${esc(summary)}</div>`;
+  }
+
+  html += `</div><div class="rc-actions">`;
+
+  // Buttons pro Decision-Typ
+  if (decision === 'accept') {
+    html += `<button class="rc-btn primary" onclick="resultAction('new')">Neuer Auftrag</button>`;
+  } else if (decision === 'reject') {
+    html += `<button class="rc-btn primary" onclick="resultAction('revise', '${esc(intent)}')">Anpassen &amp; Neu starten</button>`;
+  } else if (decision === 'escalate') {
+    html += `<button class="rc-btn primary" onclick="resultAction('approve', '${esc(msg.task_id)}')">Freigeben</button>`;
+    html += `<button class="rc-btn danger" onclick="resultAction('reject_escalation', '${esc(msg.task_id)}')">Ablehnen</button>`;
+    html += `<button class="rc-btn" onclick="resultAction('revise', '${esc(intent)}')">Nachbessern lassen</button>`;
+  }
+
+  html += `</div>`;
+  card.innerHTML = html;
+  return card;
+}
+
+function _buildAcceptSubtitle(filesChanged, findings) {
+  const parts = [];
+  if (filesChanged > 0) parts.push(`${filesChanged} Datei${filesChanged > 1 ? 'en' : ''} geändert`);
+  if (findings.length === 0) parts.push('Alle Prüfungen bestanden');
+  else parts.push(`${findings.length} Hinweis${findings.length > 1 ? 'e' : ''}`);
+  return parts.join(' · ');
+}
+
+function _buildRejectSubtitle(findings, conformance, summary) {
+  const issues = findings.filter(f => f.severity === 'high' || f.severity === 'medium');
+  const total = issues.length + conformance.length;
+  if (total > 0) return `${total} Problem${total > 1 ? 'e' : ''} gefunden`;
+  if (summary) return summary.substring(0, 80);
+  return 'Der Vorgang konnte nicht abgeschlossen werden';
+}
+
+function _buildEscalateSubtitle(findings) {
+  const security = findings.filter(f => f.type === 'security_finding');
+  const scope = findings.filter(f => f.type === 'scope_violation');
+  if (security.length > 0) return 'Sicherheitsrelevante Änderung · Prüfung empfohlen';
+  if (scope.length > 0) return 'Änderung außerhalb des erwarteten Bereichs';
+  return 'Ergebnis muss manuell geprüft werden';
+}
+
+function resultAction(action, param) {
+  if (action === 'new') {
+    el('input').value = '';
+    el('input').focus();
+  } else if (action === 'revise') {
+    // Task-Text ins Eingabefeld laden
+    el('input').value = param || '';
+    el('input').focus();
+    el('input').style.height = 'auto';
+    el('input').style.height = Math.min(el('input').scrollHeight, 120) + 'px';
+  } else if (action === 'approve') {
+    // Freigeben — als Chat-Nachricht senden
+    if (ws) ws.send(JSON.stringify({ type: 'escalation_response', task_id: param, action: 'approve' }));
+    addSystem('Freigegeben — Änderungen werden übernommen.');
+  } else if (action === 'reject_escalation') {
+    // Ablehnen — als Chat-Nachricht senden
+    if (ws) ws.send(JSON.stringify({ type: 'escalation_response', task_id: param, action: 'reject' }));
+    addSystem('Abgelehnt — Änderungen werden verworfen.');
+  }
+}
+
+// ─── Tabs ───────────────────────────────
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el(tabId).classList.add('active');
+  // Aktiven Tab-Button markieren
+  const tabs = document.querySelectorAll('.tab');
+  const map = { tabProject: 0, tabClaude: 1, tabCodex: 2 };
+  if (map[tabId] !== undefined) tabs[map[tabId]].classList.add('active');
+}
+
+// ─── Settings ──────────────────────────
+function openSettings() {
+  el('settingsModal').classList.add('open');
+  switchTab('tabProject');
+  browseTo(el('sRepo').value || '~');
+}
+function closeSettings() { el('settingsModal').classList.remove('open'); }
+
+async function browseTo(path) {
+  try {
+    const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    if (data.error && path !== '~') { browseTo('~'); return; }
+
+    fpPath = data.path;
+    el('fpPath').textContent = data.path;
+    const list = el('fpList');
+    list.innerHTML = '';
+
+    if (data.parent) {
+      const li = document.createElement('li');
+      li.className = 'fp-item fp-up';
+      li.innerHTML = '<span>..</span><span>Hoch</span>';
+      li.onclick = () => browseTo(data.parent);
+      list.appendChild(li);
+    }
+    for (const dir of data.dirs) {
+      const li = document.createElement('li');
+      li.className = 'fp-item';
+      li.innerHTML = `<span>📁</span><span>${esc(dir.name)}</span>`;
+      li.onclick = () => browseTo(dir.path);
+      list.appendChild(li);
+    }
+  } catch (e) {}
+}
+
+function pickFolder() {
+  el('sRepo').value = fpPath;
+  const btn = document.querySelector('.btn-pick');
+  btn.textContent = '✓ Gewählt';
+  setTimeout(() => { btn.textContent = 'Auswählen'; }, 1200);
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    const s = await res.json();
+    _savedSettings = s;
+    el('sRepo').value = s.target_repo || '';
+    el('sPerms').value = s.claude_permission_mode || 'default';
+    el('sClaude').value = s.claude_model || 'sonnet';
+    el('sClaudeEffort').value = s.claude_effort || 'high';
+    el('sMaxTurns').value = s.claude_max_turns || 25;
+    el('sCodexModel').value = s.codex_model || '';
+    el('sCodexReasoning').value = s.codex_reasoning || 'high';
+    el('sCodexFast').value = s.codex_fast ? 'true' : 'false';
+    el('sBreakerTimeout').value = s.breaker_timeout || 120;
+    el('sAutoReview').value = s.auto_review !== false ? 'true' : 'false';
+    el('repoBadge').textContent = shortPath(s.target_repo || 'Kein Projekt');
+  } catch (e) {}
+}
+let _savedSettings = {};
+
+async function saveSettings() {
+  const data = {
+    target_repo: el('sRepo').value,
+    claude_permission_mode: el('sPerms').value,
+    claude_model: el('sClaude').value,
+    claude_effort: el('sClaudeEffort').value,
+    claude_max_turns: parseInt(el('sMaxTurns').value) || 25,
+    codex_model: el('sCodexModel').value,
+    codex_reasoning: el('sCodexReasoning').value,
+    codex_fast: el('sCodexFast').value === 'true',
+    breaker_timeout: parseInt(el('sBreakerTimeout').value) || 120,
+    auto_review: el('sAutoReview').value === 'true',
+  };
+  if (ws && data.target_repo) ws.send(JSON.stringify({ type: 'set_repo', path: data.target_repo }));
+  await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  el('repoBadge').textContent = shortPath(data.target_repo);
+  closeSettings();
+}
+
+// ─── Runtime-Status ────────────────────
+async function loadRuntimeStatus() {
+  try {
+    const res = await fetch('/api/runtime-status');
+    const status = await res.json();
+    if (status) {
+      renderClaudeLimit(status.claude_limit || {});
+      renderCodexStatus(status.codex_status || {});
+    }
+  } catch (e) {}
+}
+
+function fmtRemaining(unixTs) {
+  if (!unixTs) return '—';
+  const diffMs = unixTs * 1000 - Date.now();
+  if (diffMs <= 0) return 'jetzt';
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 60) return `${diffMin} min`;
+  const h = Math.floor(diffMin / 60);
+  const m = diffMin % 60;
+  if (h < 24) return `${h} h ${m} min`;
+  const d = Math.floor(h / 24);
+  return `${d} d ${h % 24} h`;
+}
+
+function fmtTimestamp(unixTs) {
+  if (!unixTs) return '—';
+  return new Date(unixTs * 1000).toLocaleString('de-DE', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function fmtLimitType(type) {
+  if (type === 'five_hour') return '5h';
+  if (type === 'weekly') return 'Woche';
+  return 'Limit';
+}
+
+function renderClaudeLimit(limit = _runtimeStatus.claude_limit || {}) {
+  _runtimeStatus.claude_limit = limit || {};
+  const badge = el('claudeLimitBadge');
+  const details = el('claudeLimitDetails');
+  const hint = el('claudeLimitHint');
+  const data = _runtimeStatus.claude_limit || {};
+  const lastChecked = data.last_checked || 0;
+  const typeLabel = fmtLimitType(data.rate_limit_type);
+  const resetText = fmtRemaining(data.resets_at || 0);
+
+  badge.classList.remove('limit-ok', 'limit-warn', 'limit-unknown');
+
+  if (!lastChecked) {
+    badge.classList.add('limit-unknown');
+    badge.textContent = 'Claude ?';
+    badge.title = 'Claude-Limit noch nicht abgefragt';
+    details.textContent = 'Noch keine echten Claude-Limitdaten vorhanden.';
+    hint.textContent = 'Es wird nur gezeigt, was Claude selbst liefert. Kein Rest-%-Wert, weil Claude ihn nicht ausgibt.';
+    return;
+  }
+
+  if (data.status === 'rate_limited') {
+    badge.classList.add('limit-warn');
+    badge.textContent = data.rate_limit_type === 'weekly' ? 'Claude Woche LIMIT' : 'Claude LIMIT';
+  } else if (data.status === 'allowed') {
+    badge.classList.add('limit-ok');
+    badge.textContent = data.resets_at ? `Claude ${typeLabel} ${resetText}` : 'Claude OK';
+  } else {
+    badge.classList.add('limit-unknown');
+    badge.textContent = 'Claude ?';
+  }
+
+  badge.title = data.resets_at
+    ? `Claude ${typeLabel} Reset: ${fmtTimestamp(data.resets_at)}`
+    : 'Claude-Limitstatus ohne Reset-Zeit';
+
+  let html = '';
+  if (data.status === 'rate_limited') {
+    html += `<strong style="color:var(--red);">Limit erreicht</strong> (${esc(typeLabel)})`;
+  } else if (data.status === 'allowed') {
+    html += `<strong style="color:var(--green);">Verfügbar</strong> (${esc(typeLabel)})`;
+  } else {
+    html += `<strong>Unbekannt</strong>`;
+  }
+  html += `<br>Reset: <strong>${esc(resetText)}</strong>`;
+  html += `<br>Nächster Reset: <strong>${esc(fmtTimestamp(data.resets_at || 0))}</strong>`;
+  html += `<br>Zuletzt geprüft: <strong>${esc(fmtTimestamp(lastChecked))}</strong>`;
+  if (data.is_using_overage) {
+    html += `<br>Overage: <strong>aktiv</strong>`;
+  } else if (data.overage_status) {
+    html += `<br>Overage: <strong>${esc(data.overage_status)}</strong>`;
+  }
+  details.innerHTML = html;
+
+  let hintText = 'Es wird nur gezeigt, was Claude selbst liefert. Kein Rest-%-Wert, weil Claude ihn nicht ausgibt.';
+  if (data.overage_disabled_reason) hintText += ` Overage-Grund: ${data.overage_disabled_reason}.`;
+  hint.textContent = hintText;
+}
+
+function renderCodexStatus(codexStatus = _runtimeStatus.codex_status || {}) {
+  _runtimeStatus.codex_status = codexStatus || {};
+  const textEl = el('codexStatusText');
+  const hintEl = el('codexStatusHint');
+  const data = _runtimeStatus.codex_status || {};
+
+  textEl.textContent = data.text || 'Noch nicht abgerufen.';
+
+  let hint = 'Zeigt die Antwort von Codex auf /status. Keine exakte lokale Usage-Anzeige.';
+  if (data.last_checked) hint += ` Stand: ${fmtTimestamp(data.last_checked)}.`;
+  if (data.error) hint += ` Fehler: ${data.error}`;
+  hintEl.textContent = hint;
+}
+
+async function refreshClaudeLimit() {
+  const btn = el('btnClaudeLimitRefresh');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Prüfe...';
+  try {
+    const res = await fetch('/api/runtime-status/claude/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) {
+      el('claudeLimitHint').textContent = data.error;
+      return;
+    }
+    if (data.limit) renderClaudeLimit(data.limit);
+  } catch (e) {
+    el('claudeLimitHint').textContent = 'Claude-Limit konnte gerade nicht abgefragt werden.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
+async function refreshCodexStatus() {
+  const btn = el('btnCodexStatusRefresh');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Hole...';
+  try {
+    const res = await fetch('/api/runtime-status/codex/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) {
+      el('codexStatusHint').textContent = data.error;
+      return;
+    }
+    if (data.codex_status) renderCodexStatus(data.codex_status);
+  } catch (e) {
+    el('codexStatusHint').textContent = 'Codex-Status konnte gerade nicht abgefragt werden.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
+// ─── Helpers ───────────────────────────
+function el(id) { return document.getElementById(id); }
+function scrollDown() { const s = el('stream'); s.scrollTop = s.scrollHeight; }
+function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function formatMsg(text) {
+  // Einfaches Markdown-Rendering: Code-Blöcke, Inline-Code, Fett, Kursiv, Listen, Links, Zeilenumbrüche
+  let html = esc(text);
+  // Code-Blöcke (```...```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:8px 12px;border-radius:6px;overflow-x:auto;margin:6px 0;font-size:13px;border:1px solid var(--border)"><code>$2</code></pre>');
+  // Inline-Code (`...`)
+  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:13px">$1</code>');
+  // Fett (**...**)
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Kursiv (*...*)
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Überschriften (### / ## / #)
+  html = html.replace(/^### (.+)$/gm, '<strong style="font-size:14px">$1</strong>');
+  html = html.replace(/^## (.+)$/gm, '<strong style="font-size:15px">$1</strong>');
+  html = html.replace(/^# (.+)$/gm, '<strong style="font-size:16px">$1</strong>');
+  // Listen (- item / * item)
+  html = html.replace(/^[\-\*] (.+)$/gm, '  • $1');
+  // Nummerierte Listen (1. item)
+  html = html.replace(/^(\d+)\. (.+)$/gm, '  $1. $2');
+  // Zeilenumbrüche
+  html = html.replace(/\n/g, '<br>');
+  // Doppelte <br> nach <pre> entfernen
+  html = html.replace(/<\/pre><br>/g, '</pre>');
+  html = html.replace(/<br><pre/g, '<pre');
+  return html;
+}
+function shortPath(p) { if (!p) return '?'; const parts = p.replace(/\/$/, '').split('/'); return parts.slice(-2).join('/'); }
+function agentClass(a) {
+  const l = a.toLowerCase();
+  return l.includes('claude') ? 'claude' : l.includes('codex') || l.includes('breaker') ? 'codex'
+    : l === 'director' ? 'system' : l === 'omads' ? 'omads' : 'system';
+}
+
+// ─── Mode Toggle ────────────────────────
+// ─── Live-Log Panel ─────────────────────
+function toggleLiveLog() {
+  const panel = el('livelogPanel');
+  const btn = el('btnLogToggle');
+  panel.classList.toggle('open');
+  btn.classList.toggle('active');
+}
+
+function switchLogTab(tab) {
+  _logFilter = tab;
+  document.querySelectorAll('.livelog-tab').forEach(t => t.classList.remove('active'));
+  if (tab === 'all') el('logTabAll').classList.add('active');
+  else if (tab === 'claude') el('logTabClaude').classList.add('active');
+  else el('logTabCodex').classList.add('active');
+  // Filter anwenden
+  const lines = el('livelogContent').querySelectorAll('.log-line');
+  lines.forEach(l => {
+    if (tab === 'all') { l.style.display = ''; return; }
+    const agent = l.dataset.agent || '';
+    if (tab === 'claude' && agent === 'claude') l.style.display = '';
+    else if (tab === 'codex' && agent === 'codex') l.style.display = '';
+    else l.style.display = 'none';
+  });
+}
+
+function logEvent(msg) {
+  // Nur relevante Agenten-Events loggen
+  const logTypes = ['task_start', 'stream_text', 'stream_tool', 'agent_status',
+    'agent_activity', 'task_complete', 'task_stopped', 'task_error', 'chat_response',
+    'stream_thinking', 'stream_result'];
+  if (!logTypes.includes(msg.type)) return;
+
+  const container = el('livelogContent');
+  // Leere "Warte auf Aktivität" entfernen
+  const empty = container.querySelector('.livelog-empty');
+  if (empty) empty.remove();
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateStr = now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+
+  const agent = msg.agent || 'System';
+  const agentCls = agentClass(agent);
+
+  let typeLabel = msg.type.replace('stream_', '').replace('agent_', '').replace('task_', '');
+  let msgText = '';
+  let msgCls = 'text';
+
+  switch (msg.type) {
+    case 'task_start':
+      msgText = `Task gestartet: ${msg.intent || msg.task_id || ''}`;
+      msgCls = 'text';
+      break;
+    case 'stream_text':
+      msgText = msg.text || '';
+      msgCls = 'text';
+      typeLabel = 'text';
+      break;
+    case 'stream_tool':
+      msgText = `${msg.tool || '?'}: ${msg.description || ''}`;
+      if (msg.detail) msgText += `\n${msg.detail}`;
+      msgCls = 'tool';
+      typeLabel = 'tool';
+      break;
+    case 'agent_status':
+      msgText = msg.status || '';
+      typeLabel = 'status';
+      break;
+    case 'agent_activity':
+      msgText = `[${msg.activity || '?'}] ${msg.text || ''}`;
+      typeLabel = 'activity';
+      break;
+    case 'task_complete':
+      msgText = `Entscheidung: ${msg.decision} (Score: ${((msg.score || 0) * 100).toFixed(0)}%)`;
+      msgCls = msg.decision === 'accept' ? 'text' : 'error';
+      typeLabel = 'result';
+      break;
+    case 'task_stopped':
+      msgText = msg.text || 'Abgebrochen';
+      msgCls = 'error';
+      typeLabel = 'stop';
+      break;
+    case 'task_error':
+      msgText = msg.text || 'Fehler';
+      msgCls = 'error';
+      typeLabel = 'error';
+      break;
+    case 'chat_response':
+      msgText = msg.text || '';
+      typeLabel = 'chat';
+      break;
+    case 'stream_thinking':
+      msgText = msg.text || '';
+      msgCls = 'thinking';
+      typeLabel = 'denkt';
+      break;
+    case 'stream_result':
+      msgText = msg.text || '';
+      msgCls = msg.is_error ? 'error' : 'result';
+      typeLabel = msg.is_error ? 'fehler' : 'ergebnis';
+      break;
+  }
+
+  if (!msgText.trim()) return;
+
+  const d = document.createElement('div');
+  d.className = 'log-line';
+  d.dataset.agent = agentCls;
+  d.innerHTML = `<span class="log-time">${dateStr} ${timeStr}</span><span class="log-agent ${agentCls}">${esc(agent)}</span><span class="log-type">[${typeLabel}]</span><span class="log-msg ${msgCls}">${esc(msgText)}</span>`;
+
+  // Filter prüfen
+  if (_logFilter !== 'all') {
+    if (_logFilter === 'claude' && agentCls !== 'claude') d.style.display = 'none';
+    else if (_logFilter === 'codex' && agentCls !== 'codex') d.style.display = 'none';
+  }
+
+  container.appendChild(d);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ─── Projekt-Management ─────────────────
+let _projects = [];
+let _activeProjectId = null;
+let _npFpPath = '~';
+
+async function loadProjects() {
+  try {
+    const res = await fetch('/api/projects');
+    _projects = await res.json();
+    renderProjects();
+    // Aktives Projekt anhand target_repo finden
+    const settings = await (await fetch('/api/settings')).json();
+    const repo = settings.target_repo || '';
+    const active = _projects.find(p => p.path === repo);
+    if (active) {
+      _activeProjectId = active.id;
+      renderProjects();
+      await loadHistoryIntoChat(active.id, active.name);
+      await loadProjectLogs(active.id);
+    }
+  } catch (e) {
+    console.error('Fehler beim Laden der Projekte:', e);
+  }
+}
+
+function renderProjects() {
+  const list = el('projectList');
+  if (_projects.length === 0) {
+    list.innerHTML = '<div class="history-empty">Kein Projekt angelegt.<br>Klicke "+ Neu" um zu starten.</div>';
+    return;
+  }
+  // Sortiere nach last_used (neueste zuerst)
+  const sorted = [..._projects].sort((a, b) => (b.last_used || '').localeCompare(a.last_used || ''));
+  list.innerHTML = '';
+  for (const p of sorted) {
+    const d = document.createElement('div');
+    d.className = 'project-item' + (p.id === _activeProjectId ? ' active' : '');
+    const parts = p.path.split('/');
+    const shortP = parts.slice(-2).join('/');
+    const lastUsed = p.last_used ? p.last_used.split(' ')[0] : '';
+    d.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div style="flex:1;min-width:0;">
+          <div class="project-name">${esc(p.name)}</div>
+          <div class="project-path" title="${esc(p.path)}">${esc(shortP)}</div>
+          <div class="project-meta">Zuletzt: ${lastUsed}</div>
+        </div>
+        <button onclick="event.stopPropagation();deleteProject('${p.id}','${esc(p.name)}')" title="Projekt l&ouml;schen" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
+      </div>
+    `;
+    d.onclick = () => switchProject(p.id);
+    list.appendChild(d);
+  }
+}
+
+async function switchProject(projectId) {
+  try {
+    const res = await fetch('/api/projects/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: projectId }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      _activeProjectId = projectId;
+      el('repoBadge').textContent = shortPath(data.project.path);
+      renderProjects();
+      // Chat leeren und Historie ins Chat-Fenster laden
+      el('stream').innerHTML = '';
+      await loadHistoryIntoChat(projectId, data.project.name);
+      // Log-Panel leeren und Log-History des Projekts laden
+      await loadProjectLogs(projectId);
+    }
+  } catch (e) {}
+}
+
+async function deleteProject(projectId, projectName) {
+  if (!confirm(`Projekt "${projectName}" wirklich löschen?`)) return;
+  try {
+    await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+    if (_activeProjectId === projectId) _activeProjectId = null;
+    await loadProjects();
+  } catch (e) {}
+}
+
+function openNewProject() {
+  el('newProjectModal').classList.add('open');
+  el('npName').value = '';
+  el('npPath').value = '';
+  browseToNp('~');
+}
+function closeNewProject() { el('newProjectModal').classList.remove('open'); }
+
+async function browseToNp(path) {
+  try {
+    const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    if (data.error && path !== '~') { browseToNp('~'); return; }
+    _npFpPath = data.path;
+    el('npFpPath').textContent = data.path;
+    el('npPath').value = data.path;
+    const list = el('npFpList');
+    list.innerHTML = '';
+    if (data.parent) {
+      const li = document.createElement('li');
+      li.className = 'fp-item fp-up';
+      li.innerHTML = '<span>..</span><span>Hoch</span>';
+      li.onclick = () => browseToNp(data.parent);
+      list.appendChild(li);
+    }
+    for (const dir of data.dirs) {
+      const li = document.createElement('li');
+      li.className = 'fp-item';
+      li.innerHTML = `<span>📁</span><span>${esc(dir.name)}</span>`;
+      li.onclick = () => browseToNp(dir.path);
+      list.appendChild(li);
+    }
+  } catch (e) {}
+}
+
+function pickNewProjectFolder() {
+  el('npPath').value = _npFpPath;
+  const btn = el('npFolderPicker').querySelector('.btn-pick');
+  btn.textContent = '✓ Gewählt';
+  setTimeout(() => { btn.textContent = 'Auswählen'; }, 1200);
+  // Auto-Name aus Ordnername wenn leer
+  if (!el('npName').value.trim()) {
+    const parts = _npFpPath.split('/');
+    el('npName').value = parts[parts.length - 1] || '';
+  }
+}
+
+async function createProject() {
+  const name = el('npName').value.trim();
+  const path = el('npPath').value.trim();
+  if (!name) { el('npName').focus(); return; }
+  if (!path) return;
+
+  const res = await fetch('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, path }),
+  });
+  const data = await res.json();
+  if (data.error) {
+    alert(data.error);
+    return;
+  }
+  closeNewProject();
+  _activeProjectId = data.project.id;
+  el('repoBadge').textContent = shortPath(data.project.path);
+  await loadProjects();
+  el('stream').innerHTML = '<div class="msg-system">Neues Projekt: ' + esc(name) + '. Was soll ich programmieren?</div>';
+}
+
+// ─── Historie im Chat-Stream ─────────────
+async function loadHistoryIntoChat(projectId, projectName) {
+  const s = el('stream');
+
+  // Projekt-Header
+  s.innerHTML = `<div class="msg-system">Projekt: ${esc(projectName)}</div>`;
+
+  try {
+    const res = await fetch(`/api/projects/${projectId}/history`);
+    const entries = await res.json();
+
+    if (!entries || entries.length === 0) {
+      addSystem('Noch kein Verlauf. Schreib deinen ersten Auftrag!');
+      return;
+    }
+
+    // Trennlinie: Vergangene Session
+    const divider = document.createElement('div');
+    divider.className = 'msg-history-divider';
+    divider.textContent = `Verlauf (${entries.length} Eintr\u00e4ge)`;
+    s.appendChild(divider);
+
+    // Chronologisch (älteste zuerst) — wie ein echter Chat-Verlauf
+    let lastDate = '';
+    for (const e of entries) {
+      const time = e.timestamp || '';
+      const dateOnly = time.split(' ')[0] || '';
+
+      // Datums-Trenner wenn neuer Tag
+      if (dateOnly && dateOnly !== lastDate) {
+        const dt = document.createElement('div');
+        dt.className = 'msg-timestamp';
+        dt.textContent = dateOnly;
+        s.appendChild(dt);
+        lastDate = dateOnly;
+      }
+
+      if (e.type === 'user_input') {
+        // User-Nachricht wie im Chat
+        const d = document.createElement('div');
+        d.className = 'msg msg-user';
+        d.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(e.text)}`;
+        s.appendChild(d);
+      } else if (e.type === 'task_result') {
+        // Task-Ergebnis als Result-Banner
+        const decision = e.decision || 'reject';
+        const score = e.score ? (e.score * 100).toFixed(0) + '%' : '';
+        const label = decision === 'accept' ? 'Fertig' : decision === 'escalate' ? 'Bitte pr\u00fcfen' : 'Fehlgeschlagen';
+        const d = document.createElement('div');
+        d.className = `result-banner ${decision}`;
+        d.innerHTML = `<span style="font-size:10px;color:inherit;opacity:0.7;display:block;margin-bottom:2px;">${esc(time)}</span>${label} ${score} — ${esc(truncate(e.intent, 60))}`;
+        if (e.files_changed) d.innerHTML += `<span style="font-size:11px;opacity:0.7;margin-left:8px;">(${e.files_changed} Datei${e.files_changed > 1 ? 'en' : ''})</span>`;
+        s.appendChild(d);
+      } else if (e.type === 'claude_response') {
+        // Claude Code Antwort (neue Architektur)
+        const da = document.createElement('div');
+        da.className = 'msg msg-agent';
+        let meta = '';
+        if (e.files_changed) meta += `${e.files_changed} Datei${e.files_changed > 1 ? 'en' : ''} ge\u00e4ndert`;
+        if (e.duration_s) meta += `${meta ? ' · ' : ''}${e.duration_s}s`;
+        da.innerHTML = `<span class="agent-name claude">Claude Code</span>${formatMsg(e.text)}${meta ? '<span style="font-size:10px;color:var(--text-dim);display:block;margin-top:4px;">' + meta + '</span>' : ''}`;
+        s.appendChild(da);
+      } else if (e.type === 'chat') {
+        // User-Frage (alte Architektur)
+        const dq = document.createElement('div');
+        dq.className = 'msg msg-user';
+        dq.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(e.question)}`;
+        s.appendChild(dq);
+        // Antwort
+        if (e.answer) {
+          const da = document.createElement('div');
+          da.className = 'msg msg-agent';
+          da.innerHTML = `<span class="agent-name claude">${esc(e.model || 'Chat')}</span>${formatMsg(e.answer)}`;
+          s.appendChild(da);
+        }
+      }
+    }
+
+    // Trennlinie: Jetzt
+    const now = document.createElement('div');
+    now.className = 'msg-history-divider';
+    now.textContent = 'Jetzt';
+    s.appendChild(now);
+
+    scrollDown();
+  } catch (e) {
+    console.error('Fehler beim Laden der Historie:', e);
+  }
+}
+
+async function loadProjectLogs(projectId) {
+  const container = el('livelogContent');
+  container.innerHTML = '<div class="livelog-empty">Warte auf Aktivit\u00e4t...</div>';
+  try {
+    const res = await fetch(`/api/projects/${projectId}/logs`);
+    const entries = await res.json();
+    if (!entries || entries.length === 0) return;
+    container.innerHTML = '';
+    for (const msg of entries) {
+      const agent = msg.agent || 'System';
+      const agentCls = agentClass(agent);
+      const ts = msg.timestamp || '';
+      let typeLabel = (msg.type || '').replace('stream_', '').replace('agent_', '').replace('task_', '');
+      let msgText = msg.text || msg.status || msg.intent || '';
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      line.dataset.agent = agentCls;
+      line.innerHTML = `<span class="log-ts">${esc(ts)}</span>`
+        + `<span class="log-agent ${agentCls}">${esc(agent)}</span>`
+        + `<span class="log-type">[${esc(typeLabel)}]</span>`
+        + `<span class="log-msg">${esc(truncate(msgText, 200))}</span>`;
+      container.appendChild(line);
+    }
+    container.scrollTop = container.scrollHeight;
+  } catch (e) {
+    console.error('Fehler beim Laden der Logs:', e);
+  }
+}
+
+function truncate(s, n) { return s && s.length > n ? s.substring(0, n) + '...' : (s || ''); }
+
+// ─── Onboarding Health-Check ────────────
+async function checkHealth() {
+  try {
+    const res = await fetch('/api/health');
+    const h = await res.json();
+    const banner = el('onboardBanner');
+
+    const allOk = h.claude?.installed && h.codex?.installed && h.claude?.authenticated !== false;
+    if (allOk) {
+      // Alles installiert — kurze Bestätigung, auto-hide nach 5s
+      banner.className = 'onboard-banner';
+      banner.innerHTML = `<div class="onboard-ok">Claude Code CLI ${h.claude.version ? '(' + h.claude.version + ')' : ''} + Codex CLI ${h.codex.version ? '(' + h.codex.version + ')' : ''} — bereit.</div>`;
+      banner.style.display = '';
+      setTimeout(() => { banner.style.display = 'none'; }, 5000);
+      return;
+    }
+
+    // Mindestens ein CLI fehlt — ausführliches Banner
+    let html = '<h3>Setup erforderlich</h3>';
+    html += '<div class="cli-status">';
+
+    // Claude Card
+    if (h.claude?.installed) {
+      html += `<div class="cli-card ok"><div class="cli-name ok">Claude Code CLI</div>`;
+      html += `<div class="cli-ver">${h.claude.version || ''} &mdash; ${h.claude.path || ''}</div>`;
+      if (h.claude.authenticated === false) {
+        html += `<div class="cli-hint">Nicht authentifiziert. Starte einmalig <code>claude</code> im Terminal und melde dich an.</div>`;
+      }
+      html += '</div>';
+    } else {
+      html += `<div class="cli-card missing"><div class="cli-name missing">Claude Code CLI</div>`;
+      html += `<div class="cli-hint">Nicht gefunden. Installiere mit:</div>`;
+      html += `<div class="install-cmd">npm install -g @anthropic-ai/claude-code</div>`;
+      html += `<div class="cli-ver" style="margin-top:6px">Voraussetzung: <code>Node.js 18+</code> &mdash; <a href="https://nodejs.org" target="_blank" style="color:var(--cyan)">nodejs.org</a></div>`;
+      html += `<div class="cli-ver">Danach einmalig <code>claude</code> im Terminal starten und mit Claude Pro / Max / Team Abo anmelden.</div>`;
+      html += '</div>';
+    }
+
+    // Codex Card
+    if (h.codex?.installed) {
+      html += `<div class="cli-card ok"><div class="cli-name ok">Codex CLI</div>`;
+      html += `<div class="cli-ver">${h.codex.version || ''} &mdash; ${h.codex.path || ''}</div>`;
+      html += '</div>';
+    } else {
+      html += `<div class="cli-card missing"><div class="cli-name missing">Codex CLI</div>`;
+      html += `<div class="cli-hint">Nicht gefunden. Installiere mit:</div>`;
+      html += `<div class="install-cmd">npm install -g @openai/codex</div>`;
+      html += `<div class="cli-ver" style="margin-top:6px">Voraussetzung: <code>Node.js 22+</code> &mdash; <a href="https://nodejs.org" target="_blank" style="color:var(--cyan)">nodejs.org</a></div>`;
+      html += `<div class="cli-ver">Danach einmalig <code>codex</code> im Terminal starten und mit ChatGPT Plus / Pro Abo anmelden.</div>`;
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    if (!h.claude?.installed || !h.codex?.installed) {
+      html += '<div class="cli-ver" style="margin-top:8px">Nach der Installation: OMADS-Server neu starten oder Seite neu laden.</div>';
+    }
+
+    html += '<button class="dismiss-btn" onclick="el(\'onboardBanner\').style.display=\'none\'">Verstanden, ausblenden</button>';
+
+    banner.className = 'onboard-banner';
+    banner.innerHTML = html;
+    banner.style.display = '';
+  } catch (e) {
+    // Health-Endpoint nicht erreichbar — ignorieren
+  }
+}
+
+// ─── Init ──────────────────────────────
+connect();
+loadProjects();
+loadRuntimeStatus();
+checkHealth();
+setInterval(() => renderClaudeLimit(), 30000);
+el('input').focus();
+</script>
+</body>
+</html>
