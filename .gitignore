@@ -14,6 +14,9 @@ _legacy/
 data/
 dna/cold_start_state.json
 
+# Claude Code lokale Config
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
