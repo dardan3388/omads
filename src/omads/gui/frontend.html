@@ -630,8 +630,6 @@
   <div class="header-right">
     <span class="badge on" title="Codex auto-review enabled">Auto Review</span>
     <span class="badge limit-unknown" id="claudeLimitBadge" title="Claude limit not checked yet">Claude ?</span>
-    <button class="btn-sm" onclick="openDiffViewer()">Diff</button>
-    <a class="btn-sm btn-link" href="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
     <button class="btn-sm" id="btnThemeToggle" onclick="toggleTheme()">Theme: Dark</button>
     <button class="btn-log-toggle" id="btnLogToggle" onclick="toggleLiveLog()">Live Log</button>
     <button class="btn-sm" onclick="openSettings()">Settings</button>
@@ -778,12 +776,17 @@
         <input type="hidden" id="sRepo">
       </div>
       <div class="form-group">
-        <label>Codex auto review</label>
+        <label>Automatic review</label>
         <select id="sAutoReview">
           <option value="true">Enabled</option>
           <option value="false">Disabled</option>
         </select>
-        <div class="hint">Codex automatically reviews after each code change.</div>
+        <div class="hint">When enabled, the current automatic review flow runs after code changes. Today this uses Codex in the fixed review pipeline.</div>
+      </div>
+      <div class="section-title">Project tools</div>
+      <div class="hint">Open the current Git working tree diff for this project.</div>
+      <div class="resource-links">
+        <button type="button" class="btn-m secondary" onclick="openDiffViewerFromSettings()">Open diff viewer</button>
       </div>
       <div class="section-title">Inspect API</div>
       <div class="hint">FastAPI documentation is available locally while OMADS is running.</div>
@@ -1516,6 +1519,11 @@ async function saveSettings() {
 function openDiffViewer() {
   el('diffModal').classList.add('open');
   loadDiffViewer();
+}
+
+function openDiffViewerFromSettings() {
+  closeSettings();
+  openDiffViewer();
 }
 
 function closeDiffViewer() {
