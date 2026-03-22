@@ -126,7 +126,7 @@ The GUI now restores the chat and live log from one shared per-project event tim
 | **Python** | 3.11+ | OMADS backend |
 | **Node.js** | 18+ for Claude Code, 22+ for Codex | CLI tools |
 | **npm** | bundled with Node.js | CLI installation |
-| **Claude Code CLI** | current | Selectable builder agent |
+| **Claude Code CLI** | current | Selectable builder agent and reviewer |
 | **Codex CLI** | current | Selectable builder agent and reviewer |
 
 ### Subscription Requirements
@@ -389,9 +389,11 @@ When the GUI opens for the first time, OMADS checks whether Claude Code CLI and 
 Browser (localhost:8080)
     ↕ WebSocket + REST
 FastAPI Backend
-    ├── Claude Code CLI (selectable builder)
-    └── Codex CLI (selectable builder + reviewer)
+    ├── Claude Code CLI
+    └── Codex CLI
 ```
+
+OMADS assigns builder and reviewer roles through the active GUI settings and the current automatic or manual review flow.
 
 1. You send a task in the chat
 2. The selected primary builder works on it with live streaming
