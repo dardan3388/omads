@@ -947,20 +947,8 @@ OMADS hat sich selbst analysiert und Verbesserungsvorschläge gemacht. Drei schn
 
 ---
 
-## Warteliste (Priorisiert)
+## Aktive Aufgabenliste ausgelagert
 
-Features und Verbesserungen die noch ausstehen, sortiert nach Impact:
+Die aktive Warteliste wurde nach `BACKLOG.md` verschoben, damit offene Arbeit auf GitHub und fuer alle Agenten sofort sichtbar ist.
 
-- [ ] **Graceful Error Recovery** — CLI-Crash lässt UI im "Arbeitet..."-Zustand hängen, kein klarer Fehler
-- [ ] **server.py aufteilen** — 1900 Zeilen Monolith in 4-5 Module splitten (config, projects, agents, websocket, rest)
-- [ ] **Tests schreiben** — Mindestens Smoke-Tests (Server-Start, Pfad-Validierung, Session-Management)
-- [ ] **Setup-Script / Docker** — install.sh oder Dockerfile für einfaches Onboarding
-- [ ] **Diff-Viewer** — Bessere Code-Anzeige in der GUI
-- [ ] **Dark/Light-Mode Toggle**
-- [ ] **OpenAPI/Swagger-Docs** für REST-Endpoints
-- [ ] **Pydantic-Models** statt rohe Dicts für Request-Validation
-- [ ] **GitHub Issue-Templates, CONTRIBUTING.md**
-- [ ] **`_chat_sessions` unter Lock** — Thread-Safety für Session-Dict
-- [ ] **Stream-Parsing in Helper-Funktion extrahieren** — DRY für Claude/Codex Parsing
-- [ ] **`_settings` Thread-Lock** — Concurrent Reads/Writes absichern
-- [ ] **`_append_log` File-Locking** — Parallel-Writes auf JSONL absichern
+`PROJEKTPROTOKOLL.md` dient ab hier nur noch als Historie und Projekttagebuch.

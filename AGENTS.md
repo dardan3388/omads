@@ -15,9 +15,10 @@ Vor jeder inhaltlichen Arbeit immer in dieser Reihenfolge:
 
 1. `AGENTS.md` lesen.
 2. `PROJECT_RULES.md` lesen, falls vorhanden.
-3. `git status` pruefen.
-4. `git log --oneline --decorate -5` pruefen, um die letzten Aenderungen zu verstehen.
-5. Vor Dateiaenderungen zusaetzlich `git diff` pruefen.
+3. `BACKLOG.md` lesen, um die aktive Warteliste und Prioritaeten zu sehen.
+4. `git status` pruefen.
+5. `git log --oneline --decorate -5` pruefen, um die letzten Aenderungen zu verstehen.
+6. Vor Dateiaenderungen zusaetzlich `git diff` pruefen.
 
 ## Git-Setup
 
@@ -66,6 +67,7 @@ Niemals committen:
 - Vor dem Editieren den aktuellen Diff-Kontext verstehen.
 - Nur Dateien anfassen, die fuer den aktuellen Auftrag noetig sind.
 - Unklare Konflikte zuerst sichtbar machen statt raten.
+- `BACKLOG.md` ist die zentrale Quelle fuer offene Arbeit. `PROJEKTPROTOKOLL.md` dient nur der Historie.
 
 ## Ziel
 

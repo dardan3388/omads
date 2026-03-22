@@ -11,6 +11,17 @@ Keine API-Keys nötig — beide CLIs laufen über bestehende Abos (Claude Pro/Ma
 
 ---
 
+## Projekt-Navigation
+
+Wenn mehrere Agenten oder Entwickler am selben Stand arbeiten, sind diese Dateien die Einstiegspunkte:
+
+- `BACKLOG.md` - zentrale Quelle fuer offene Aufgaben und Prioritaeten
+- `PROJEKTPROTOKOLL.md` - historische Dokumentation bereits umgesetzter Arbeit
+- `AGENTS.md` - verbindliche Arbeitsregeln fuer alle Coding-Agenten
+- `PROJECT_RULES.md` - repo-spezifische Zusatzregeln
+
+---
+
 ## Voraussetzungen
 
 | Was | Mindestversion | Wozu |

@@ -7,6 +7,8 @@ Ergaenzende Projektregeln fuer dieses Repository.
 - Projektname: `omads`
 - Hauptbranch: `main`
 - Es kann jederzeit eine bereits veraenderte Working Tree geben. Vor jedem Edit muss der aktuelle Diff gelesen werden.
+- `BACKLOG.md` ist die zentrale, sichtbare Aufgabenliste fuer offene Arbeit.
+- `PROJEKTPROTOKOLL.md` ist das Projekttagebuch fuer bereits erledigte oder dokumentierte Aenderungen.
 
 ## Zusammenarbeit
 
