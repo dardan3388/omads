@@ -3,7 +3,7 @@
 OMADS is a web GUI that orchestrates two AI agents:
 
 - **Claude Code CLI** or **Codex CLI** as the selectable primary builder for chat, coding, and debugging
-- **Codex CLI** as the auto-reviewer that checks Claude-built changes after code edits
+- an automatic breaker step after builder-created code changes
 
 No API keys are required. Both CLIs use existing subscriptions such as Claude Pro/Max/Team and ChatGPT Plus/Pro.
 
@@ -68,7 +68,7 @@ The current tests cover server startup, security headers, settings and project v
 | **Node.js** | 18+ for Claude Code, 22+ for Codex | CLI tools |
 | **npm** | bundled with Node.js | CLI installation |
 | **Claude Code CLI** | current | Selectable builder agent |
-| **Codex CLI** | current | Selectable builder agent and auto-reviewer |
+| **Codex CLI** | current | Selectable builder agent and reviewer |
 
 ### Subscription Requirements
 
@@ -181,7 +181,7 @@ For first-time login, run:
 codex
 ```
 
-If Codex is not installed, OMADS still works, but automatic review is skipped.
+If Codex is not installed, OMADS still works, but Claude-built changes cannot use the automatic breaker step.
 
 ### 5. Clone and set up OMADS
 
@@ -336,15 +336,16 @@ FastAPI Backend
 
 1. You send a task in the chat
 2. The selected primary builder works on it with live streaming
-3. If **Claude Code** is the builder and code changes were made, **Codex** can start an automatic review
-4. If Codex finds issues, Claude can fix them in the current fixed review pipeline
+3. If the selected builder changes files, OMADS can start the current automatic breaker step
+4. Today that means `Codex` reviews Claude-built changes, while `Claude Review` checks Codex-built changes
+5. If the breaker reports real findings, the active builder gets them back for a follow-up fix decision
 5. You see the full process in real time
 
 ### Features
 
 - Switch the primary builder between Claude Code and Codex
 - Chat with the selected builder
-- Automatic Codex review after code changes
+- Automatic breaker step after code changes
 - Three-step review flow (Claude → Codex → synthesis)
 - Real-time token and activity tracking
 - Claude rate-limit status with reset countdown
@@ -367,11 +368,10 @@ All settings are controlled through the GUI and stored in `~/.config/omads/`.
 | Primary builder | `claude` | Persistent builder selection for normal chat tasks |
 | Claude model | `sonnet` | Claude model such as `sonnet`, `opus`, or `haiku` |
 | Effort | `high` | Claude reasoning depth |
-| Max turns | `25` | Working steps per task |
 | Permission mode | `default` | Permission mode for Claude CLI |
 | Codex model | default | Model override for Codex |
-| Codex reasoning | `high` | Review reasoning level |
-| Auto review | enabled | Run Codex after code changes |
+| Codex reasoning | `high` | Codex reasoning level for builder/reviewer work |
+| Auto review | enabled | Run the current automatic breaker step after code changes |
 
 ---
 
@@ -388,7 +388,7 @@ npm install -g @anthropic-ai/claude-code
 
 ### "Codex CLI not installed"
 
-OMADS still works without Codex, but auto-review is skipped.
+OMADS still works without Codex, but any flow that needs Codex as builder or reviewer is unavailable.
 
 ```bash
 npm install -g @openai/codex

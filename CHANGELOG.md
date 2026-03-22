@@ -25,10 +25,12 @@ The format is loosely based on Keep a Changelog.
 ### Changed
 
 - Normal chat tasks now follow the persistent GUI builder selection instead of being hardwired to Claude Code.
+- Automatic post-change review now runs after builder-created code changes for both builder paths instead of disappearing when Codex is selected as the builder.
 - Replaced the custom `PROJEKTPROTOKOLL.md` project diary with standard English documentation.
 - Added `docs/architecture.md` as the durable reference for backend structure and module boundaries.
 - Standardized the main repository documentation in English for broader external use.
 - Standardized the GUI labels, onboarding copy, review flow messages, and API-facing project errors in English.
+- Clarified GUI wording around builders, reviewers, and automatic breaker behavior so the UI matches the actual OMADS flow again.
 - Clarified the README start flow with explicit quick-start and troubleshooting guidance.
 - Reduced `CLAUDE.md` to a minimal Claude-specific bridge file that delegates to the standard repository docs.
 - Added an explicit browserless startup mode for headless and container use.

@@ -151,7 +151,6 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
         json={
             "target_repo": str(outside_dir),
             "builder_agent": "invalid",
-            "claude_max_turns": 999,
             "codex_reasoning": "invalid",
             "codex_fast": True,
             "unknown_field": "ignored",
@@ -165,7 +164,6 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     settings = client.get("/api/settings").json()
     assert settings["target_repo"] == str(repo_dir.resolve())
     assert settings["builder_agent"] == "claude"
-    assert settings["claude_max_turns"] == 100
     assert settings["codex_reasoning"] == "high"
     assert settings["codex_fast"] is True
     assert "unknown_field" not in settings
@@ -648,6 +646,11 @@ def test_claude_task_runs_fix_pass_after_auto_review_findings(
     monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
     monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
     monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "_capture_repo_change_snapshot",
+        lambda *args, **kwargs: {"status_lines": [], "changed_files": [], "diff_text": ""},
+    )
     monkeypatch.setattr(runtime, "_run_codex_auto_review", lambda ws, target_repo, files_changed, send: "Fix this issue")
 
     runtime._run_claude_session_thread(None, "Implement a feature")
@@ -656,6 +659,61 @@ def test_claude_task_runs_fix_pass_after_auto_review_findings(
     assert runtime._last_files_changed == ["src/app.py"]
     assert any(
         msg["type"] == "agent_status" and msg.get("status") == "Fixing Codex findings..."
+        for msg in messages
+    )
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "Fixes applied" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_codex_task_runs_claude_breaker_and_fix_pass(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    processes = [
+        DummyProcess(lines=[
+            json.dumps({
+                "type": "item.completed",
+                "item": {"text": "Implemented the requested change."},
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "type": "item.completed",
+                "item": {"text": "Applied the requested fixes."},
+            }) + "\n"
+        ]),
+    ]
+    snapshots = iter([
+        {"status_lines": [], "changed_files": [], "diff_text": ""},
+        {
+            "status_lines": [" M src/app.py"],
+            "changed_files": ["src/app.py"],
+            "diff_text": "diff --git a/src/app.py b/src/app.py\n+print('hi')\n",
+        },
+    ])
+
+    def popen(*args, **kwargs):
+        return processes.pop(0)
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_capture_repo_change_snapshot", lambda *args, **kwargs: next(snapshots))
+    monkeypatch.setattr(
+        runtime,
+        "_run_claude_auto_review",
+        lambda target_repo, files_changed, send, model, effort: "Fix this issue",
+    )
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_codex_session_thread(None, "Implement a Codex feature")
+
+    assert runtime._last_files_changed == ["src/app.py"]
+    assert any(
+        msg["type"] == "agent_status" and msg.get("status") == "Fixing Claude findings..."
         for msg in messages
     )
     assert any(msg["type"] == "agent_status" and msg.get("status") == "Fixes applied" for msg in messages)

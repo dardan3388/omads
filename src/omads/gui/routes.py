@@ -51,7 +51,6 @@ _ALLOWED_SETTINGS = {
     "builder_agent": str,
     "claude_model": str,
     "claude_permission_mode": str,
-    "claude_max_turns": int,
     "claude_effort": str,
     "codex_model": str,
     "codex_reasoning": str,
@@ -82,8 +81,6 @@ async def update_settings(data: UpdateSettingsRequest):
             else:
                 settings[key] = value
 
-        # Bounds erzwingen
-        settings["claude_max_turns"] = max(1, min(int(settings.get("claude_max_turns", 25)), 100))
         if settings.get("builder_agent") not in ("claude", "codex"):
             settings["builder_agent"] = "claude"
         if settings.get("claude_effort") not in ("low", "medium", "high", "max"):

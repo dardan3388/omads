@@ -43,6 +43,63 @@ _last_files_changed: list[str] = []  # Zuletzt geänderte Dateien (für Review "
 _pending_review_fixes: dict[str, str] = {}  # {repo_path: fixes_text} — pro Projekt
 
 
+def _capture_repo_change_snapshot(target_repo: str) -> dict[str, object]:
+    """Capture a lightweight snapshot of the current Git working tree."""
+    try:
+        inside = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            cwd=target_repo,
+            timeout=10,
+        )
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return {"status_lines": [], "changed_files": [], "diff_text": ""}
+
+        status = subprocess.run(
+            ["git", "status", "--short"],
+            capture_output=True,
+            text=True,
+            cwd=target_repo,
+            timeout=15,
+        )
+        status_lines = [line.rstrip() for line in status.stdout.splitlines() if line.strip()]
+        changed_files = [line[3:].strip() if len(line) > 3 else line.strip() for line in status_lines]
+
+        diff = subprocess.run(
+            ["git", "diff", "--no-ext-diff", "--submodule=diff", "HEAD", "--"],
+            capture_output=True,
+            text=True,
+            cwd=target_repo,
+            timeout=20,
+        )
+        return {
+            "status_lines": status_lines,
+            "changed_files": changed_files,
+            "diff_text": diff.stdout,
+        }
+    except Exception:
+        return {"status_lines": [], "changed_files": [], "diff_text": ""}
+
+
+def _repo_snapshot_changed(before: dict[str, object], after: dict[str, object]) -> bool:
+    """Return whether the repo snapshot changed during one task run."""
+    return (
+        before.get("status_lines") != after.get("status_lines")
+        or before.get("diff_text") != after.get("diff_text")
+    )
+
+
+def _merge_changed_files(*groups: list[str]) -> list[str]:
+    """Merge changed file lists while preserving order."""
+    merged: list[str] = []
+    for group in groups:
+        for path in group:
+            if path and path not in merged:
+                merged.append(path)
+    return merged
+
+
 async def broadcast(msg: dict) -> None:
     """Sendet eine Nachricht an alle verbundenen Clients."""
     with _connections_lock:
@@ -164,7 +221,6 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
     repo_key = str(Path(target_repo).resolve())
     model = settings_snapshot.get("claude_model", "sonnet")
-    max_turns = str(max(1, min(int(settings_snapshot.get("claude_max_turns", 25)), 100)))
     effort = settings_snapshot.get("claude_effort", "high")
     auto_review = settings_snapshot.get("auto_review", True)
     agent_label = "Claude Code"
@@ -184,6 +240,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
     try:
         env = _build_cli_env()
+        before_snapshot = _capture_repo_change_snapshot(target_repo)
 
         # OMADS-Kontext für Claude CLI
         omads_context = (
@@ -208,7 +265,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
         # Claude CLI mit stream-json für Live-Output
         cmd = ["claude", "-p", user_text, "--output-format", "stream-json",
-               "--verbose", "--max-turns", max_turns, "--model", model,
+               "--verbose", "--model", model,
                "--effort", effort,
                "--append-system-prompt", omads_context]
 
@@ -305,6 +362,10 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         if captured_session_id and success:
             _set_chat_session(repo_key, captured_session_id)
 
+        after_snapshot = _capture_repo_change_snapshot(target_repo) if success else before_snapshot
+        snapshot_files = after_snapshot.get("changed_files", []) if _repo_snapshot_changed(before_snapshot, after_snapshot) else []
+        files_changed = _merge_changed_files(files_changed, snapshot_files)
+
         # Letzte geänderte Dateien merken (für Review "Letzter Task")
         global _last_files_changed
         if files_changed:
@@ -353,7 +414,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
                 # Claude CLI frische Session für Fix
                 fix_cmd = ["claude", "-p", fix_prompt, "--output-format", "stream-json",
-                           "--verbose", "--max-turns", max_turns, "--model", model,
+                           "--verbose", "--model", model,
                            "--effort", effort,
                            "--append-system-prompt", omads_context]
                 fix_session = _get_chat_session(repo_key)
@@ -398,7 +459,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                     send({
                         "type": "task_error",
                         "text": _build_process_failure_text(
-                            "Claude Code Fix-Lauf",
+                            "Claude Code fix run",
                             fix_process.returncode,
                             output_lines=fix_output_lines,
                         ),
@@ -451,6 +512,9 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
     codex_model = settings_snapshot.get("codex_model", "")
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
     codex_fast = settings_snapshot.get("codex_fast", False)
+    claude_model = settings_snapshot.get("claude_model", "sonnet")
+    claude_effort = settings_snapshot.get("claude_effort", "high")
+    auto_review = settings_snapshot.get("auto_review", True)
     agent_label = "Codex"
 
     _frozen_proj_id = _get_active_project_id()
@@ -467,11 +531,13 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
     output_lines: list[str] = []
     try:
         env = _build_cli_env()
+        before_snapshot = _capture_repo_change_snapshot(target_repo)
         project_memory = _load_project_memory(target_repo)
         prompt_parts = [
             "You are working inside OMADS (Orchestrated Multi-Agent Development System).",
             "The user interacts with you through a web GUI.",
             "You are the currently selected primary builder for this task.",
+            "After your code changes, the reviewer agent will check the result and you may receive findings to address.",
             "Respond in English.",
         ]
         if project_memory:
@@ -561,8 +627,15 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
                     "type": "task_error",
                     "text": f"Codex task exit code {process.returncode}",
                     "duration_s": elapsed,
-                })
+            })
             return
+
+        after_snapshot = _capture_repo_change_snapshot(target_repo)
+        files_changed = after_snapshot.get("changed_files", []) if _repo_snapshot_changed(before_snapshot, after_snapshot) else []
+
+        global _last_files_changed
+        if files_changed:
+            _last_files_changed = list(files_changed)
 
         if result_text and not output_lines:
             send({"type": "chat_response", "agent": agent_label, "text": result_text})
@@ -570,22 +643,116 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
         send({"type": "agent_status", "agent": agent_label, "status": f"Done ({elapsed}s)"})
 
         if result_text:
-            _save_project_memory(
-                target_repo,
-                "\n".join([
-                    f"Latest task: {user_text[:200]}",
-                    f"Result: {result_text[:2000]}",
-                ]),
-            )
+            summary_parts = []
+            if files_changed:
+                summary_parts.append(f"Changed files: {', '.join(f[-60:] for f in files_changed[:20])}")
+            summary_parts.append(f"Latest task: {user_text[:200]}")
+            summary_parts.append(f"Result: {result_text[:2000]}")
+            _save_project_memory(target_repo, "\n".join(summary_parts))
 
         if proj_id:
             _append_history(proj_id, {
                 "type": "builder_response",
                 "agent": agent_label,
                 "text": result_text[:500],
-                "files_changed": 0,
+                "files_changed": len(files_changed),
                 "duration_s": elapsed,
             })
+
+        if files_changed and auto_review:
+            review_findings = _run_claude_auto_review(
+                target_repo,
+                files_changed,
+                send,
+                model=claude_model,
+                effort=claude_effort,
+            )
+
+            if review_findings:
+                send({"type": "agent_status", "agent": "Codex", "status": "Fixing Claude findings..."})
+                fix_prompt = (
+                    "The Claude reviewer found the following issues in your code. "
+                    "Review the findings carefully, fix the valid issues, and keep any non-issues unchanged.\n\n"
+                    + review_findings
+                    + "\n\nRules: Fix ONLY the reported issues. No scope creep. Respond in English."
+                )
+
+                fix_cmd = [
+                    "codex", "exec",
+                    "-s", "workspace-write",
+                    "--skip-git-repo-check",
+                    "--json",
+                    "-C", str(target_repo),
+                ]
+                if codex_model:
+                    fix_cmd.extend(["-m", codex_model])
+                if codex_reasoning:
+                    fix_cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
+                if codex_fast:
+                    fix_cmd.extend(["-c", 'service_tier="fast"'])
+                fix_cmd.append("-")
+
+                fix_process = subprocess.Popen(
+                    fix_cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    cwd=str(target_repo),
+                    env=env,
+                )
+                with _process_lock:
+                    _active_process = fix_process
+
+                fix_output_lines: list[str] = []
+                fix_process.stdin.write(fix_prompt)
+                fix_process.stdin.close()
+
+                _INACTIVITY_LIMIT = 900
+                last_fix_output_time = _time.time()
+                while True:
+                    if _task_cancelled:
+                        fix_process.kill()
+                        fix_process.wait()
+                        return
+                    if _time.time() - last_fix_output_time > _INACTIVITY_LIMIT:
+                        fix_process.kill()
+                        fix_process.wait()
+                        send({
+                            "type": "task_error",
+                            "text": "Codex fix run timed out after 15 minutes without output.",
+                        })
+                        return
+                    ready, _, _ = select.select([fix_process.stdout], [], [], 5.0)
+                    if not ready:
+                        continue
+                    line = fix_process.stdout.readline()
+                    if not line:
+                        break
+                    last_fix_output_time = _time.time()
+                    _forward_codex_stream_line(
+                        line,
+                        agent_label=agent_label,
+                        send=send,
+                        text_buffer=fix_output_lines,
+                    )
+
+                fix_process.wait(timeout=10)
+                with _process_lock:
+                    _active_process = None
+
+                if fix_process.returncode != 0 and not _task_cancelled:
+                    send({
+                        "type": "task_error",
+                        "text": _build_process_failure_text(
+                            "Codex fix run",
+                            fix_process.returncode,
+                            result_text="\n".join(fix_output_lines).strip(),
+                            output_lines=fix_output_lines,
+                        ),
+                    })
+                else:
+                    send({"type": "agent_status", "agent": "Codex", "status": "Fixes applied"})
 
     except FileNotFoundError:
         send({
@@ -628,7 +795,6 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
     settings_snapshot = _get_settings_snapshot()
     target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
     model = settings_snapshot.get("claude_model", "sonnet")
-    max_turns = str(max(1, min(int(settings_snapshot.get("claude_max_turns", 25)), 100)))
 
     # Projekt-ID beim Task-Start einfrieren
     _frozen_proj_id = _get_active_project_id()
@@ -664,7 +830,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
 
     send({"type": "stream_text", "agent": "Review",
           "text": f"**Review started**\nScope: {scope_desc}\nFocus: {focus_desc}\n\n"
-                  "Flow: Step 1 (Claude Code) -> Step 2 (Codex) -> Step 3 (synthesis + fix suggestions)"})
+                  "Current fixed flow: Step 1 (Claude Code) -> Step 2 (Codex) -> Step 3 (Claude Code synthesis + fix suggestions)"})
 
     try:
         # ── SCHRITT 1: Claude Code Review ─────────────────────────
@@ -686,7 +852,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         )
 
         cmd = ["claude", "-p", review_prompt, "--output-format", "stream-json",
-               "--verbose", "--max-turns", max_turns, "--model", model,
+               "--verbose", "--model", model,
                "--append-system-prompt", claude_context]
 
         repo_key = str(Path(target_repo).resolve())
@@ -871,7 +1037,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         )
 
         synth_cmd = ["claude", "-p", synthesis_prompt, "--output-format", "stream-json",
-                     "--verbose", "--max-turns", max_turns, "--model", model,
+                     "--verbose", "--model", model,
                      "--append-system-prompt", synthesis_context]
 
         if captured_session_id:
@@ -927,7 +1093,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
 
         send({"type": "agent_status", "agent": "Claude Code", "status": "Step 3/3 done"})
         send({"type": "stream_text", "agent": "Review",
-              "text": "---\n**Review completed** - 3 steps: Claude Code review -> Codex review -> synthesis"})
+              "text": "---\n**Review completed** - Current fixed flow: Claude Code review -> Codex review -> Claude Code synthesis"})
 
         if has_fixes:
             # Fix-Vorschläge als Kontext speichern für den Apply-Schritt (pro Projekt)
@@ -1097,6 +1263,119 @@ If there are no issues, write exactly: "No issues found."
     except FileNotFoundError:
         send({"type": "agent_status", "agent": breaker_label,
               "status": "Codex CLI not installed - review skipped"})
+        return None
+    except Exception as e:
+        send({"type": "agent_status", "agent": breaker_label, "status": f"Review error: {str(e)[:100]}"})
+        return None
+    finally:
+        with _process_lock:
+            _active_process = None
+
+
+def _run_claude_auto_review(
+    target_repo: str,
+    files_changed: list[str],
+    send: callable,
+    *,
+    model: str,
+    effort: str,
+) -> str | None:
+    """Run Claude as the automatic reviewer and return findings when present."""
+    breaker_label = "Claude Review"
+    short_files = [f.rsplit("/", 1)[-1] if "/" in f else f for f in files_changed[:10]]
+    file_list = ", ".join(short_files)
+
+    send({"type": "agent_status", "agent": breaker_label, "status": f"Reviewing {len(files_changed)} changed file(s)..."})
+
+    project_memory = _load_project_memory(target_repo)
+    reviewer_context = (
+        "You are reviewing code changes inside OMADS. "
+        "Read and analyze the code, but do NOT edit anything. "
+        "Respond in English.\n"
+    )
+    if project_memory:
+        reviewer_context += f"\nProject context:\n{project_memory}\n"
+
+    review_prompt = f"""You are a code reviewer. Review the following recently changed files for issues:
+
+Changed files: {file_list}
+
+Check for:
+1. Security issues
+2. Logic bugs and regressions
+3. Missing error handling
+4. Obvious performance issues
+
+Always respond in this format:
+
+## Files reviewed
+- filename: short summary
+
+## Analysis
+Briefly describe what you checked (2-3 sentences).
+
+## Findings
+- [HIGH/MEDIUM/LOW] file:line: description
+
+If you found no real issues, write exactly:
+No issues found.
+"""
+
+    try:
+        process = subprocess.Popen(
+            [
+                "claude", "-p", review_prompt,
+                "--output-format", "stream-json",
+                "--verbose",
+                "--model", model,
+                "--effort", effort,
+                "--append-system-prompt", reviewer_context,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            cwd=target_repo,
+            env=_build_cli_env(),
+        )
+        with _process_lock:
+            _active_process = process
+
+        output_lines: list[str] = []
+        final_result = ""
+        for line in process.stdout:
+            if _task_cancelled:
+                process.kill()
+                process.wait()
+                return None
+            _, parsed_result = _forward_claude_stream_line(
+                line,
+                agent_label=breaker_label,
+                send=send,
+                text_buffer=output_lines,
+                rate_limit_source="auto_review_stream",
+            )
+            if parsed_result:
+                final_result = parsed_result
+
+        process.wait(timeout=30)
+        with _process_lock:
+            _active_process = None
+
+        review_text = final_result if final_result else "\n".join(output_lines).strip()
+        if process.returncode != 0:
+            send({"type": "agent_status", "agent": breaker_label, "status": f"Claude error (exit {process.returncode}) - no review result"})
+            return None
+
+        review_lc = review_text.lower()
+        if review_text and "no issues found" not in review_lc:
+            send({"type": "agent_activity", "agent": breaker_label, "activity": "finding", "text": review_text})
+            send({"type": "agent_status", "agent": breaker_label, "status": "Findings detected -> Codex is fixing"})
+            return review_text
+
+        send({"type": "agent_status", "agent": breaker_label, "status": "All clear"})
+        return None
+    except FileNotFoundError:
+        send({"type": "agent_status", "agent": breaker_label, "status": "Claude Code CLI not installed - review skipped"})
         return None
     except Exception as e:
         send({"type": "agent_status", "agent": breaker_label, "status": f"Review error: {str(e)[:100]}"})

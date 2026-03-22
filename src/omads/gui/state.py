@@ -85,13 +85,12 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     # Claude Code CLI
     "claude_model": "sonnet",
     "claude_permission_mode": "default",  # default, auto, plan, bypassPermissions
-    "claude_max_turns": 25,
     "claude_effort": "high",  # low, medium, high, max
     # Codex CLI Auto-Review
     "codex_model": "",  # Leer = Codex-Default (gpt-5.4)
     "codex_reasoning": "high",  # low, medium, high, xhigh
     "codex_fast": False,  # service_tier: fast vs default
-    "auto_review": True,  # Codex reviewt automatisch nach Code-Änderungen
+    "auto_review": True,  # Run the current automatic breaker step after builder code changes
     "ui_theme": "dark",  # dark, light
 }
 
@@ -105,7 +104,6 @@ class UpdateSettingsRequest(_RequestModel):
     builder_agent: str | None = None
     claude_model: str | None = None
     claude_permission_mode: str | None = None
-    claude_max_turns: int | None = None
     claude_effort: str | None = None
     codex_model: str | None = None
     codex_reasoning: str | None = None
@@ -394,8 +392,6 @@ def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
         "--output-format",
         "stream-json",
         "--verbose",
-        "--max-turns",
-        "1",
         "--model",
         model,
         "--effort",

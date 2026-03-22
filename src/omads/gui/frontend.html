@@ -625,10 +625,10 @@
     <span class="logo">OMADS</span>
     <span class="badge" id="connBadge">Connecting...</span>
     <span class="badge" id="builderBadge" title="Selected builder">Builder: Claude</span>
-    <span class="badge" id="repoBadge" title="Click to change" style="cursor:pointer" onclick="openSettings()">No project</span>
+    <span class="badge" id="repoBadge" title="Open project settings" style="cursor:pointer" onclick="openSettings()">No project</span>
   </div>
   <div class="header-right">
-    <span class="badge on" title="Codex auto-review enabled">Auto Review</span>
+    <span class="badge on" id="autoReviewBadge" title="Automatic post-change review is enabled">Auto Review: On</span>
     <button class="btn-sm" id="btnThemeToggle" onclick="toggleTheme()">Theme: Dark</button>
     <button class="btn-log-toggle" id="btnLogToggle" onclick="toggleLiveLog()">Live Log</button>
     <button class="btn-sm" onclick="openSettings()">Settings</button>
@@ -658,7 +658,7 @@
         <textarea class="chat-input" id="input" rows="1"
           placeholder="Describe what you need..."
           onkeydown="onKey(event)"></textarea>
-        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Code review with Claude + Codex">Review</button>
+        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Run the current review pipeline (Claude Code -> Codex -> Claude Code)">Review</button>
         <button class="btn-send" id="btnSend" onclick="send()">Send</button>
         <button class="btn-stop" id="btnStop" onclick="stop()" style="display:none">Stop</button>
       </div>
@@ -775,12 +775,12 @@
         <input type="hidden" id="sRepo">
       </div>
       <div class="form-group">
-        <label>Automatic review</label>
+        <label>Automatic post-change review</label>
         <select id="sAutoReview">
           <option value="true">Enabled</option>
           <option value="false">Disabled</option>
         </select>
-        <div class="hint">When enabled, the current automatic review flow runs after code changes. Today this uses Codex in the fixed review pipeline.</div>
+        <div class="hint">When enabled, OMADS runs an automatic breaker step after builder-created code changes and returns findings to the builder for a follow-up fix decision. Today this uses Codex after Claude builds and Claude Review after Codex builds.</div>
       </div>
       <div class="section-title">Project tools</div>
       <div class="hint">Open the current Git working tree diff for this project.</div>
@@ -845,24 +845,17 @@
         <div class="hint">Controls how deeply Claude reasons. Higher values usually improve results but take longer.</div>
       </div>
 
-      <div class="section-title">Limits</div>
-      <div class="form-group">
-        <label>Max turns (work steps per task)</label>
-        <input type="text" id="sMaxTurns" value="25">
-        <div class="hint">More turns allow more complex tasks, but they also take longer.</div>
-      </div>
-
     </div>
 
     <!-- Tab: Codex -->
     <div class="tab-content" id="tabCodex">
-      <div class="section-title">Auto review</div>
+      <div class="section-title">Codex role in OMADS</div>
       <div class="form-group">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
           <span style="display:inline-block;padding:4px 12px;border-radius:4px;font-size:13px;font-weight:bold;background:#1a2e1a;color:#74d4a5;border:1px solid #74d4a5;">Codex CLI</span>
-          <span style="color:var(--text-dim);font-size:12px;">Automatic code reviewer</span>
+          <span style="color:var(--text-dim);font-size:12px;">Builder and reviewer, depending on the active flow</span>
         </div>
-        <div class="hint">Codex automatically checks for issues after each code change.</div>
+        <div class="hint">Codex can act as the selected primary builder, as the automatic breaker after Claude-built code changes, and as step 2 in the current manual review pipeline.</div>
       </div>
 
       <div class="section-title">Model</div>
@@ -895,8 +888,10 @@
 
       <div class="hint" style="margin-top:12px;color:var(--text-dim);font-size:12px">
         <strong>The selected primary builder</strong> handles normal chat tasks and coding work.<br>
-        <strong>Automatic review</strong> currently uses the fixed Claude -> Codex -> Claude pipeline after code changes.<br>
-        <span style="color:var(--text-dim);">This tab shows the Codex-specific settings and status that are used in the current OMADS flow.</span>
+        <strong>Automatic post-change review</strong> currently runs after builder-created code changes and returns findings to the active builder for a follow-up fix decision.<br>
+        <strong>Today</strong> this uses Codex after Claude-built changes and Claude Review after Codex-built changes.<br>
+        <strong>The Review button</strong> always starts the current three-step review pipeline: Claude Code -> Codex -> Claude Code.<br>
+        <span style="color:var(--text-dim);">This tab shows the Codex-specific settings used in the current OMADS flow.</span>
       </div>
     </div>
 
@@ -1034,6 +1029,7 @@ function handle(msg) {
         if (msg.settings.target_repo) el('repoBadge').textContent = shortPath(msg.settings.target_repo);
         if (msg.settings.ui_theme) applyTheme(msg.settings.ui_theme);
         if (msg.settings.builder_agent) applyBuilderAgent(msg.settings.builder_agent);
+        if (msg.settings.auto_review !== undefined) applyAutoReviewEnabled(msg.settings.auto_review);
       }
       break;
 
@@ -1383,6 +1379,17 @@ function applyBuilderAgent(builderAgent) {
   if (select) select.value = _builderAgent;
 }
 
+function applyAutoReviewEnabled(enabled) {
+  const badge = el('autoReviewBadge');
+  if (!badge) return;
+  const isEnabled = enabled !== false;
+  badge.textContent = `Auto Review: ${isEnabled ? 'On' : 'Off'}`;
+  badge.title = isEnabled
+    ? 'Automatic post-change review is enabled'
+    : 'Automatic post-change review is disabled';
+  badge.classList.toggle('on', isEnabled);
+}
+
 async function persistTheme(theme) {
   await fetch('/api/settings', {
     method: 'POST',
@@ -1452,7 +1459,6 @@ async function loadSettings() {
     el('sPerms').value = s.claude_permission_mode || 'default';
     el('sClaude').value = s.claude_model || 'sonnet';
     el('sClaudeEffort').value = s.claude_effort || 'high';
-    el('sMaxTurns').value = s.claude_max_turns || 25;
     el('sCodexModel').value = s.codex_model || '';
     el('sCodexReasoning').value = s.codex_reasoning || 'high';
     el('sCodexFast').value = s.codex_fast ? 'true' : 'false';
@@ -1460,6 +1466,7 @@ async function loadSettings() {
     el('sTheme').value = s.ui_theme || 'dark';
     applyTheme(s.ui_theme || 'dark');
     applyBuilderAgent(s.builder_agent || 'claude');
+    applyAutoReviewEnabled(s.auto_review !== false);
     el('repoBadge').textContent = shortPath(s.target_repo || 'No project');
   } catch (e) {}
 }
@@ -1472,7 +1479,6 @@ async function saveSettings() {
     claude_permission_mode: el('sPerms').value,
     claude_model: el('sClaude').value,
     claude_effort: el('sClaudeEffort').value,
-    claude_max_turns: parseInt(el('sMaxTurns').value) || 25,
     codex_model: el('sCodexModel').value,
     codex_reasoning: el('sCodexReasoning').value,
     codex_fast: el('sCodexFast').value === 'true',
@@ -1483,6 +1489,7 @@ async function saveSettings() {
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
   applyTheme(data.ui_theme);
   applyBuilderAgent(data.builder_agent);
+  applyAutoReviewEnabled(data.auto_review);
   el('repoBadge').textContent = shortPath(data.target_repo);
   closeSettings();
 }
