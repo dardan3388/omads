@@ -14,5 +14,5 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
-- No active backlog items right now.
+- Run short live smoke tests for both builders and both manual review orders tomorrow, with intentionally brief prompts so the runs finish quickly while still validating the real CLI paths.
 - The previously scheduled setup, GUI, docs, browser E2E, and configurable review-pipeline tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.
