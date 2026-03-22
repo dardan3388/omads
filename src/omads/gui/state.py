@@ -74,8 +74,13 @@ def _build_process_failure_text(
 _CONFIG_PATH = Path.home() / ".config" / "omads" / "gui_settings.json"
 _GUI_STATUS_PATH = Path.home() / ".config" / "omads" / "gui_status.json"
 
+
+def _default_target_repo() -> str:
+    """Return the default repo path, overridable for container use."""
+    return os.environ.get("OMADS_DEFAULT_TARGET_REPO", str(Path(".").resolve()))
+
 _DEFAULT_SETTINGS: dict[str, Any] = {
-    "target_repo": str(Path(".").resolve()),
+    "target_repo": _default_target_repo(),
     # Claude Code CLI
     "claude_model": "sonnet",
     "claude_permission_mode": "default",  # default, auto, plan, bypassPermissions
@@ -86,6 +91,7 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "codex_reasoning": "high",  # low, medium, high, xhigh
     "codex_fast": False,  # service_tier: fast vs default
     "auto_review": True,  # Codex reviewt automatisch nach Code-Änderungen
+    "ui_theme": "dark",  # dark, light
 }
 
 
@@ -103,6 +109,7 @@ class UpdateSettingsRequest(_RequestModel):
     codex_reasoning: str | None = None
     codex_fast: bool | None = None
     auto_review: bool | None = None
+    ui_theme: str | None = None
 
 
 class CreateProjectRequest(_RequestModel):

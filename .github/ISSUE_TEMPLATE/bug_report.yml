@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a problem in OMADS
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug and the actual behavior you saw.
+      placeholder: OMADS stayed locked after...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+      placeholder: The UI should have...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include enough detail that someone else can reproduce the issue.
+      placeholder: |
+        1. Start OMADS
+        2. Open project...
+        3. Click...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Share OS, Python version, CLI versions, and whether Claude/Codex were installed/authenticated.
+      placeholder: Ubuntu 24.04, Python 3.12, Claude Code CLI ..., Codex CLI ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste any useful output from the OMADS live log, terminal, or browser console.

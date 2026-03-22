@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement for OMADS
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: When using OMADS for...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      placeholder: I would like OMADS to...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: I currently work around this by...
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra context
+      description: Add screenshots, examples, or links if they help explain the request.

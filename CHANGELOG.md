@@ -13,7 +13,12 @@ The format is loosely based on Keep a Changelog.
 - Added `python -m omads` support through `src/omads/__main__.py`.
 - Added mock-based tests for WebSocket guardrails, Codex auto-review outcomes, review fix suggestions, and Claude/Codex handoff flows without requiring live CLI access.
 - Added backend integration tests for health/status/ledger routes, runtime status refresh, and project history/log/error paths.
-- Added a basic Docker image and `.dockerignore` for headless/container startup.
+- Added backend integration tests for theme settings, the diff endpoint, and local OpenAPI docs.
+- Added a built-in diff viewer for the active Git working tree in the OMADS GUI.
+- Added a switchable dark/light theme stored in GUI settings.
+- Added `compose.yaml` plus `.env.docker.example` for Docker-based workspace/auth mounting.
+- Added `CONTRIBUTING.md` and GitHub issue templates for bug reports and feature requests.
+- Added `src/omads/gui/streaming.py` to centralize Claude/Codex stream parsing helpers.
 
 ### Changed
 
@@ -24,6 +29,8 @@ The format is loosely based on Keep a Changelog.
 - Clarified the README start flow with explicit quick-start and troubleshooting guidance.
 - Reduced `CLAUDE.md` to a minimal Claude-specific bridge file that delegates to the standard repository docs.
 - Added an explicit browserless startup mode for headless and container use.
+- Upgraded the Docker image from a basic headless shell to an authenticated OMADS runtime with Node.js, Git, Claude Code CLI, Codex CLI, and `/workspace` as the default target repo.
+- Surfaced FastAPI docs through visible GUI and README entry points.
 
 ## 2026-03-22
 

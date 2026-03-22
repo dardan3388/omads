@@ -14,32 +14,13 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
-- [ ] Expand test coverage
-  Backend integration coverage now includes runtime status, health/status/ledger, WebSocket guardrails, mocked auto-review, and mocked review-fix handoff flows. Remaining gaps are broader browser-side UI behavior and true end-to-end browser scenarios.
-
-## Next
-
-- [ ] Dockerized AI CLI authentication and workspace mounts
-  A basic Docker entrypoint can run OMADS headlessly, but a polished container story for authenticated Claude/Codex usage and project mounts is still open.
-
-- [ ] Diff viewer
-  Improve code inspection directly in the GUI.
-
-- [ ] Dark/light mode toggle
-  Add a switchable visual theme.
-
-- [ ] OpenAPI / Swagger docs
-  Make the REST endpoints more visible and easier to inspect.
-
-- [ ] GitHub issue templates and `CONTRIBUTING.md`
-  Make collaboration on GitHub more structured.
+- No active backlog items right now.
+- The previously scheduled setup, GUI, docs, and stream-parsing tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.
 
 ## Later
 
 - [ ] Selectable builder agent / Codex fallback builder
   Let OMADS choose between Claude Code and Codex as the primary builder so work can continue when one builder is unavailable or out of quota.
 
-## Technical Debt
-
-- [ ] Extract stream parsing into helpers
-  Reduce duplicated parsing logic between Claude and Codex flows.
+- [ ] Full browser E2E coverage
+  The automated suite now covers backend flows, docs visibility, diff inspection, and mocked CLI orchestration. A future Playwright-style browser suite would still add value for reconnect and UI interaction paths.

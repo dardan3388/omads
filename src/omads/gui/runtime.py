@@ -11,6 +11,11 @@ from pathlib import Path
 
 from fastapi import WebSocket
 
+from .streaming import (
+    parse_claude_stream_line,
+    parse_codex_jsonl_line,
+    strip_fixes_needed_marker,
+)
 from .state import (
     _append_history,
     _append_log,
@@ -76,6 +81,63 @@ def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
 
 _loop: asyncio.AbstractEventLoop | None = None
 
+
+def _forward_claude_stream_line(
+    line: str,
+    *,
+    agent_label: str,
+    send: callable,
+    text_buffer: list[str] | None = None,
+    rate_limit_source: str = "task_stream",
+) -> tuple[str | None, str]:
+    """Parse one Claude stream-json line and emit the corresponding UI events."""
+    session_id: str | None = None
+    result_text = ""
+    for event in parse_claude_stream_line(line):
+        kind = event["kind"]
+        if kind == "session_id" and not session_id:
+            session_id = event["session_id"]
+        elif kind == "tool":
+            send({
+                "type": "stream_tool",
+                "agent": agent_label,
+                "tool": event["tool"],
+                "description": event["description"],
+                "detail": event["detail"],
+            })
+        elif kind == "text":
+            send({"type": "stream_text", "agent": agent_label, "text": event["text"]})
+            if text_buffer is not None:
+                text_buffer.append(event["text"])
+        elif kind == "thinking":
+            send({"type": "stream_thinking", "agent": agent_label, "text": event["text"]})
+        elif kind == "tool_result":
+            send({
+                "type": "stream_result",
+                "agent": agent_label,
+                "text": event["text"],
+                "is_error": event["is_error"],
+            })
+        elif kind == "result":
+            result_text = event["text"]
+        elif kind == "rate_limit":
+            limit = _update_claude_limit_status(event["rate_limit_info"], source=rate_limit_source)
+            send({"type": "claude_limit_update", "limit": limit})
+    return session_id, result_text
+
+
+def _forward_codex_stream_line(
+    line: str,
+    *,
+    agent_label: str,
+    send: callable,
+    text_buffer: list[str],
+) -> None:
+    """Parse one Codex JSONL line and emit readable text chunks."""
+    for text in parse_codex_jsonl_line(line):
+        text_buffer.append(text)
+        send({"type": "stream_text", "agent": agent_label, "text": text})
+
 def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     """Einziger Einstiegspunkt: Claude CLI bekommt alles — Fragen, Chat, Code-Aufträge.
 
@@ -83,7 +145,6 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     automatisch ein Codex-Review im Hintergrund.
     """
     import time as _time
-    from omads.cli.main import _format_tool_use
 
     global _active_process, _task_cancelled
     with _process_lock:
@@ -167,86 +228,39 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                 send({"type": "task_stopped", "text": "Stopped."})
                 break
 
-            line = line.strip()
-            if not line:
-                continue
-
-            try:
-                ev = json.loads(line)
-                ev_type = ev.get("type", "")
-
-                # Session-ID extrahieren
-                if "session_id" in ev and not captured_session_id:
-                    captured_session_id = ev["session_id"]
-
-                if ev_type == "assistant":
-                    msg = ev.get("message", {})
-                    for block in msg.get("content", []):
-                        bt = block.get("type")
-                        if bt == "tool_use":
-                            tool_name = block.get("name", "?")
-                            tool_input = block.get("input", {})
-                            desc = _format_tool_use(tool_name, tool_input)
-
-                            # Datei-Änderungen tracken
-                            if tool_name in ("Write", "Edit"):
-                                fpath = tool_input.get("file_path", "")
-                                if fpath and fpath not in files_changed:
-                                    files_changed.append(fpath)
-
-                            detail = ""
-                            if tool_name == "Edit":
-                                old = tool_input.get("old_string", "")
-                                new = tool_input.get("new_string", "")
-                                if old and new:
-                                    detail = f"--- alt ---\n{old}\n--- neu ---\n{new}"
-                            elif tool_name == "Write":
-                                content = tool_input.get("content", "")
-                                if content:
-                                    detail = content
-                            elif tool_name == "Bash":
-                                detail = tool_input.get("command", "")
-                            elif tool_name == "Read":
-                                detail = tool_input.get("file_path", "")
-                            elif tool_name in ("Glob", "Grep"):
-                                detail = tool_input.get("pattern", "")
-
-                            send({"type": "stream_tool", "agent": agent_label, "tool": tool_name,
-                                  "description": desc, "detail": detail})
-                        elif bt == "text":
-                            text = block.get("text", "").strip()
-                            if text:
-                                send({"type": "stream_text", "agent": agent_label, "text": text})
-                                output_lines.append(text)
-                        elif bt == "thinking":
-                            # Claude's Denkprozess (Extended Thinking) — immer auf Englisch
-                            thinking = block.get("thinking", "").strip()
-                            if thinking:
-                                send({"type": "stream_thinking", "agent": agent_label,
-                                      "text": f"[Thinking: {len(thinking)} chars]"})
-
-                elif ev_type == "user":
-                    # Tool-Ergebnisse — was Claude nach Read/Bash/etc. zurückbekommt
-                    msg_content = ev.get("message", {})
-                    content_blocks = msg_content.get("content", []) if isinstance(msg_content, dict) else []
-                    for block in content_blocks:
-                        if block.get("type") == "tool_result":
-                            is_error = block.get("is_error", False)
-                            result_content = block.get("content", "")
-                            if isinstance(result_content, str) and result_content.strip():
-                                send({"type": "stream_result", "agent": agent_label,
-                                      "text": result_content, "is_error": is_error})
-
-                elif ev_type == "result":
-                    final_result = ev.get("result", "")
-                elif ev_type == "rate_limit_event":
-                    rl_info = ev.get("rate_limit_info", {})
-                    if rl_info:
-                        limit = _update_claude_limit_status(rl_info, source="task_stream")
-                        send({"type": "claude_limit_update", "limit": limit})
-
-            except (ValueError, KeyError, TypeError):
-                continue
+            for event in parse_claude_stream_line(line):
+                kind = event["kind"]
+                if kind == "session_id" and not captured_session_id:
+                    captured_session_id = event["session_id"]
+                elif kind == "tool":
+                    if event["tool"] in ("Write", "Edit"):
+                        file_path = event.get("file_path", "")
+                        if file_path and file_path not in files_changed:
+                            files_changed.append(file_path)
+                    send({
+                        "type": "stream_tool",
+                        "agent": agent_label,
+                        "tool": event["tool"],
+                        "description": event["description"],
+                        "detail": event["detail"],
+                    })
+                elif kind == "text":
+                    send({"type": "stream_text", "agent": agent_label, "text": event["text"]})
+                    output_lines.append(event["text"])
+                elif kind == "thinking":
+                    send({"type": "stream_thinking", "agent": agent_label, "text": event["text"]})
+                elif kind == "tool_result":
+                    send({
+                        "type": "stream_result",
+                        "agent": agent_label,
+                        "text": event["text"],
+                        "is_error": event["is_error"],
+                    })
+                elif kind == "result":
+                    final_result = event["text"]
+                elif kind == "rate_limit":
+                    limit = _update_claude_limit_status(event["rate_limit_info"], source="task_stream")
+                    send({"type": "claude_limit_update", "limit": limit})
 
         try:
             process.wait(timeout=30)
@@ -350,54 +364,17 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                     if _task_cancelled:
                         fix_process.kill()
                         break
-                    fline = fline.strip()
-                    if not fline:
-                        continue
-                    try:
-                        fev = json.loads(fline)
-                        fev_type = fev.get("type", "")
-                        if "session_id" in fev and not fix_session_id:
-                            fix_session_id = fev["session_id"]
-                        if fev_type == "assistant":
-                            for block in fev.get("message", {}).get("content", []):
-                                if block.get("type") == "tool_use":
-                                    tool_name = block.get("name", "?")
-                                    tool_input = block.get("input", {})
-                                    desc = _format_tool_use(tool_name, tool_input)
-                                    detail = ""
-                                    if tool_name == "Edit":
-                                        old = tool_input.get("old_string", "")
-                                        new = tool_input.get("new_string", "")
-                                        if old and new:
-                                            detail = f"--- alt ---\n{old}\n--- neu ---\n{new}"
-                                    elif tool_name == "Write":
-                                        content = tool_input.get("content", "")
-                                        if content:
-                                            detail = content
-                                    elif tool_name == "Bash":
-                                        detail = tool_input.get("command", "")
-                                    elif tool_name == "Read":
-                                        detail = tool_input.get("file_path", "")
-                                    elif tool_name in ("Glob", "Grep"):
-                                        detail = tool_input.get("pattern", "")
-                                    send({"type": "stream_tool", "agent": "Claude Code",
-                                          "tool": tool_name, "description": desc, "detail": detail})
-                                elif block.get("type") == "text":
-                                    txt = block.get("text", "").strip()
-                                    if txt:
-                                        send({"type": "stream_text", "agent": "Claude Code", "text": txt})
-                                        fix_output_lines.append(txt)
-                        elif fev_type == "rate_limit_event":
-                            rl_info = fev.get("rate_limit_info", {})
-                            if rl_info:
-                                limit = _update_claude_limit_status(rl_info, source="fix_stream")
-                                send({"type": "claude_limit_update", "limit": limit})
-                        elif fev_type == "result":
-                            fix_result = fev.get("result", "")
-                            if fix_result and not fix_output_lines:
-                                send({"type": "chat_response", "agent": "Claude Code", "text": fix_result})
-                    except (ValueError, KeyError, TypeError):
-                        continue
+                    parsed_session_id, parsed_result = _forward_claude_stream_line(
+                        fline,
+                        agent_label="Claude Code",
+                        send=send,
+                        text_buffer=fix_output_lines,
+                        rate_limit_source="fix_stream",
+                    )
+                    if parsed_session_id and not fix_session_id:
+                        fix_session_id = parsed_session_id
+                    if parsed_result and not fix_output_lines:
+                        send({"type": "chat_response", "agent": "Claude Code", "text": parsed_result})
 
                 try:
                     fix_process.wait(timeout=30)
@@ -550,34 +527,15 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             if _task_cancelled:
                 process.kill()
                 return
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-                ev_type = ev.get("type", "")
-                if "session_id" in ev and not captured_session_id:
-                    captured_session_id = ev["session_id"]
-                if ev_type == "assistant":
-                    for block in ev.get("message", {}).get("content", []):
-                        if block.get("type") == "text":
-                            text = block.get("text", "").strip()
-                            if text:
-                                send({"type": "stream_text", "agent": "Claude Code", "text": text})
-                                claude_output.append(text)
-                        elif block.get("type") == "tool_use":
-                            from omads.cli.main import _format_tool_use
-                            tool_name = block.get("name", "?")
-                            desc = _format_tool_use(tool_name, block.get("input", {}))
-                            send({"type": "stream_tool", "agent": "Claude Code",
-                                  "tool": tool_name, "description": desc, "detail": ""})
-                elif ev_type == "rate_limit_event":
-                    rl_info = ev.get("rate_limit_info", {})
-                    if rl_info:
-                        limit = _update_claude_limit_status(rl_info, source="review_stream")
-                        send({"type": "claude_limit_update", "limit": limit})
-            except (ValueError, KeyError, TypeError):
-                continue
+            parsed_session_id, _ = _forward_claude_stream_line(
+                line,
+                agent_label="Claude Code",
+                send=send,
+                text_buffer=claude_output,
+                rate_limit_source="review_stream",
+            )
+            if parsed_session_id and not captured_session_id:
+                captured_session_id = parsed_session_id
 
         try:
             process.wait(timeout=30)
@@ -669,22 +627,12 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
                         send({"type": "agent_status", "agent": "Codex Review", "status": "Step 2/3 done"})
                         break
                     last_output_time = time.time()
-                    line = line.rstrip("\n")
-                    if not line.strip():
-                        continue
-                    # JSONL parsen: Text aus item.completed
-                    try:
-                        cev = json.loads(line)
-                        cev_type = cev.get("type", "")
-                        if cev_type == "item.completed":
-                            item_text = cev.get("item", {}).get("text", "")
-                            if item_text:
-                                codex_lines.append(item_text)
-                                send({"type": "stream_text", "agent": "Codex Review", "text": item_text})
-                    except (json.JSONDecodeError, ValueError):
-                        if line.strip():
-                            codex_lines.append(line)
-                            send({"type": "stream_text", "agent": "Codex Review", "text": line})
+                    _forward_codex_stream_line(
+                        line,
+                        agent_label="Codex Review",
+                        send=send,
+                        text_buffer=codex_lines,
+                    )
 
         except FileNotFoundError:
             send({"type": "agent_status", "agent": "Codex Review",
@@ -762,34 +710,15 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             if _task_cancelled:
                 synth_process.kill()
                 return
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-                ev_type = ev.get("type", "")
-                if "session_id" in ev and not synth_session_id:
-                    synth_session_id = ev["session_id"]
-                if ev_type == "assistant":
-                    for block in ev.get("message", {}).get("content", []):
-                        if block.get("type") == "text":
-                            text = block.get("text", "").strip()
-                            if text:
-                                send({"type": "stream_text", "agent": "Claude Code", "text": text})
-                                synthesis_output.append(text)
-                        elif block.get("type") == "tool_use":
-                            from omads.cli.main import _format_tool_use
-                            tool_name = block.get("name", "?")
-                            desc = _format_tool_use(tool_name, block.get("input", {}))
-                            send({"type": "stream_tool", "agent": "Claude Code",
-                                  "tool": tool_name, "description": desc, "detail": ""})
-                elif ev_type == "rate_limit_event":
-                    rl_info = ev.get("rate_limit_info", {})
-                    if rl_info:
-                        limit = _update_claude_limit_status(rl_info, source="synthesis_stream")
-                        send({"type": "claude_limit_update", "limit": limit})
-            except (ValueError, KeyError, TypeError):
-                continue
+            parsed_session_id, _ = _forward_claude_stream_line(
+                line,
+                agent_label="Claude Code",
+                send=send,
+                text_buffer=synthesis_output,
+                rate_limit_source="synthesis_stream",
+            )
+            if parsed_session_id and not synth_session_id:
+                synth_session_id = parsed_session_id
 
         try:
             synth_process.wait(timeout=30)
@@ -813,14 +742,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         if synth_session_id and synth_process.returncode == 0:
             _set_chat_session(repo_key, synth_session_id)
 
-        synthesis_text = "\n".join(synthesis_output)
-
-        # Fix-Plan vorhanden? → Marker-basierte Erkennung (kein Keyword-Guessing)
-        has_fixes = "fixes_needed: true" in synthesis_text.lower()
-        # Marker aus der sichtbaren Ausgabe entfernen
-        for marker in ["FIXES_NEEDED: true", "FIXES_NEEDED: false",
-                        "fixes_needed: true", "fixes_needed: false"]:
-            synthesis_text = synthesis_text.replace(marker, "").strip()
+        synthesis_text, has_fixes = strip_fixes_needed_marker("\n".join(synthesis_output))
 
         send({"type": "agent_status", "agent": "Claude Code", "status": "Step 3/3 done"})
         send({"type": "stream_text", "agent": "Review",
@@ -956,23 +878,12 @@ If there are no issues, write exactly: "No issues found."
                 if not line:  # EOF — Codex fertig
                     break
                 last_output_time = _time.time()
-                line = line.rstrip("\n")
-                if not line.strip():
-                    continue
-                # JSONL parsen: Text aus item.completed
-                try:
-                    cev = json.loads(line)
-                    cev_type = cev.get("type", "")
-                    if cev_type == "item.completed":
-                        item_text = cev.get("item", {}).get("text", "")
-                        if item_text:
-                            output_lines.append(item_text)
-                            send({"type": "stream_text", "agent": breaker_label, "text": item_text})
-                except (json.JSONDecodeError, ValueError):
-                    # Fallback: rohe Zeile als Text
-                    if line.strip():
-                        output_lines.append(line)
-                        send({"type": "stream_text", "agent": breaker_label, "text": line})
+                _forward_codex_stream_line(
+                    line,
+                    agent_label=breaker_label,
+                    send=send,
+                    text_buffer=output_lines,
+                )
 
         heartbeat_stop.set()
         process.wait(timeout=10)

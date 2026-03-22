@@ -12,12 +12,42 @@
     --accent: #e94560;
     --text: #e8e8e8;
     --text-dim: #777;
+    --muted: #777;
     --green: #4ade80;
     --yellow: #fbbf24;
     --blue: #60a5fa;
     --magenta: #c084fc;
     --red: #f87171;
     --border: #2a2a4a;
+    --overlay: rgba(0,0,0,0.7);
+    --panel-strong: #0d1117;
+    --panel-strong-2: #161b22;
+    --log-text: #c9d1d9;
+    --log-muted: #484f58;
+    --tool-surface: rgba(15,52,96,0.3);
+    --tool-detail-bg: rgba(0,0,0,0.2);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef3f9;
+    --bg2: #ffffff;
+    --bg3: #dbe7f5;
+    --accent: #c2410c;
+    --text: #142033;
+    --text-dim: #5d6778;
+    --muted: #5d6778;
+    --green: #15803d;
+    --yellow: #b45309;
+    --blue: #2563eb;
+    --magenta: #9333ea;
+    --red: #dc2626;
+    --border: #d4dde8;
+    --overlay: rgba(15,23,42,0.45);
+    --panel-strong: #f8fafc;
+    --panel-strong-2: #eef2f7;
+    --log-text: #1e293b;
+    --log-muted: #64748b;
+    --tool-surface: rgba(37,99,235,0.08);
+    --tool-detail-bg: rgba(15,23,42,0.04);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -28,6 +58,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: background 0.2s, color 0.2s;
   }
 
   /* ─── Header ─── */
@@ -57,6 +88,10 @@
     font-family: inherit; font-size: 12px;
   }
   .btn-sm:hover { background: #1a4a7a; }
+  .btn-link {
+    text-decoration: none;
+    display: inline-block;
+  }
 
   /* ─── Main ─── */
   .main { flex: 1; display: flex; overflow: hidden; }
@@ -130,7 +165,7 @@
   /* ─── Live-Log Panel (rechts, ein-/ausblendbar) ─── */
   .livelog-panel {
     width: 0; min-width: 0; overflow: hidden;
-    background: #0d1117; border-left: 1px solid var(--border);
+    background: var(--panel-strong); border-left: 1px solid var(--border);
     display: flex; flex-direction: column;
     transition: width 0.2s, min-width 0.2s;
   }
@@ -140,7 +175,7 @@
   .livelog-header {
     padding: 8px 12px; border-bottom: 1px solid var(--border);
     display: flex; align-items: center; justify-content: space-between;
-    background: #161b22; flex-shrink: 0;
+    background: var(--panel-strong-2); flex-shrink: 0;
   }
   .livelog-tabs { display: flex; gap: 0; }
   .livelog-tab {
@@ -163,19 +198,19 @@
     padding: 2px 0; border-bottom: 1px solid rgba(42,42,74,0.2);
     display: flex; gap: 8px; align-items: flex-start;
   }
-  .log-time { color: #484f58; flex-shrink: 0; min-width: 60px; }
+  .log-time { color: var(--log-muted); flex-shrink: 0; min-width: 60px; }
   .log-agent { font-weight: bold; flex-shrink: 0; min-width: 70px; }
   .log-agent.claude { color: var(--blue); }
   .log-agent.codex { color: var(--magenta); }
   .log-agent.system { color: var(--yellow); }
-  .log-type { color: #484f58; flex-shrink: 0; min-width: 55px; }
-  .log-msg { color: #c9d1d9; white-space: pre-wrap; word-break: break-word; flex: 1; min-width: 0; }
+  .log-type { color: var(--log-muted); flex-shrink: 0; min-width: 55px; }
+  .log-msg { color: var(--log-text); white-space: pre-wrap; word-break: break-word; flex: 1; min-width: 0; }
   .log-msg.error { color: var(--red); }
   .log-msg.tool { color: var(--yellow); }
-  .log-msg.text { color: #c9d1d9; }
-  .log-msg.thinking { color: #8b949e; font-style: italic; }
+  .log-msg.text { color: var(--log-text); }
+  .log-msg.thinking { color: var(--log-muted); font-style: italic; }
   .log-msg.result { color: #7ee787; }
-  .livelog-empty { padding: 20px; text-align: center; color: #484f58; }
+  .livelog-empty { padding: 20px; text-align: center; color: var(--log-muted); }
 
   /* Toggle-Button im Header */
   .btn-log-toggle {
@@ -255,7 +290,7 @@
   /* Tool-Call Block (klappbar, wie Claude Code) */
   .tool-block {
     margin: 3px 0; border-left: 3px solid var(--border);
-    background: rgba(15,52,96,0.3); border-radius: 0 6px 6px 0;
+    background: var(--tool-surface); border-radius: 0 6px 6px 0;
     overflow: hidden; min-height: 32px;
   }
   .tool-header {
@@ -275,7 +310,7 @@
   .tool-detail {
     display: none; padding: 10px 12px;
     font-size: 12px; color: var(--text-dim);
-    background: rgba(0,0,0,0.2); border-top: 1px solid var(--border);
+    background: var(--tool-detail-bg); border-top: 1px solid var(--border);
     white-space: pre-wrap; word-break: break-all;
     max-height: 300px; overflow-y: auto;
   }
@@ -388,7 +423,7 @@
   /* ─── Review Modal ─── */
   .review-modal {
     display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.7); z-index: 100;
+    background: var(--overlay); z-index: 100;
     align-items: center; justify-content: center;
   }
   .review-modal.open { display: flex; }
@@ -415,7 +450,7 @@
   /* ─── Settings Modal ─── */
   .modal-overlay {
     display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.7); z-index: 100;
+    background: var(--overlay); z-index: 100;
     align-items: center; justify-content: center;
   }
   .modal-overlay.open { display: flex; }
@@ -505,7 +540,7 @@
     color: var(--text);
   }
   .status-pre {
-    background: rgba(0,0,0,0.2);
+    background: var(--tool-detail-bg);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 10px 12px;
@@ -515,6 +550,65 @@
     line-height: 1.6;
     color: var(--text);
     min-height: 72px;
+  }
+  .resource-links {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .resource-links a {
+    color: var(--blue);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .resource-links a:hover { text-decoration: underline; }
+  .diff-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .diff-meta {
+    flex: 1;
+    min-width: 0;
+  }
+  .diff-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text);
+  }
+  .diff-subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    word-break: break-word;
+  }
+  .diff-status {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text);
+    white-space: pre-wrap;
+    margin-bottom: 12px;
+    min-height: 72px;
+  }
+  .diff-pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre;
+    overflow: auto;
+    min-height: 320px;
+    max-height: 55vh;
   }
 
   /* Scrollbar */
@@ -535,6 +629,9 @@
   <div class="header-right">
     <span class="badge on" title="Codex auto-review enabled">Auto Review</span>
     <span class="badge limit-unknown" id="claudeLimitBadge" title="Claude limit not checked yet">Claude ?</span>
+    <button class="btn-sm" onclick="openDiffViewer()">Diff</button>
+    <a class="btn-sm btn-link" href="/docs" target="_blank" rel="noopener noreferrer">API Docs</a>
+    <button class="btn-sm" id="btnThemeToggle" onclick="toggleTheme()">Theme: Dark</button>
     <button class="btn-log-toggle" id="btnLogToggle" onclick="toggleLiveLog()">Live Log</button>
     <button class="btn-sm" onclick="openSettings()">Settings</button>
   </div>
@@ -653,6 +750,7 @@
 
     <div class="tabs">
       <button class="tab active" onclick="switchTab('tabProject')">Project</button>
+      <button class="tab" onclick="switchTab('tabInterface')">Interface</button>
       <button class="tab" onclick="switchTab('tabClaude')">Claude Code</button>
       <button class="tab" onclick="switchTab('tabCodex')">Codex</button>
     </div>
@@ -677,6 +775,26 @@
           <option value="false">Disabled</option>
         </select>
         <div class="hint">Codex automatically reviews after each code change.</div>
+      </div>
+      <div class="section-title">Inspect API</div>
+      <div class="hint">FastAPI documentation is available locally while OMADS is running.</div>
+      <div class="resource-links">
+        <a href="/docs" target="_blank" rel="noopener noreferrer">Swagger UI</a>
+        <a href="/redoc" target="_blank" rel="noopener noreferrer">ReDoc</a>
+        <a href="/openapi.json" target="_blank" rel="noopener noreferrer">OpenAPI JSON</a>
+      </div>
+    </div>
+
+    <!-- Tab: Interface -->
+    <div class="tab-content" id="tabInterface">
+      <div class="section-title">Theme</div>
+      <div class="form-group">
+        <label>Color theme</label>
+        <select id="sTheme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+        <div class="hint">Choose the interface theme that feels best for long coding sessions.</div>
       </div>
     </div>
 
@@ -795,10 +913,33 @@
   </div>
 </div>
 
+<!-- Diff Viewer Modal -->
+<div class="modal-overlay" id="diffModal" onclick="if(event.target===this)closeDiffViewer()">
+  <div class="modal" style="width:min(1000px, 92vw);">
+    <h2>Repository Diff</h2>
+    <div class="diff-toolbar">
+      <div class="diff-meta">
+        <div class="diff-title" id="diffTitle">Current working tree</div>
+        <div class="diff-subtitle" id="diffSubtitle">Loading current project diff...</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-m secondary" onclick="window.open('/docs', '_blank', 'noopener')">Open API docs</button>
+        <button class="btn-m secondary" id="btnDiffRefresh" onclick="loadDiffViewer()">Refresh</button>
+      </div>
+    </div>
+    <div class="diff-status" id="diffStatus">Loading current working tree status...</div>
+    <pre class="diff-pre" id="diffContent">Loading diff...</pre>
+    <div class="modal-actions">
+      <button class="btn-m secondary" onclick="closeDiffViewer()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let ws = null, busy = false, fpPath = '~';
 let _logFilter = 'all';  // 'all', 'claude', 'codex'
 let _runtimeStatus = { claude_limit: {}, codex_status: {} };
+let _uiTheme = 'dark';
 
 // ─── WebSocket ─────────────────────────
 let _reconnectDelay = 2000;
@@ -901,6 +1042,13 @@ function handle(msg) {
 
     case 'codex_status_update':
       renderCodexStatus(msg.codex_status);
+      break;
+
+    case 'settings_updated':
+      if (msg.settings) {
+        if (msg.settings.target_repo) el('repoBadge').textContent = shortPath(msg.settings.target_repo);
+        if (msg.settings.ui_theme) applyTheme(msg.settings.ui_theme);
+      }
       break;
 
     case 'unlock':
@@ -1228,8 +1376,33 @@ function switchTab(tabId) {
   el(tabId).classList.add('active');
   // Aktiven Tab-Button markieren
   const tabs = document.querySelectorAll('.tab');
-  const map = { tabProject: 0, tabClaude: 1, tabCodex: 2 };
+  const map = { tabProject: 0, tabInterface: 1, tabClaude: 2, tabCodex: 3 };
   if (map[tabId] !== undefined) tabs[map[tabId]].classList.add('active');
+}
+
+function applyTheme(theme) {
+  _uiTheme = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = _uiTheme;
+  const btn = el('btnThemeToggle');
+  if (btn) btn.textContent = `Theme: ${_uiTheme === 'light' ? 'Light' : 'Dark'}`;
+  const select = el('sTheme');
+  if (select) select.value = _uiTheme;
+}
+
+async function persistTheme(theme) {
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ui_theme: theme }),
+  });
+}
+
+async function toggleTheme() {
+  const nextTheme = _uiTheme === 'light' ? 'dark' : 'light';
+  applyTheme(nextTheme);
+  try {
+    await persistTheme(nextTheme);
+  } catch (e) {}
 }
 
 // ─── Settings ──────────────────────────
@@ -1289,6 +1462,8 @@ async function loadSettings() {
     el('sCodexReasoning').value = s.codex_reasoning || 'high';
     el('sCodexFast').value = s.codex_fast ? 'true' : 'false';
     el('sAutoReview').value = s.auto_review !== false ? 'true' : 'false';
+    el('sTheme').value = s.ui_theme || 'dark';
+    applyTheme(s.ui_theme || 'dark');
     el('repoBadge').textContent = shortPath(s.target_repo || 'No project');
   } catch (e) {}
 }
@@ -1305,11 +1480,61 @@ async function saveSettings() {
     codex_reasoning: el('sCodexReasoning').value,
     codex_fast: el('sCodexFast').value === 'true',
     auto_review: el('sAutoReview').value === 'true',
+    ui_theme: el('sTheme').value,
   };
   if (ws && data.target_repo) ws.send(JSON.stringify({ type: 'set_repo', path: data.target_repo }));
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  applyTheme(data.ui_theme);
   el('repoBadge').textContent = shortPath(data.target_repo);
   closeSettings();
+}
+
+// ─── Diff Viewer ───────────────────────
+function openDiffViewer() {
+  el('diffModal').classList.add('open');
+  loadDiffViewer();
+}
+
+function closeDiffViewer() {
+  el('diffModal').classList.remove('open');
+}
+
+async function loadDiffViewer() {
+  const btn = el('btnDiffRefresh');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Refreshing...';
+  try {
+    const res = await fetch('/api/diff');
+    const data = await res.json();
+    el('diffTitle').textContent = data.has_changes ? 'Current working tree changes' : 'Current working tree';
+    el('diffSubtitle').textContent = data.repo || 'No project selected';
+
+    if (data.error) {
+      el('diffStatus').textContent = data.error;
+      el('diffContent').textContent = 'No diff available.';
+      return;
+    }
+
+    if (!data.has_changes) {
+      el('diffStatus').textContent = 'Working tree clean. No staged, unstaged, or untracked changes were reported.';
+      el('diffContent').textContent = 'No local changes detected.';
+      return;
+    }
+
+    const statusLines = (data.status_lines || []).join('\n');
+    const changedFiles = data.changed_files || [];
+    let statusText = `${changedFiles.length} changed item(s)`;
+    if (statusLines) statusText += `\n\n${statusLines}`;
+    el('diffStatus').textContent = statusText;
+    el('diffContent').textContent = data.diff || 'Git reported changes, but no unified diff text was returned.';
+  } catch (e) {
+    el('diffStatus').textContent = 'The diff could not be loaded right now.';
+    el('diffContent').textContent = 'Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
 }
 
 // ─── Runtime-Status ────────────────────

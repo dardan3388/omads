@@ -59,6 +59,7 @@ _ALLOWED_SETTINGS = {
     "codex_reasoning": str,
     "codex_fast": bool,
     "auto_review": bool,
+    "ui_theme": str,
 }
 
 @router.post("/api/settings")
@@ -89,10 +90,88 @@ async def update_settings(data: UpdateSettingsRequest):
             settings["claude_effort"] = "high"
         if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
             settings["codex_reasoning"] = "high"
+        if settings.get("ui_theme") not in ("dark", "light"):
+            settings["ui_theme"] = "dark"
 
     snapshot = _update_settings(apply_updates)
     await runtime.broadcast({"type": "settings_updated", "settings": snapshot})
     return {"ok": True}
+
+
+def _run_git_command(repo_path: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run one git command inside the current target repository."""
+    return subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        cwd=str(repo_path),
+        timeout=20,
+    )
+
+
+@router.get("/api/diff")
+async def get_repo_diff():
+    """Return a unified Git diff for the active project."""
+    repo_path = Path(_get_setting("target_repo", str(Path(".").resolve()))).expanduser().resolve()
+    if not repo_path.is_dir():
+        return {
+            "error": f"Project directory does not exist: {repo_path}",
+            "repo": str(repo_path),
+            "status_lines": [],
+            "changed_files": [],
+            "diff": "",
+            "has_changes": False,
+        }
+
+    try:
+        inside = _run_git_command(repo_path, ["rev-parse", "--is-inside-work-tree"])
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return {
+                "error": "Current project is not a Git repository",
+                "repo": str(repo_path),
+                "status_lines": [],
+                "changed_files": [],
+                "diff": "",
+                "has_changes": False,
+            }
+
+        status_result = _run_git_command(repo_path, ["status", "--short"])
+        status_lines = [line.rstrip() for line in status_result.stdout.splitlines() if line.strip()]
+        changed_files = [line[3:].strip() if len(line) > 3 else line.strip() for line in status_lines]
+
+        has_head = _run_git_command(repo_path, ["rev-parse", "--verify", "HEAD"]).returncode == 0
+        if has_head:
+            diff_result = _run_git_command(repo_path, ["diff", "--no-ext-diff", "--submodule=diff", "HEAD", "--"])
+            diff_text = diff_result.stdout.strip()
+        else:
+            diff_parts: list[str] = []
+            staged = _run_git_command(repo_path, ["diff", "--cached", "--no-ext-diff", "--"]).stdout.strip()
+            unstaged = _run_git_command(repo_path, ["diff", "--no-ext-diff", "--"]).stdout.strip()
+            untracked = _run_git_command(repo_path, ["ls-files", "--others", "--exclude-standard"]).stdout.strip()
+            if staged:
+                diff_parts.append("### Staged changes\n\n" + staged)
+            if unstaged:
+                diff_parts.append("### Unstaged changes\n\n" + unstaged)
+            if untracked:
+                diff_parts.append("### Untracked files\n\n" + untracked)
+            diff_text = "\n\n".join(diff_parts).strip()
+
+        return {
+            "repo": str(repo_path),
+            "status_lines": status_lines,
+            "changed_files": changed_files,
+            "diff": diff_text,
+            "has_changes": bool(status_lines or diff_text),
+        }
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "repo": str(repo_path),
+            "status_lines": [],
+            "changed_files": [],
+            "diff": "",
+            "has_changes": False,
+        }
 
 
 @router.get("/api/browse")
@@ -362,4 +441,3 @@ async def get_ledger():
         except OSError:
             pass
     return entries
-

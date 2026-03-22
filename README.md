@@ -21,6 +21,7 @@ If multiple agents or developers work on the same repository state, these are th
 - `docs/architecture.md` — current architecture and module boundaries
 - `AGENTS.md` — binding workflow rules for coding agents
 - `PROJECT_RULES.md` — repository-specific collaboration rules
+- `CONTRIBUTING.md` — contributor workflow and validation expectations
 
 ---
 
@@ -49,7 +50,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, WebSocket guardrails, log filtering, chat-session persistence, mocked Codex auto-review outcomes, and mocked Claude/Codex review-fix handoff paths without requiring live CLI quota.
+The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, diff and OpenAPI routes, WebSocket guardrails, log filtering, chat-session persistence, mocked Codex auto-review outcomes, and mocked Claude/Codex review-fix handoff paths without requiring live CLI quota.
 
 ---
 
@@ -259,7 +260,7 @@ omads gui --port 9090
 
 ### Docker
 
-OMADS now includes a basic Docker image for headless startup:
+OMADS now includes a Docker image with Python, Node.js, Git, Claude Code CLI, and Codex CLI preinstalled:
 
 ```bash
 docker build -t omads .
@@ -271,8 +272,22 @@ Then open `http://localhost:8080`.
 Important:
 
 - The Docker image starts OMADS with `--no-browser`.
-- This basic image is useful for trying the GUI or running the backend in a container.
-- A fully polished Docker workflow for authenticated Claude Code / Codex usage and mounted project workspaces is still an open follow-up item.
+- The default in-container project root is `/workspace`.
+- The image includes `git`, `claude`, and `codex`, so mounted workspaces can be reviewed inside the container too.
+
+For a reusable local container workflow with mounted auth directories and a persistent OMADS state volume:
+
+```bash
+cp .env.docker.example .env
+docker compose up --build
+```
+
+The bundled `compose.yaml` mounts:
+
+- your selected workspace to `/workspace`
+- `~/.claude` into the container for Claude Code authentication
+- `~/.codex` into the container for Codex authentication
+- a named Docker volume for persistent OMADS GUI state
 
 ### Common Start Mistakes
 
@@ -327,6 +342,9 @@ FastAPI Backend
 - Real-time token and activity tracking
 - Claude rate-limit status with reset countdown
 - Multi-project management
+- Built-in diff viewer for the current Git working tree
+- Switchable dark and light themes
+- Local API documentation via Swagger UI / ReDoc / OpenAPI JSON
 - Settings for models, effort, permissions, and Codex config
 - Session memory for continuing work
 - Live logs of CLI events
@@ -374,6 +392,14 @@ npm install -g @openai/codex
 omads gui --port 9090
 ```
 
+### Inspecting the REST API
+
+While OMADS is running, the FastAPI docs are available at:
+
+- `http://localhost:8080/docs`
+- `http://localhost:8080/redoc`
+- `http://localhost:8080/openapi.json`
+
 ### Virtual environment not activated
 
 ```bash
@@ -389,6 +415,14 @@ source .venv/bin/activate    # Linux/macOS
 - **Claude Code CLI** (`claude -p`, `stream-json`)
 - **Codex CLI** (`codex exec`, `--json`, read-only)
 - **Frontend:** vanilla HTML/CSS/JS without a build step
+
+---
+
+## Contributing
+
+Use [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor workflow, test expectations, and documentation rules.
+
+GitHub issue templates for bugs and feature requests are included under `.github/ISSUE_TEMPLATE/`.
 
 ---
 

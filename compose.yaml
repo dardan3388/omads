@@ -1,0 +1,17 @@
+services:
+  omads:
+    build:
+      context: .
+    ports:
+      - "${OMADS_PORT:-8080}:8080"
+    environment:
+      OMADS_OPEN_BROWSER: "0"
+      OMADS_DEFAULT_TARGET_REPO: /workspace
+    volumes:
+      - omads_state:/root/.config/omads
+      - ${OMADS_WORKSPACE_DIR:-.}:/workspace
+      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.codex:/root/.codex:ro
+
+volumes:
+  omads_state:

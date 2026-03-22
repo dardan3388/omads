@@ -11,6 +11,7 @@ FastAPI App
     ├── routes.py
     ├── websocket.py
     ├── runtime.py
+    ├── streaming.py
     └── state.py
         ↕
   Claude Code CLI + Codex CLI
@@ -51,10 +52,13 @@ Owns REST endpoints for:
 
 - settings
 - project registration and switching
+- Git diff inspection for the active repository
 - runtime status refresh
 - health and status endpoints
 - ledger and history reads
 - frontend delivery at `/`
+
+FastAPI's built-in docs also stay enabled at `/docs`, `/redoc`, and `/openapi.json`.
 
 ### `src/omads/gui/websocket.py`
 
@@ -93,6 +97,16 @@ Owns runtime-only state and process orchestration:
 - Claude task runner
 - review pipeline runner
 - Codex auto-review runner
+
+This module should call shared parsing helpers instead of duplicating stream-json or JSONL parsing logic inline.
+
+### `src/omads/gui/streaming.py`
+
+Owns reusable parsing helpers for:
+
+- Claude Code `stream-json` lines
+- Codex JSONL review output
+- synthesis markers such as `FIXES_NEEDED`
 
 If behavior is tied to a running task, streaming, subprocess execution, or live GUI state, it probably belongs here.
 
@@ -145,15 +159,12 @@ It covers:
 
 - app startup and security headers
 - settings and project validation
+- diff and OpenAPI route visibility
 - CLI and launcher startup flags
 - log filtering and session persistence
 - key Claude/review failure paths
 
-The next highest-value test areas are:
-
-- WebSocket behavior
-- auto-review success and failure paths
-- more UI reconnect and recovery scenarios
+The next highest-value test areas are full browser-driven UI scenarios such as reconnect handling and end-to-end theme/diff interactions.
 
 ## Legacy Code
 

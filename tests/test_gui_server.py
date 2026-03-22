@@ -72,9 +72,10 @@ class BusyProcess:
 
 
 class DummyCompletedProcess:
-    def __init__(self, stdout: str = "", stderr: str = ""):
+    def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0):
         self.stdout = stdout
         self.stderr = stderr
+        self.returncode = returncode
 
 
 class NoopThread:
@@ -446,6 +447,53 @@ def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_
     assert runtime_status.status_code == 200
     assert runtime_status.json()["claude_limit"] == state._GUI_STATUS_DEFAULTS["claude_limit"]
     assert runtime_status.json()["codex_status"] == state._GUI_STATUS_DEFAULTS["codex_status"]
+
+
+def test_theme_settings_diff_endpoint_and_openapi_docs(
+    client: TestClient,
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repo_dir = isolated_server["repo_dir"].resolve()
+
+    def fake_run(cmd, capture_output=True, text=True, cwd=None, timeout=20):
+        assert cwd == str(repo_dir)
+        if cmd[:3] == ["git", "rev-parse", "--is-inside-work-tree"]:
+            return DummyCompletedProcess(stdout="true\n")
+        if cmd[:4] == ["git", "rev-parse", "--verify", "HEAD"]:
+            return DummyCompletedProcess(stdout="deadbeef\n")
+        if cmd[:3] == ["git", "status", "--short"]:
+            return DummyCompletedProcess(stdout=" M src/app.py\n?? notes.txt\n")
+        if cmd[:6] == ["git", "diff", "--no-ext-diff", "--submodule=diff", "HEAD", "--"]:
+            return DummyCompletedProcess(stdout="diff --git a/src/app.py b/src/app.py\n+print('hi')\n")
+        raise AssertionError(f"Unexpected git command: {cmd}")
+
+    monkeypatch.setattr(routes.subprocess, "run", fake_run)
+
+    update = client.post("/api/settings", json={"ui_theme": "light"})
+    assert update.status_code == 200
+    assert update.json()["ok"] is True
+
+    settings = client.get("/api/settings")
+    assert settings.status_code == 200
+    assert settings.json()["ui_theme"] == "light"
+
+    diff = client.get("/api/diff")
+    assert diff.status_code == 200
+    payload = diff.json()
+    assert payload["repo"] == str(repo_dir)
+    assert payload["has_changes"] is True
+    assert payload["changed_files"] == ["src/app.py", "notes.txt"]
+    assert "diff --git a/src/app.py b/src/app.py" in payload["diff"]
+
+    docs = client.get("/docs")
+    redoc = client.get("/redoc")
+    openapi = client.get("/openapi.json")
+    assert docs.status_code == 200
+    assert "Swagger UI" in docs.text
+    assert redoc.status_code == 200
+    assert openapi.status_code == 200
+    assert openapi.json()["info"]["title"] == "OMADS GUI"
 
 
 def test_codex_auto_review_returns_none_when_no_issues_found(isolated_server, monkeypatch: pytest.MonkeyPatch):
