@@ -12,6 +12,7 @@ The format is loosely based on Keep a Changelog.
 - Added `start-omads.ps1` as a Windows-friendly one-command launcher.
 - Added `python -m omads` support through `src/omads/__main__.py`.
 - Added mock-based tests for WebSocket guardrails, Codex auto-review outcomes, review fix suggestions, and Claude/Codex handoff flows without requiring live CLI access.
+- Added backend integration tests for health/status/ledger routes, runtime status refresh, and project history/log/error paths.
 - Added a basic Docker image and `.dockerignore` for headless/container startup.
 
 ### Changed

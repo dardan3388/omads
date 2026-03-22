@@ -15,7 +15,7 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 ## Now
 
 - [ ] Expand test coverage
-  WebSocket guardrails, mocked auto-review, and mocked review-fix handoff flows are now covered. Remaining gaps are broader browser-side UI behavior and more end-to-end integration scenarios.
+  Backend integration coverage now includes runtime status, health/status/ledger, WebSocket guardrails, mocked auto-review, and mocked review-fix handoff flows. Remaining gaps are broader browser-side UI behavior and true end-to-end browser scenarios.
 
 ## Next
 

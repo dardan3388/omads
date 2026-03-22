@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omads.gui import runtime, server, state, websocket
+from omads.gui import routes, runtime, server, state, websocket
 
 
 class DummyStream:
@@ -69,6 +69,12 @@ class DummyProcess:
 class BusyProcess:
     def poll(self):
         return None
+
+
+class DummyCompletedProcess:
+    def __init__(self, stdout: str = "", stderr: str = ""):
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 class NoopThread:
@@ -211,6 +217,35 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
     assert response.json()["error"] == "Name and path are required"
 
 
+def test_project_duplicate_invalid_id_history_and_log_endpoints(client: TestClient, isolated_server):
+    project_repo = isolated_server["home_dir"] / "project-a"
+    project_repo.mkdir()
+
+    created = client.post("/api/projects", json={"name": "Project A", "path": str(project_repo)}).json()
+    project_id = created["project"]["id"]
+
+    duplicate = client.post("/api/projects", json={"name": "Project B", "path": str(project_repo)})
+    assert duplicate.status_code == 200
+    assert "already exists" in duplicate.json()["error"]
+
+    state._append_history(project_id, {"type": "user_input", "text": "hello"})
+    state._append_log(project_id, {"type": "stream_text", "agent": "Claude", "text": "world"})
+
+    history = client.get(f"/api/projects/{project_id}/history")
+    logs = client.get(f"/api/projects/{project_id}/logs")
+    assert history.status_code == 200
+    assert logs.status_code == 200
+    assert history.json()[0]["text"] == "hello"
+    assert logs.json()[0]["text"] == "world"
+
+    invalid_history = client.get("/api/projects/bad.id/history")
+    invalid_logs = client.get("/api/projects/bad.id/logs")
+    invalid_delete = client.delete("/api/projects/bad.id")
+    assert invalid_history.json()["error"] == "Invalid project ID"
+    assert invalid_logs.json()["error"] == "Invalid project ID"
+    assert invalid_delete.json()["error"] == "Invalid project ID"
+
+
 def test_chat_session_persistence_roundtrip(isolated_server):
     repo_key = str(isolated_server["repo_dir"].resolve())
     state._set_chat_session(repo_key, "session-123")
@@ -322,6 +357,95 @@ def test_websocket_rejects_new_work_while_task_is_running(client: TestClient, mo
         message = ws_client.receive_json()
         assert message["type"] == "error"
         assert "A task is already running" in message["text"]
+
+
+def test_runtime_status_refresh_and_busy_guards(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    sent_events: list[dict] = []
+
+    async def fake_broadcast(msg):
+        sent_events.append(msg)
+
+    monkeypatch.setattr(runtime, "broadcast", fake_broadcast)
+    monkeypatch.setattr(routes, "_probe_claude_limit_status", lambda repo: {"status": "allowed", "last_checked": 1})
+    monkeypatch.setattr(routes, "_probe_codex_status", lambda repo: {"text": "Codex OK", "last_checked": 2})
+
+    claude = client.post("/api/runtime-status/claude/refresh")
+    codex = client.post("/api/runtime-status/codex/refresh")
+    assert claude.status_code == 200
+    assert codex.status_code == 200
+    assert claude.json()["limit"]["status"] == "allowed"
+    assert codex.json()["codex_status"]["text"] == "Codex OK"
+    assert any(msg["type"] == "claude_limit_update" for msg in sent_events)
+    assert any(msg["type"] == "codex_status_update" for msg in sent_events)
+
+    monkeypatch.setattr(runtime, "_active_process", BusyProcess())
+    busy_claude = client.post("/api/runtime-status/claude/refresh")
+    busy_codex = client.post("/api/runtime-status/codex/refresh")
+    assert "Please wait until the current task finishes" in busy_claude.json()["error"]
+    assert "Please wait until the current task finishes" in busy_codex.json()["error"]
+
+
+def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_server, monkeypatch: pytest.MonkeyPatch):
+    home_dir = isolated_server["home_dir"]
+    repo_dir = isolated_server["repo_dir"]
+    ledger_dir = home_dir / "data" / "ledger"
+    ledger_dir.mkdir(parents=True)
+    ledger_file = ledger_dir / "task_history.jsonl"
+    ledger_file.write_text('{"task":"one"}\n{"task":"two"}\n', encoding="utf-8")
+
+    creds_dir = home_dir / ".claude"
+    creds_dir.mkdir(parents=True, exist_ok=True)
+    (creds_dir / ".credentials.json").write_text("{}", encoding="utf-8")
+
+    def fake_which(name: str):
+        return f"/usr/bin/{name}" if name in {"claude", "codex"} else None
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=5):
+        if cmd[0] == "claude":
+            return DummyCompletedProcess(stdout="claude 1.2.3")
+        return DummyCompletedProcess(stdout="codex 4.5.6")
+
+    class DummyPhase:
+        value = "builder"
+
+    monkeypatch.setattr("shutil.which", fake_which)
+    monkeypatch.setattr(routes.subprocess, "run", fake_run)
+    monkeypatch.setattr(routes.Path, "home", classmethod(lambda cls: home_dir))
+    monkeypatch.setattr(routes, "get_data_dir", lambda: home_dir / "data")
+    monkeypatch.setattr(routes, "get_dna_dir", lambda: home_dir / "dna")
+    monkeypatch.setattr("omads.dna.cold_start.get_current_phase", lambda path: DummyPhase())
+
+    outside_response = client.get("/api/browse", params={"path": str(isolated_server["outside_dir"])})
+    assert outside_response.status_code == 200
+    assert "Access is allowed only inside the home directory" in outside_response.json()["error"]
+
+    browse_response = client.get("/api/browse", params={"path": str(home_dir)})
+    assert browse_response.status_code == 200
+    assert any(entry["name"] == "repo" for entry in browse_response.json()["dirs"])
+
+    health = client.get("/api/health")
+    status = client.get("/api/status")
+    ledger = client.get("/api/ledger")
+    runtime_status = client.get("/api/runtime-status")
+
+    assert health.status_code == 200
+    assert health.json()["claude"]["installed"] is True
+    assert health.json()["claude"]["authenticated"] is True
+    assert health.json()["claude"]["version"] == "claude 1.2.3"
+    assert health.json()["codex"]["version"] == "codex 4.5.6"
+
+    assert status.status_code == 200
+    assert status.json()["phase"] == "builder"
+    assert status.json()["total_tasks"] == 2
+    assert status.json()["target_repo"] == str(repo_dir.resolve())
+
+    assert ledger.status_code == 200
+    assert len(ledger.json()) == 2
+    assert ledger.json()[-1]["task"] == "two"
+
+    assert runtime_status.status_code == 200
+    assert runtime_status.json()["claude_limit"] == state._GUI_STATUS_DEFAULTS["claude_limit"]
+    assert runtime_status.json()["codex_status"] == state._GUI_STATUS_DEFAULTS["codex_status"]
 
 
 def test_codex_auto_review_returns_none_when_no_issues_found(isolated_server, monkeypatch: pytest.MonkeyPatch):
