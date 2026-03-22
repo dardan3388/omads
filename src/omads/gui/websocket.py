@@ -24,7 +24,7 @@ async def websocket_endpoint(ws: WebSocket):
         for port in (server_port, server_port + 1):
             allowed_origins.add(f"http://{host}:{port}")
     if origin and origin not in allowed_origins:
-        await ws.close(code=1008, reason="Origin nicht erlaubt")
+        await ws.close(code=1008, reason="Origin not allowed")
         return
 
     await ws.accept()
@@ -48,13 +48,13 @@ async def websocket_endpoint(ws: WebSocket):
 
                 # Security: Nachrichtenlänge begrenzen
                 if len(user_text) > _MAX_MESSAGE_LENGTH:
-                    await ws.send_json({"type": "error", "text": f"Nachricht zu lang (max {_MAX_MESSAGE_LENGTH} Zeichen)"})
+                    await ws.send_json({"type": "error", "text": f"Message too long (max {_MAX_MESSAGE_LENGTH} characters)"})
                     continue
 
                 # Security: Rate-Limiting — max 1 Nachricht pro Sekunde
                 now = time.time()
                 if now - _last_message_time < _MIN_MESSAGE_INTERVAL:
-                    await ws.send_json({"type": "error", "text": "Zu schnell — bitte kurz warten"})
+                    await ws.send_json({"type": "error", "text": "Too fast — please wait a moment"})
                     continue
                 _last_message_time = now
 
@@ -62,7 +62,7 @@ async def websocket_endpoint(ws: WebSocket):
                 with runtime._process_lock:
                     busy = runtime._active_process and runtime._active_process.poll() is None
                 if busy:
-                    await ws.send_json({"type": "error", "text": "Es läuft bereits ein Task — bitte warten oder abbrechen"})
+                    await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
                 # Alles geht an Claude CLI — kein Chat/Task-Routing mehr
@@ -78,7 +78,7 @@ async def websocket_endpoint(ws: WebSocket):
                 with runtime._process_lock:
                     busy = runtime._active_process and runtime._active_process.poll() is None
                 if busy:
-                    await ws.send_json({"type": "error", "text": "Es läuft bereits ein Task — bitte warten oder abbrechen"})
+                    await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
                 review_scope = data.get("scope", "project")  # project | last_task | custom
@@ -97,18 +97,18 @@ async def websocket_endpoint(ws: WebSocket):
                 with runtime._process_lock:
                     busy = runtime._active_process and runtime._active_process.poll() is None
                 if busy:
-                    await ws.send_json({"type": "error", "text": "Es läuft bereits ein Task — bitte warten oder abbrechen"})
+                    await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
                 current_repo = str(Path(state._get_setting("target_repo", ".")).resolve())
                 repo_fixes = runtime._pending_review_fixes.get(current_repo, "")
                 if not repo_fixes:
-                    await ws.send_json({"type": "error", "text": "Keine Review-Fixes vorhanden"})
+                    await ws.send_json({"type": "error", "text": "No review fixes are available"})
                     continue
 
                 fix_prompt = (
-                    "Wende jetzt die folgenden Fixes aus dem Review an:\n\n"
+                    "Apply the following fixes from the review now:\n\n"
                     + repo_fixes[:8000] + "\n\n"
-                    "Regeln: Setze NUR die im Fix-Plan beschriebenen Änderungen um. Kein Scope Creep."
+                    "Rules: Apply ONLY the changes described in the fix plan. No scope creep."
                 )
                 thread = threading.Thread(
                     target=runtime._run_claude_session_thread,
@@ -124,7 +124,7 @@ async def websocket_endpoint(ws: WebSocket):
                     if runtime._active_process and runtime._active_process.poll() is None:
                         runtime._active_process.kill()
                         runtime._active_process = None
-                await ws.send_json({"type": "task_stopped", "text": "Abgebrochen."})
+                await ws.send_json({"type": "task_stopped", "text": "Stopped."})
 
             elif msg_type == "set_repo":
                 repo_path = data.get("path", "").strip()
@@ -134,17 +134,17 @@ async def websocket_endpoint(ws: WebSocket):
                     snapshot = state._update_settings(lambda settings: settings.__setitem__("target_repo", str(resolved)))
                     await ws.send_json({
                         "type": "system",
-                        "text": f"Projekt: {snapshot['target_repo']}",
+                        "text": f"Project: {snapshot['target_repo']}",
                     })
                 elif resolved and not resolved.is_dir():
                     await ws.send_json({
                         "type": "error",
-                        "text": f"Kein Verzeichnis: {repo_path}",
+                        "text": f"Not a directory: {repo_path}",
                     })
                 else:
                     await ws.send_json({
                         "type": "error",
-                        "text": f"Verzeichnis nicht erlaubt oder existiert nicht: {repo_path}",
+                        "text": f"Directory is not allowed or does not exist: {repo_path}",
                     })
 
     except WebSocketDisconnect:

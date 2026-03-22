@@ -63,10 +63,10 @@ def _build_process_failure_text(
 ) -> str:
     """Erzeugt eine nutzerlesbare Fehlermeldung für fehlgeschlagene CLI-Prozesse."""
     detail = (result_text or "\n".join((output_lines or [])[-3:])).strip()
-    text = f"{context} fehlgeschlagen (Exit-Code {returncode})."
+    text = f"{context} failed (exit code {returncode})."
     if detail:
         compact = " ".join(detail.split())[:280]
-        text += f" Letzte Ausgabe: {compact}"
+        text += f" Last output: {compact}"
     return text
 
 # ─── Config-Datei (persistent) ────────────────────────────────────
@@ -247,7 +247,7 @@ _SAFE_PROJECT_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 def _validate_project_id(project_id: str) -> str:
     """Validiert project_id gegen Path-Traversal (nur alphanumerisch, -, _)."""
     if not project_id or not _SAFE_PROJECT_ID.match(project_id):
-        raise ValueError(f"Ungültige Projekt-ID: {project_id!r}")
+        raise ValueError(f"Invalid project ID: {project_id!r}")
     return project_id
 
 
@@ -428,7 +428,7 @@ def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
     )
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
-        raise RuntimeError(stderr or "Claude-Limit konnte nicht abgefragt werden")
+        raise RuntimeError(stderr or "Claude limit could not be fetched")
 
     rate_limit_info: dict[str, Any] | None = None
     for line in result.stdout.splitlines():
@@ -444,7 +444,7 @@ def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
             break
 
     if not rate_limit_info:
-        raise RuntimeError("Claude hat keine Limitdaten zurückgegeben")
+        raise RuntimeError("Claude did not return any limit data")
     return _update_claude_limit_status(rate_limit_info, source="manual_refresh")
 
 
@@ -489,8 +489,8 @@ def _probe_codex_status(target_repo: str) -> dict[str, Any]:
     if not status_text:
         stderr = (result.stderr or "").strip()
         if result.returncode != 0:
-            raise RuntimeError(stderr or "Codex-Status konnte nicht abgefragt werden")
-        status_text = "Codex hat keinen Status-Text geliefert."
+            raise RuntimeError(stderr or "Codex status could not be fetched")
+        status_text = "Codex did not return any status text."
 
     return _set_codex_status(status_text, source="manual_refresh")
 
@@ -546,7 +546,7 @@ def _load_project_memory(repo_path: str) -> str:
     if claude_md.exists():
         try:
             content = claude_md.read_text(encoding="utf-8")[:8000]
-            parts.append(f"=== CLAUDE.md (Projektinstruktionen) ===\n{content}")
+            parts.append(f"=== CLAUDE.md (Project instructions) ===\n{content}")
         except OSError:
             pass
 
@@ -555,7 +555,7 @@ def _load_project_memory(repo_path: str) -> str:
     if mem_path.exists():
         try:
             content = mem_path.read_text(encoding="utf-8")[:4000]
-            parts.append(f"=== Letzte Session-Zusammenfassung ===\n{content}")
+            parts.append(f"=== Previous session summary ===\n{content}")
         except OSError:
             pass
 
@@ -567,5 +567,5 @@ def _save_project_memory(repo_path: str, summary: str) -> None:
     mem_path = _get_memory_path(repo_path)
     # Zusammenfassung mit Zeitstempel
     from datetime import datetime, timezone
-    header = f"Letzte Aktualisierung: {datetime.now(timezone.utc).isoformat()}\n\n"
+    header = f"Last updated: {datetime.now(timezone.utc).isoformat()}\n\n"
     _write_text_file(mem_path, header + summary[:6000], encoding="utf-8")

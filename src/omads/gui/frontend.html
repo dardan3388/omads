@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -529,14 +529,14 @@
 <div class="header">
   <div class="header-left">
     <span class="logo">OMADS</span>
-    <span class="badge" id="connBadge">Verbinde...</span>
-    <span class="badge" id="repoBadge" title="Klick zum Ändern" style="cursor:pointer" onclick="openSettings()">Kein Projekt</span>
+    <span class="badge" id="connBadge">Connecting...</span>
+    <span class="badge" id="repoBadge" title="Click to change" style="cursor:pointer" onclick="openSettings()">No project</span>
   </div>
   <div class="header-right">
-    <span class="badge on" title="Codex Auto-Review aktiv">Auto-Review</span>
-    <span class="badge limit-unknown" id="claudeLimitBadge" title="Claude-Limit noch nicht abgefragt">Claude ?</span>
-    <button class="btn-log-toggle" id="btnLogToggle" onclick="toggleLiveLog()">Live-Log</button>
-    <button class="btn-sm" onclick="openSettings()">Einstellungen</button>
+    <span class="badge on" title="Codex auto-review enabled">Auto Review</span>
+    <span class="badge limit-unknown" id="claudeLimitBadge" title="Claude limit not checked yet">Claude ?</span>
+    <button class="btn-log-toggle" id="btnLogToggle" onclick="toggleLiveLog()">Live Log</button>
+    <button class="btn-sm" onclick="openSettings()">Settings</button>
   </div>
 </div>
 
@@ -545,8 +545,8 @@
   <!-- Projekt-Sidebar -->
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <span class="sidebar-title">Projekte</span>
-      <button class="btn-new-project" onclick="openNewProject()">+ Neu</button>
+      <span class="sidebar-title">Projects</span>
+      <button class="btn-new-project" onclick="openNewProject()">+ New</button>
     </div>
     <div class="project-list" id="projectList"></div>
   </div>
@@ -556,15 +556,15 @@
     <!-- Chat Stream -->
     <div class="stream-panel">
       <div class="stream-area" id="stream">
-        <div class="msg-system">Willkommen bei OMADS. Schreib einfach los — ich verstehe Fragen und Aufträge.</div>
+        <div class="msg-system">Welcome to OMADS. Just start typing — I understand questions and coding tasks.</div>
         <div id="onboardBanner" style="display:none"></div>
       </div>
       <div class="input-area">
         <textarea class="chat-input" id="input" rows="1"
-          placeholder="Schreib was du brauchst..."
+          placeholder="Describe what you need..."
           onkeydown="onKey(event)"></textarea>
-        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Code-Review mit Claude + Codex">Review</button>
-        <button class="btn-send" id="btnSend" onclick="send()">Senden</button>
+        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Code review with Claude + Codex">Review</button>
+        <button class="btn-send" id="btnSend" onclick="send()">Send</button>
         <button class="btn-stop" id="btnStop" onclick="stop()" style="display:none">Stop</button>
       </div>
     </div>
@@ -573,14 +573,14 @@
     <div class="livelog-panel" id="livelogPanel">
       <div class="livelog-header">
         <div class="livelog-tabs">
-          <button class="livelog-tab active" onclick="switchLogTab('all')" id="logTabAll">Alle</button>
+          <button class="livelog-tab active" onclick="switchLogTab('all')" id="logTabAll">All</button>
           <button class="livelog-tab" onclick="switchLogTab('claude')" id="logTabClaude">Claude Code</button>
           <button class="livelog-tab" onclick="switchLogTab('codex')" id="logTabCodex">Codex</button>
         </div>
         <button class="livelog-close" onclick="toggleLiveLog()">&times;</button>
       </div>
       <div class="livelog-content" id="livelogContent">
-        <div class="livelog-empty">Warte auf Aktivit&auml;t...</div>
+        <div class="livelog-empty">Waiting for activity...</div>
       </div>
     </div>
   </div>
@@ -589,18 +589,18 @@
 <!-- Neues Projekt Modal -->
 <div class="modal-overlay" id="newProjectModal">
   <div class="modal" style="width:500px;">
-    <h2>Neues Projekt</h2>
+    <h2>New Project</h2>
     <div class="new-project-form">
       <div class="form-group">
-        <label>Projektname</label>
-        <input type="text" id="npName" placeholder="z.B. CleanSnap, MeinWebshop...">
+        <label>Project name</label>
+        <input type="text" id="npName" placeholder="e.g. CleanSnap, MyShop...">
       </div>
       <div class="form-group">
-        <label>Projekt-Verzeichnis</label>
+        <label>Project directory</label>
         <div class="folder-picker" id="npFolderPicker">
           <div class="fp-path">
-            <span class="fp-breadcrumb" id="npFpPath">Lade...</span>
-            <button class="btn-pick" onclick="pickNewProjectFolder()">Ausw&auml;hlen</button>
+            <span class="fp-breadcrumb" id="npFpPath">Loading...</span>
+            <button class="btn-pick" onclick="pickNewProjectFolder()">Select</button>
           </div>
           <ul class="fp-list" id="npFpList"></ul>
         </div>
@@ -608,8 +608,8 @@
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn-m secondary" onclick="closeNewProject()">Abbrechen</button>
-      <button class="btn-m primary" onclick="createProject()">Projekt anlegen</button>
+      <button class="btn-m secondary" onclick="closeNewProject()">Cancel</button>
+      <button class="btn-m primary" onclick="createProject()">Create project</button>
     </div>
   </div>
 </div>
@@ -617,31 +617,31 @@
 <!-- Review Modal -->
 <div class="review-modal" id="reviewModal" onclick="if(event.target===this)closeReviewDialog()">
   <div class="review-dialog">
-    <h3>Code-Review starten</h3>
+    <h3>Start code review</h3>
     <div class="review-group">
       <label>Scope</label>
       <select id="reviewScope" onchange="toggleCustomScope()">
-        <option value="project">Ganzes Projekt</option>
-        <option value="last_task">Letzter Task</option>
-        <option value="custom">Eigene Auswahl</option>
+        <option value="project">Whole project</option>
+        <option value="last_task">Last task</option>
+        <option value="custom">Custom selection</option>
       </select>
     </div>
     <div class="review-group" id="customScopeGroup" style="display:none">
-      <label>Dateien / Ordner (kommagetrennt)</label>
+      <label>Files / folders (comma-separated)</label>
       <input type="text" id="reviewCustomScope" placeholder="src/auth/, src/api/routes.py">
     </div>
     <div class="review-group">
-      <label>Fokus</label>
+      <label>Focus</label>
       <select id="reviewFocus">
-        <option value="all">Alles (Security, Bugs, Performance)</option>
+        <option value="all">Everything (security, bugs, performance)</option>
         <option value="security">Security</option>
-        <option value="bugs">Bugs &amp; Logikfehler</option>
+        <option value="bugs">Bugs &amp; logic</option>
         <option value="performance">Performance</option>
       </select>
     </div>
     <div class="review-actions">
-      <button class="btn-cancel" onclick="closeReviewDialog()">Abbrechen</button>
-      <button class="btn-start" onclick="startReview()">Review starten</button>
+      <button class="btn-cancel" onclick="closeReviewDialog()">Cancel</button>
+      <button class="btn-start" onclick="startReview()">Start review</button>
     </div>
   </div>
 </div>
@@ -649,10 +649,10 @@
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
-    <h2>Einstellungen</h2>
+    <h2>Settings</h2>
 
     <div class="tabs">
-      <button class="tab active" onclick="switchTab('tabProject')">Projekt</button>
+      <button class="tab active" onclick="switchTab('tabProject')">Project</button>
       <button class="tab" onclick="switchTab('tabClaude')">Claude Code</button>
       <button class="tab" onclick="switchTab('tabCodex')">Codex</button>
     </div>
@@ -660,138 +660,137 @@
     <!-- Tab: Projekt -->
     <div class="tab-content active" id="tabProject">
       <div class="form-group">
-        <label>Projekt-Verzeichnis</label>
+        <label>Project directory</label>
         <div class="folder-picker" id="folderPicker">
           <div class="fp-path">
-            <span class="fp-breadcrumb" id="fpPath">Lade...</span>
-            <button class="btn-pick" onclick="pickFolder()">Ausw&auml;hlen</button>
+            <span class="fp-breadcrumb" id="fpPath">Loading...</span>
+            <button class="btn-pick" onclick="pickFolder()">Select</button>
           </div>
           <ul class="fp-list" id="fpList"></ul>
         </div>
         <input type="hidden" id="sRepo">
       </div>
       <div class="form-group">
-        <label>Codex Auto-Review</label>
+        <label>Codex auto review</label>
         <select id="sAutoReview">
-          <option value="true">Aktiviert</option>
-          <option value="false">Deaktiviert</option>
+          <option value="true">Enabled</option>
+          <option value="false">Disabled</option>
         </select>
-        <div class="hint">Codex pr&uuml;ft automatisch nach jeder Code-&Auml;nderung.</div>
+        <div class="hint">Codex automatically reviews after each code change.</div>
       </div>
     </div>
 
     <!-- Tab: Claude Code -->
     <div class="tab-content" id="tabClaude">
-      <div class="section-title">Modell</div>
+      <div class="section-title">Model</div>
       <div class="form-group">
-        <label>Claude Modell</label>
+        <label>Claude model</label>
         <select id="sClaude">
-          <option value="sonnet">Sonnet 4.6 (schnell, Standard)</option>
-          <option value="opus">Opus 4.6 (leistungsst&auml;rkste)</option>
-          <option value="haiku">Haiku 4.5 (am schnellsten)</option>
+          <option value="sonnet">Sonnet 4.6 (fast, default)</option>
+          <option value="opus">Opus 4.6 (most capable)</option>
+          <option value="haiku">Haiku 4.5 (fastest)</option>
         </select>
       </div>
 
-      <div class="section-title">Berechtigungen</div>
+      <div class="section-title">Permissions</div>
       <div class="form-group">
-        <label>Permission-Modus</label>
+        <label>Permission mode</label>
         <select id="sPerms">
-          <option value="default">Standard (fragt nach)</option>
-          <option value="auto">Auto-Accept (akzeptiert alles)</option>
-          <option value="plan">Plan-Modus (nur lesen, kein Schreiben)</option>
-          <option value="bypassPermissions">Bypass (keine Checks)</option>
+          <option value="default">Default (asks when needed)</option>
+          <option value="auto">Auto-accept (approves everything)</option>
+          <option value="plan">Plan mode (read-only, no writing)</option>
+          <option value="bypassPermissions">Bypass (no checks)</option>
         </select>
-        <div class="hint">Auto-Accept: Claude darf alles ohne R&uuml;ckfrage. Nur f&uuml;r vertrauensw&uuml;rdige Projekte.</div>
+        <div class="hint">Auto-accept lets Claude proceed without asking. Use it only for trusted projects.</div>
       </div>
 
       <div class="section-title">Reasoning</div>
       <div class="form-group">
-        <label>Effort (Denktiefe)</label>
+        <label>Effort</label>
         <select id="sClaudeEffort">
-          <option value="low">Low (schnell, weniger gr&uuml;ndlich)</option>
+          <option value="low">Low (fast, less thorough)</option>
           <option value="medium">Medium</option>
-          <option value="high">High (Standard)</option>
-          <option value="max">Max (gr&uuml;ndlichste, langsamer)</option>
+          <option value="high">High (default)</option>
+          <option value="max">Max (most thorough, slower)</option>
         </select>
-        <div class="hint">Steuert wie gr&uuml;ndlich Claude nachdenkt. H&ouml;her = bessere Ergebnisse, aber langsamer und teurer.</div>
+        <div class="hint">Controls how deeply Claude reasons. Higher values usually improve results but take longer.</div>
       </div>
 
       <div class="section-title">Limits</div>
       <div class="form-group">
-        <label>Max Turns (Arbeitschritte pro Task)</label>
+        <label>Max turns (work steps per task)</label>
         <input type="text" id="sMaxTurns" value="25">
-        <div class="hint">Mehr Turns erlauben komplexere Aufgaben, dauern aber l&auml;nger.</div>
+        <div class="hint">More turns allow more complex tasks, but they also take longer.</div>
       </div>
 
       <div class="form-group status-card">
         <div class="status-card-head">
-          <div class="status-card-title">Echter Claude-Limit-Status</div>
-          <button class="btn-sm" id="btnClaudeLimitRefresh" onclick="refreshClaudeLimit()">Jetzt pr&uuml;fen</button>
+          <div class="status-card-title">Real Claude limit status</div>
+          <button class="btn-sm" id="btnClaudeLimitRefresh" onclick="refreshClaudeLimit()">Check now</button>
         </div>
-        <div class="status-body" id="claudeLimitDetails">Noch keine echten Claude-Daten vorhanden.</div>
-        <div class="hint" id="claudeLimitHint">Es wird nur gezeigt, was Claude selbst liefert. Kein Rest-%-Wert, weil Claude ihn nicht ausgibt.</div>
+        <div class="status-body" id="claudeLimitDetails">No real Claude data available yet.</div>
+        <div class="hint" id="claudeLimitHint">Only data that Claude itself provides is shown. No remaining-% value is displayed because Claude does not expose one.</div>
       </div>
     </div>
 
     <!-- Tab: Codex -->
     <div class="tab-content" id="tabCodex">
-      <div class="section-title">Auto-Review</div>
+      <div class="section-title">Auto review</div>
       <div class="form-group">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
           <span style="display:inline-block;padding:4px 12px;border-radius:4px;font-size:13px;font-weight:bold;background:#1a2e1a;color:#74d4a5;border:1px solid #74d4a5;">Codex CLI</span>
-          <span style="color:var(--text-dim);font-size:12px;">Automatischer Code-Reviewer</span>
+          <span style="color:var(--text-dim);font-size:12px;">Automatic code reviewer</span>
         </div>
-        <div class="hint">Nach jeder Code-&Auml;nderung pr&uuml;ft Codex automatisch auf Probleme.</div>
+        <div class="hint">Codex automatically checks for issues after each code change.</div>
       </div>
 
-      <div class="section-title">Modell</div>
+      <div class="section-title">Model</div>
       <div class="form-group">
-        <label>Codex-Modell</label>
+        <label>Codex model</label>
         <input type="text" id="sCodexModel" value="" placeholder="Standard (gpt-5.4)" style="font-family:monospace;">
-        <div class="hint">Leer = Codex-Standard (gpt-5.4). Andere Optionen: o4-mini, gpt-4.1, etc.</div>
+        <div class="hint">Leave empty to use the Codex default (`gpt-5.4`). Other options include `o4-mini`, `gpt-4.1`, and more.</div>
       </div>
 
       <div class="section-title">Reasoning</div>
       <div class="form-group">
-        <label>Reasoning Effort (Denktiefe)</label>
+        <label>Reasoning effort</label>
         <select id="sCodexReasoning">
           <option value="low">Low</option>
           <option value="medium">Medium</option>
-          <option value="high">High (Standard)</option>
-          <option value="xhigh">XHigh (gr&uuml;ndlichste)</option>
+          <option value="high">High (default)</option>
+          <option value="xhigh">XHigh (most thorough)</option>
         </select>
-        <div class="hint">Steuert wie gr&uuml;ndlich Codex nachdenkt. XHigh = beste Ergebnisse, aber langsamer.</div>
+        <div class="hint">Controls how deeply Codex reasons. XHigh is usually the most thorough, but also slower.</div>
       </div>
 
       <div class="form-group">
         <label>Fast Mode</label>
         <select id="sCodexFast">
-          <option value="false">Aus (Standard-Geschwindigkeit)</option>
-          <option value="true">An (schnellere Antworten)</option>
+          <option value="false">Off (default speed)</option>
+          <option value="true">On (faster responses)</option>
         </select>
-        <div class="hint">Fast Mode bevorzugt schnellere Antworten.</div>
+        <div class="hint">Fast mode favors lower-latency responses.</div>
       </div>
 
-      <div class="section-title">Einstellungen</div>
       <div class="section-title">Status</div>
       <div class="form-group status-card">
         <div class="status-card-head">
           <div class="status-card-title">Codex /status</div>
-          <button class="btn-sm" id="btnCodexStatusRefresh" onclick="refreshCodexStatus()">Status abrufen</button>
+          <button class="btn-sm" id="btnCodexStatusRefresh" onclick="refreshCodexStatus()">Fetch status</button>
         </div>
-        <div class="status-pre" id="codexStatusText">Noch nicht abgerufen.</div>
-        <div class="hint" id="codexStatusHint">Zeigt die Antwort von Codex auf <code>/status</code>. Keine exakte lokale Usage-Anzeige.</div>
+        <div class="status-pre" id="codexStatusText">Not fetched yet.</div>
+        <div class="hint" id="codexStatusHint">Shows Codex's response to <code>/status</code>. This is not an exact local usage meter.</div>
       </div>
       <div class="hint" style="margin-top:12px;color:var(--text-dim);font-size:12px">
-        <strong>Claude Code</strong> baut und beantwortet.<br>
-        <strong>Codex</strong> pr&uuml;ft automatisch nach &Auml;nderungen.<br>
-        <span style="color:var(--text-dim);">Die GUI zeigt bewusst nur die Einstellungen, die hier wirklich benutzt werden.</span>
+        <strong>Claude Code</strong> builds and responds.<br>
+        <strong>Codex</strong> reviews automatically after changes.<br>
+        <span style="color:var(--text-dim);">The GUI intentionally shows only the settings that are actually used here.</span>
       </div>
     </div>
 
     <div class="modal-actions">
-      <button class="btn-m secondary" onclick="closeSettings()">Abbrechen</button>
-      <button class="btn-m primary" onclick="saveSettings()">Speichern</button>
+      <button class="btn-m secondary" onclick="closeSettings()">Cancel</button>
+      <button class="btn-m primary" onclick="saveSettings()">Save</button>
     </div>
   </div>
 </div>
@@ -808,17 +807,17 @@ function connect() {
   ws = new WebSocket(`${protocol}://${location.host}/ws`);
   ws.onopen = () => {
     _reconnectDelay = 2000;  // Reset bei erfolgreicher Verbindung
-    el('connBadge').textContent = 'Verbunden';
+    el('connBadge').textContent = 'Connected';
     el('connBadge').classList.add('on');
     loadSettings();
     loadRuntimeStatus();
     loadProjects();  // Historie nach Reconnect/Neustart neu laden
   };
   ws.onclose = () => {
-    el('connBadge').textContent = 'Getrennt';
+    el('connBadge').textContent = 'Disconnected';
     el('connBadge').classList.remove('on');
     if (busy) {
-      addSystem('Verbindung zum Server verloren. Die UI wurde entsperrt, ein Reconnect läuft automatisch.');
+      addSystem('Connection to the server was lost. The UI was unlocked and an automatic reconnect is in progress.');
       unlock();
     }
     setTimeout(connect, _reconnectDelay);
@@ -843,7 +842,7 @@ function handle(msg) {
 
     // ─ Task Start ─
     case 'task_start':
-      addSystem(`Task gestartet`);
+      addSystem(`Task started`);
       break;
 
     // ─ Live Text vom Agent ─
@@ -864,9 +863,9 @@ function handle(msg) {
     // ─ Agent Activity (Breaker etc.) ─
     case 'agent_activity':
       if (msg.activity === 'finding') {
-        addAgent(msg.agent, `Hinweis: ${msg.text}`);
+        addAgent(msg.agent, `Finding: ${msg.text}`);
       } else if (msg.activity === 'analysis') {
-        addToolBlock(msg.agent, 'Analyse', 'Code-Review Ergebnis', msg.text);
+        addToolBlock(msg.agent, 'Analysis', 'Code review result', msg.text);
       } else {
         addAgent(msg.agent, msg.text);
       }
@@ -887,7 +886,7 @@ function handle(msg) {
       break;
 
     case 'error':
-      addSystem(msg.text || 'Fehler');
+      addSystem(msg.text || 'Error');
       unlock();
       break;
 
@@ -916,8 +915,8 @@ function handle(msg) {
         <div style="padding:12px;background:var(--bg);border:1px solid var(--blue);border-radius:8px;margin:8px 0;">
           <div style="margin-bottom:10px;color:var(--text);">${formatMsg(msg.text)}</div>
           <div style="display:flex;gap:8px;">
-            <button onclick="applyFixes()" style="background:var(--green);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:bold;">Fixes anwenden</button>
-            <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background:var(--bg2);color:var(--muted);border:1px solid var(--border);padding:8px 16px;border-radius:6px;cursor:pointer;">Nein, danke</button>
+            <button onclick="applyFixes()" style="background:var(--green);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:bold;">Apply fixes</button>
+            <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background:var(--bg2);color:var(--muted);border:1px solid var(--border);padding:8px 16px;border-radius:6px;cursor:pointer;">No thanks</button>
           </div>
         </div>`;
       el('stream').appendChild(fixDiv);
@@ -950,11 +949,11 @@ function startReview() {
   closeReviewDialog();
 
   // Review-Start im Chat anzeigen
-  const focusMap = { all: 'Alles', security: 'Security', bugs: 'Bugs', performance: 'Performance' };
-  const scopeMap = { project: 'Ganzes Projekt', last_task: 'Letzter Task', custom: customScope || 'Eigene Auswahl' };
+  const focusMap = { all: 'Everything', security: 'Security', bugs: 'Bugs', performance: 'Performance' };
+  const scopeMap = { project: 'Whole project', last_task: 'Last task', custom: customScope || 'Custom selection' };
   const d = document.createElement('div');
   d.className = 'msg msg-user';
-  d.innerHTML = formatMsg(`Review starten — Scope: ${scopeMap[scope]}, Fokus: ${focusMap[focus]}`);
+  d.innerHTML = formatMsg(`Start review — Scope: ${scopeMap[scope]}, Focus: ${focusMap[focus]}`);
   el('stream').appendChild(d);
   scrollDown();
 
@@ -967,7 +966,7 @@ function applyFixes() {
   if (!ws) return;
   const d = document.createElement('div');
   d.className = 'msg msg-user';
-  d.innerHTML = formatMsg('Fixes anwenden');
+  d.innerHTML = formatMsg('Apply fixes');
   el('stream').appendChild(d);
   scrollDown();
   ws.send(JSON.stringify({ type: 'apply_fixes' }));
@@ -1099,21 +1098,21 @@ function buildResultCard(msg) {
   const config = {
     accept: {
       icon: '✓',
-      title: 'Erfolgreich abgeschlossen',
+      title: 'Completed successfully',
       subtitle: _buildAcceptSubtitle(filesChanged, findings),
-      detailLabel: 'Details anzeigen',
+      detailLabel: 'Show details',
     },
     reject: {
       icon: '✗',
-      title: 'Nicht abgeschlossen',
+      title: 'Not completed',
       subtitle: _buildRejectSubtitle(findings, conformance, summary),
-      detailLabel: 'Gründe anzeigen',
+      detailLabel: 'Show reasons',
     },
     escalate: {
       icon: '⚠',
-      title: 'Deine Entscheidung nötig',
+      title: 'Your decision is required',
       subtitle: _buildEscalateSubtitle(findings),
-      detailLabel: 'Gründe anzeigen',
+      detailLabel: 'Show reasons',
     },
   };
   const c = config[decision] || config.reject;
@@ -1157,13 +1156,13 @@ function buildResultCard(msg) {
 
   // Buttons pro Decision-Typ (data-Attribute statt onclick-Interpolation → XSS-sicher)
   if (decision === 'accept') {
-    html += `<button class="rc-btn primary" data-action="new">Neuer Auftrag</button>`;
+    html += `<button class="rc-btn primary" data-action="new">New task</button>`;
   } else if (decision === 'reject') {
-    html += `<button class="rc-btn primary" data-action="revise" data-param="${esc(intent)}">Anpassen &amp; Neu starten</button>`;
+    html += `<button class="rc-btn primary" data-action="revise" data-param="${esc(intent)}">Revise &amp; retry</button>`;
   } else if (decision === 'escalate') {
-    html += `<button class="rc-btn primary" data-action="approve" data-param="${esc(msg.task_id)}">Freigeben</button>`;
-    html += `<button class="rc-btn danger" data-action="reject_escalation" data-param="${esc(msg.task_id)}">Ablehnen</button>`;
-    html += `<button class="rc-btn" data-action="revise" data-param="${esc(intent)}">Nachbessern lassen</button>`;
+    html += `<button class="rc-btn primary" data-action="approve" data-param="${esc(msg.task_id)}">Approve</button>`;
+    html += `<button class="rc-btn danger" data-action="reject_escalation" data-param="${esc(msg.task_id)}">Reject</button>`;
+    html += `<button class="rc-btn" data-action="revise" data-param="${esc(intent)}">Request revision</button>`;
   }
 
   html += `</div>`;
@@ -1179,26 +1178,26 @@ function buildResultCard(msg) {
 
 function _buildAcceptSubtitle(filesChanged, findings) {
   const parts = [];
-  if (filesChanged > 0) parts.push(`${filesChanged} Datei${filesChanged > 1 ? 'en' : ''} geändert`);
-  if (findings.length === 0) parts.push('Alle Prüfungen bestanden');
-  else parts.push(`${findings.length} Hinweis${findings.length > 1 ? 'e' : ''}`);
+  if (filesChanged > 0) parts.push(`${filesChanged} file${filesChanged > 1 ? 's' : ''} changed`);
+  if (findings.length === 0) parts.push('All checks passed');
+  else parts.push(`${findings.length} finding${findings.length > 1 ? 's' : ''}`);
   return parts.join(' · ');
 }
 
 function _buildRejectSubtitle(findings, conformance, summary) {
   const issues = findings.filter(f => f.severity === 'high' || f.severity === 'medium');
   const total = issues.length + conformance.length;
-  if (total > 0) return `${total} Problem${total > 1 ? 'e' : ''} gefunden`;
+  if (total > 0) return `${total} issue${total > 1 ? 's' : ''} found`;
   if (summary) return summary.substring(0, 80);
-  return 'Der Vorgang konnte nicht abgeschlossen werden';
+  return 'The task could not be completed';
 }
 
 function _buildEscalateSubtitle(findings) {
   const security = findings.filter(f => f.type === 'security_finding');
   const scope = findings.filter(f => f.type === 'scope_violation');
-  if (security.length > 0) return 'Sicherheitsrelevante Änderung · Prüfung empfohlen';
-  if (scope.length > 0) return 'Änderung außerhalb des erwarteten Bereichs';
-  return 'Ergebnis muss manuell geprüft werden';
+  if (security.length > 0) return 'Security-sensitive change · review recommended';
+  if (scope.length > 0) return 'Change outside the expected scope';
+  return 'Result requires manual review';
 }
 
 function resultAction(action, param) {
@@ -1214,11 +1213,11 @@ function resultAction(action, param) {
   } else if (action === 'approve') {
     // Freigeben — als Chat-Nachricht senden
     if (ws) ws.send(JSON.stringify({ type: 'escalation_response', task_id: param, action: 'approve' }));
-    addSystem('Freigegeben — Änderungen werden übernommen.');
+    addSystem('Approved — changes will be accepted.');
   } else if (action === 'reject_escalation') {
     // Ablehnen — als Chat-Nachricht senden
     if (ws) ws.send(JSON.stringify({ type: 'escalation_response', task_id: param, action: 'reject' }));
-    addSystem('Abgelehnt — Änderungen werden verworfen.');
+    addSystem('Rejected — changes will be discarded.');
   }
 }
 
@@ -1255,7 +1254,7 @@ async function browseTo(path) {
     if (data.parent) {
       const li = document.createElement('li');
       li.className = 'fp-item fp-up';
-      li.innerHTML = '<span>..</span><span>Hoch</span>';
+      li.innerHTML = '<span>..</span><span>Up</span>';
       li.onclick = () => browseTo(data.parent);
       list.appendChild(li);
     }
@@ -1272,8 +1271,8 @@ async function browseTo(path) {
 function pickFolder() {
   el('sRepo').value = fpPath;
   const btn = document.querySelector('.btn-pick');
-  btn.textContent = '✓ Gewählt';
-  setTimeout(() => { btn.textContent = 'Auswählen'; }, 1200);
+  btn.textContent = '✓ Selected';
+  setTimeout(() => { btn.textContent = 'Select'; }, 1200);
 }
 
 async function loadSettings() {
@@ -1290,7 +1289,7 @@ async function loadSettings() {
     el('sCodexReasoning').value = s.codex_reasoning || 'high';
     el('sCodexFast').value = s.codex_fast ? 'true' : 'false';
     el('sAutoReview').value = s.auto_review !== false ? 'true' : 'false';
-    el('repoBadge').textContent = shortPath(s.target_repo || 'Kein Projekt');
+    el('repoBadge').textContent = shortPath(s.target_repo || 'No project');
   } catch (e) {}
 }
 let _savedSettings = {};
@@ -1328,7 +1327,7 @@ async function loadRuntimeStatus() {
 function fmtRemaining(unixTs) {
   if (!unixTs) return '—';
   const diffMs = unixTs * 1000 - Date.now();
-  if (diffMs <= 0) return 'jetzt';
+  if (diffMs <= 0) return 'now';
   const diffMin = Math.floor(diffMs / 60000);
   if (diffMin < 60) return `${diffMin} min`;
   const h = Math.floor(diffMin / 60);
@@ -1340,15 +1339,15 @@ function fmtRemaining(unixTs) {
 
 function fmtTimestamp(unixTs) {
   if (!unixTs) return '—';
-  return new Date(unixTs * 1000).toLocaleString('de-DE', {
+  return new Date(unixTs * 1000).toLocaleString('en-US', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   });
 }
 
 function fmtLimitType(type) {
   if (type === 'five_hour') return '5h';
-  if (type === 'weekly') return 'Woche';
-  return 'Limit';
+  if (type === 'weekly') return 'week';
+  return 'limit';
 }
 
 function renderClaudeLimit(limit = _runtimeStatus.claude_limit || {}) {
@@ -1366,9 +1365,9 @@ function renderClaudeLimit(limit = _runtimeStatus.claude_limit || {}) {
   if (!lastChecked) {
     badge.classList.add('limit-unknown');
     badge.textContent = 'Claude ?';
-    badge.title = 'Claude-Limit noch nicht abgefragt';
-    details.textContent = 'Noch keine echten Claude-Limitdaten vorhanden.';
-    hint.textContent = 'Es wird nur gezeigt, was Claude selbst liefert. Kein Rest-%-Wert, weil Claude ihn nicht ausgibt.';
+    badge.title = 'Claude limit not checked yet';
+    details.textContent = 'No real Claude limit data available yet.';
+    hint.textContent = 'Only data that Claude itself provides is shown. No remaining-% value is displayed because Claude does not expose one.';
     return;
   }
 
@@ -1385,28 +1384,28 @@ function renderClaudeLimit(limit = _runtimeStatus.claude_limit || {}) {
 
   badge.title = data.resets_at
     ? `Claude ${typeLabel} Reset: ${fmtTimestamp(data.resets_at)}`
-    : 'Claude-Limitstatus ohne Reset-Zeit';
+    : 'Claude limit status without a reset time';
 
   let html = '';
   if (data.status === 'rate_limited') {
-    html += `<strong style="color:var(--red);">Limit erreicht</strong> (${esc(typeLabel)})`;
+    html += `<strong style="color:var(--red);">Limit reached</strong> (${esc(typeLabel)})`;
   } else if (data.status === 'allowed') {
-    html += `<strong style="color:var(--green);">Verfügbar</strong> (${esc(typeLabel)})`;
+    html += `<strong style="color:var(--green);">Available</strong> (${esc(typeLabel)})`;
   } else {
-    html += `<strong>Unbekannt</strong>`;
+    html += `<strong>Unknown</strong>`;
   }
   html += `<br>Reset: <strong>${esc(resetText)}</strong>`;
-  html += `<br>Nächster Reset: <strong>${esc(fmtTimestamp(data.resets_at || 0))}</strong>`;
-  html += `<br>Zuletzt geprüft: <strong>${esc(fmtTimestamp(lastChecked))}</strong>`;
+  html += `<br>Next reset: <strong>${esc(fmtTimestamp(data.resets_at || 0))}</strong>`;
+  html += `<br>Last checked: <strong>${esc(fmtTimestamp(lastChecked))}</strong>`;
   if (data.is_using_overage) {
-    html += `<br>Overage: <strong>aktiv</strong>`;
+    html += `<br>Overage: <strong>active</strong>`;
   } else if (data.overage_status) {
     html += `<br>Overage: <strong>${esc(data.overage_status)}</strong>`;
   }
   details.innerHTML = html;
 
-  let hintText = 'Es wird nur gezeigt, was Claude selbst liefert. Kein Rest-%-Wert, weil Claude ihn nicht ausgibt.';
-  if (data.overage_disabled_reason) hintText += ` Overage-Grund: ${data.overage_disabled_reason}.`;
+  let hintText = 'Only data that Claude itself provides is shown. No remaining-% value is displayed because Claude does not expose one.';
+  if (data.overage_disabled_reason) hintText += ` Overage reason: ${data.overage_disabled_reason}.`;
   hint.textContent = hintText;
 }
 
@@ -1416,11 +1415,11 @@ function renderCodexStatus(codexStatus = _runtimeStatus.codex_status || {}) {
   const hintEl = el('codexStatusHint');
   const data = _runtimeStatus.codex_status || {};
 
-  textEl.textContent = data.text || 'Noch nicht abgerufen.';
+  textEl.textContent = data.text || 'Not fetched yet.';
 
-  let hint = 'Zeigt die Antwort von Codex auf /status. Keine exakte lokale Usage-Anzeige.';
-  if (data.last_checked) hint += ` Stand: ${fmtTimestamp(data.last_checked)}.`;
-  if (data.error) hint += ` Fehler: ${data.error}`;
+  let hint = 'Shows Codex\'s response to /status. This is not an exact local usage meter.';
+  if (data.last_checked) hint += ` Updated: ${fmtTimestamp(data.last_checked)}.`;
+  if (data.error) hint += ` Error: ${data.error}`;
   hintEl.textContent = hint;
 }
 
@@ -1428,7 +1427,7 @@ async function refreshClaudeLimit() {
   const btn = el('btnClaudeLimitRefresh');
   const oldText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Prüfe...';
+  btn.textContent = 'Checking...';
   try {
     const res = await fetch('/api/runtime-status/claude/refresh', { method: 'POST' });
     const data = await res.json();
@@ -1438,7 +1437,7 @@ async function refreshClaudeLimit() {
     }
     if (data.limit) renderClaudeLimit(data.limit);
   } catch (e) {
-    el('claudeLimitHint').textContent = 'Claude-Limit konnte gerade nicht abgefragt werden.';
+    el('claudeLimitHint').textContent = 'Claude limit could not be fetched right now.';
   } finally {
     btn.disabled = false;
     btn.textContent = oldText;
@@ -1449,7 +1448,7 @@ async function refreshCodexStatus() {
   const btn = el('btnCodexStatusRefresh');
   const oldText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Hole...';
+  btn.textContent = 'Fetching...';
   try {
     const res = await fetch('/api/runtime-status/codex/refresh', { method: 'POST' });
     const data = await res.json();
@@ -1459,7 +1458,7 @@ async function refreshCodexStatus() {
     }
     if (data.codex_status) renderCodexStatus(data.codex_status);
   } catch (e) {
-    el('codexStatusHint').textContent = 'Codex-Status konnte gerade nicht abgefragt werden.';
+    el('codexStatusHint').textContent = 'Codex status could not be fetched right now.';
   } finally {
     btn.disabled = false;
     btn.textContent = oldText;
@@ -1552,8 +1551,8 @@ function logEvent(msg) {
   if (empty) empty.remove();
 
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const dateStr = now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateStr = now.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit' });
 
   const agent = msg.agent || 'System';
   const agentCls = agentClass(agent);
@@ -1564,7 +1563,7 @@ function logEvent(msg) {
 
   switch (msg.type) {
     case 'task_start':
-      msgText = `Task gestartet: ${msg.intent || msg.task_id || ''}`;
+      msgText = `Task started: ${msg.intent || msg.task_id || ''}`;
       msgCls = 'text';
       break;
     case 'stream_text':
@@ -1587,17 +1586,17 @@ function logEvent(msg) {
       typeLabel = 'activity';
       break;
     case 'task_complete':
-      msgText = `Entscheidung: ${msg.decision} (Score: ${((msg.score || 0) * 100).toFixed(0)}%)`;
+      msgText = `Decision: ${msg.decision} (Score: ${((msg.score || 0) * 100).toFixed(0)}%)`;
       msgCls = msg.decision === 'accept' ? 'text' : 'error';
       typeLabel = 'result';
       break;
     case 'task_stopped':
-      msgText = msg.text || 'Abgebrochen';
+      msgText = msg.text || 'Stopped';
       msgCls = 'error';
       typeLabel = 'stop';
       break;
     case 'task_error':
-      msgText = msg.text || 'Fehler';
+      msgText = msg.text || 'Error';
       msgCls = 'error';
       typeLabel = 'error';
       break;
@@ -1608,12 +1607,12 @@ function logEvent(msg) {
     case 'stream_thinking':
       msgText = msg.text || '';
       msgCls = 'thinking';
-      typeLabel = 'denkt';
+      typeLabel = 'thinking';
       break;
     case 'stream_result':
       msgText = msg.text || '';
       msgCls = msg.is_error ? 'error' : 'result';
-      typeLabel = msg.is_error ? 'fehler' : 'ergebnis';
+      typeLabel = msg.is_error ? 'error' : 'result';
       break;
   }
 
@@ -1657,14 +1656,14 @@ async function loadProjects() {
       await loadProjectLogs(active.id);
     }
   } catch (e) {
-    console.error('Fehler beim Laden der Projekte:', e);
+    console.error('Error while loading projects:', e);
   }
 }
 
 function renderProjects() {
   const list = el('projectList');
   if (_projects.length === 0) {
-    list.innerHTML = '<div class="history-empty">Kein Projekt angelegt.<br>Klicke "+ Neu" um zu starten.</div>';
+    list.innerHTML = '<div class="history-empty">No project created yet.<br>Click "+ New" to get started.</div>';
     return;
   }
   // Sortiere nach last_used (neueste zuerst)
@@ -1681,9 +1680,9 @@ function renderProjects() {
         <div style="flex:1;min-width:0;">
           <div class="project-name">${esc(p.name)}</div>
           <div class="project-path" title="${esc(p.path)}">${esc(shortP)}</div>
-          <div class="project-meta">Zuletzt: ${lastUsed}</div>
+          <div class="project-meta">Last used: ${lastUsed}</div>
         </div>
-        <button class="btn-delete-project" data-id="${esc(p.id)}" data-name="${esc(p.name)}" title="Projekt l&ouml;schen" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
+        <button class="btn-delete-project" data-id="${esc(p.id)}" data-name="${esc(p.name)}" title="Delete project" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
       </div>
     `;
     // Event-Listener statt Inline-onclick (verhindert XSS über Projektnamen)
@@ -1721,7 +1720,7 @@ async function switchProject(projectId) {
 }
 
 async function deleteProject(projectId, projectName) {
-  if (!confirm(`Projekt "${projectName}" wirklich löschen?`)) return;
+  if (!confirm(`Delete project "${projectName}"?`)) return;
   try {
     await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
     if (_activeProjectId === projectId) _activeProjectId = null;
@@ -1750,7 +1749,7 @@ async function browseToNp(path) {
     if (data.parent) {
       const li = document.createElement('li');
       li.className = 'fp-item fp-up';
-      li.innerHTML = '<span>..</span><span>Hoch</span>';
+      li.innerHTML = '<span>..</span><span>Up</span>';
       li.onclick = () => browseToNp(data.parent);
       list.appendChild(li);
     }
@@ -1767,8 +1766,8 @@ async function browseToNp(path) {
 function pickNewProjectFolder() {
   el('npPath').value = _npFpPath;
   const btn = el('npFolderPicker').querySelector('.btn-pick');
-  btn.textContent = '✓ Gewählt';
-  setTimeout(() => { btn.textContent = 'Auswählen'; }, 1200);
+  btn.textContent = '✓ Selected';
+  setTimeout(() => { btn.textContent = 'Select'; }, 1200);
   // Auto-Name aus Ordnername wenn leer
   if (!el('npName').value.trim()) {
     const parts = _npFpPath.split('/');
@@ -1796,7 +1795,7 @@ async function createProject() {
   _activeProjectId = data.project.id;
   el('repoBadge').textContent = shortPath(data.project.path);
   await loadProjects();
-  el('stream').innerHTML = '<div class="msg-system">Neues Projekt: ' + esc(name) + '. Was soll ich programmieren?</div>';
+  el('stream').innerHTML = '<div class="msg-system">New project: ' + esc(name) + '. What should I build?</div>';
 }
 
 // ─── Historie im Chat-Stream ─────────────
@@ -1804,21 +1803,21 @@ async function loadHistoryIntoChat(projectId, projectName) {
   const s = el('stream');
 
   // Projekt-Header
-  s.innerHTML = `<div class="msg-system">Projekt: ${esc(projectName)}</div>`;
+  s.innerHTML = `<div class="msg-system">Project: ${esc(projectName)}</div>`;
 
   try {
     const res = await fetch(`/api/projects/${projectId}/history`);
     const entries = await res.json();
 
     if (!entries || entries.length === 0) {
-      addSystem('Noch kein Verlauf. Schreib deinen ersten Auftrag!');
+      addSystem('No history yet. Send your first task!');
       return;
     }
 
     // Trennlinie: Vergangene Session
     const divider = document.createElement('div');
     divider.className = 'msg-history-divider';
-    divider.textContent = `Verlauf (${entries.length} Eintr\u00e4ge)`;
+    divider.textContent = `History (${entries.length} entries)`;
     s.appendChild(divider);
 
     // Chronologisch (älteste zuerst) — wie ein echter Chat-Verlauf
@@ -1846,18 +1845,18 @@ async function loadHistoryIntoChat(projectId, projectName) {
         // Task-Ergebnis als Result-Banner
         const decision = e.decision || 'reject';
         const score = e.score ? (e.score * 100).toFixed(0) + '%' : '';
-        const label = decision === 'accept' ? 'Fertig' : decision === 'escalate' ? 'Bitte pr\u00fcfen' : 'Fehlgeschlagen';
+        const label = decision === 'accept' ? 'Done' : decision === 'escalate' ? 'Needs review' : 'Failed';
         const d = document.createElement('div');
         d.className = `result-banner ${decision}`;
         d.innerHTML = `<span style="font-size:10px;color:inherit;opacity:0.7;display:block;margin-bottom:2px;">${esc(time)}</span>${label} ${score} — ${esc(truncate(e.intent, 60))}`;
-        if (e.files_changed) d.innerHTML += `<span style="font-size:11px;opacity:0.7;margin-left:8px;">(${e.files_changed} Datei${e.files_changed > 1 ? 'en' : ''})</span>`;
+        if (e.files_changed) d.innerHTML += `<span style="font-size:11px;opacity:0.7;margin-left:8px;">(${e.files_changed} file${e.files_changed > 1 ? 's' : ''})</span>`;
         s.appendChild(d);
       } else if (e.type === 'claude_response') {
         // Claude Code Antwort (neue Architektur)
         const da = document.createElement('div');
         da.className = 'msg msg-agent';
         let meta = '';
-        if (e.files_changed) meta += `${e.files_changed} Datei${e.files_changed > 1 ? 'en' : ''} ge\u00e4ndert`;
+        if (e.files_changed) meta += `${e.files_changed} file${e.files_changed > 1 ? 's' : ''} changed`;
         if (e.duration_s) meta += `${meta ? ' · ' : ''}${e.duration_s}s`;
         da.innerHTML = `<span class="agent-name claude">Claude Code</span>${formatMsg(e.text)}${meta ? '<span style="font-size:10px;color:var(--text-dim);display:block;margin-top:4px;">' + meta + '</span>' : ''}`;
         s.appendChild(da);
@@ -1880,18 +1879,18 @@ async function loadHistoryIntoChat(projectId, projectName) {
     // Trennlinie: Jetzt
     const now = document.createElement('div');
     now.className = 'msg-history-divider';
-    now.textContent = 'Jetzt';
+    now.textContent = 'Now';
     s.appendChild(now);
 
     scrollDown();
   } catch (e) {
-    console.error('Fehler beim Laden der Historie:', e);
+    console.error('Error while loading history:', e);
   }
 }
 
 async function loadProjectLogs(projectId) {
   const container = el('livelogContent');
-  container.innerHTML = '<div class="livelog-empty">Warte auf Aktivit\u00e4t...</div>';
+  container.innerHTML = '<div class="livelog-empty">Waiting for activity...</div>';
   try {
     const res = await fetch(`/api/projects/${projectId}/logs`);
     const entries = await res.json();
@@ -1914,7 +1913,7 @@ async function loadProjectLogs(projectId) {
     }
     container.scrollTop = container.scrollHeight;
   } catch (e) {
-    console.error('Fehler beim Laden der Logs:', e);
+    console.error('Error while loading logs:', e);
   }
 }
 
@@ -1931,14 +1930,14 @@ async function checkHealth() {
     if (allOk) {
       // Alles installiert — kurze Bestätigung, auto-hide nach 5s
       banner.className = 'onboard-banner';
-      banner.innerHTML = `<div class="onboard-ok">Claude Code CLI ${h.claude.version ? '(' + esc(h.claude.version) + ')' : ''} + Codex CLI ${h.codex.version ? '(' + esc(h.codex.version) + ')' : ''} — bereit.</div>`;
+      banner.innerHTML = `<div class="onboard-ok">Claude Code CLI ${h.claude.version ? '(' + esc(h.claude.version) + ')' : ''} + Codex CLI ${h.codex.version ? '(' + esc(h.codex.version) + ')' : ''} — ready.</div>`;
       banner.style.display = '';
       setTimeout(() => { banner.style.display = 'none'; }, 5000);
       return;
     }
 
     // Mindestens ein CLI fehlt — ausführliches Banner
-    let html = '<h3>Setup erforderlich</h3>';
+    let html = '<h3>Setup required</h3>';
     html += '<div class="cli-status">';
 
     // Claude Card
@@ -1946,15 +1945,15 @@ async function checkHealth() {
       html += `<div class="cli-card ok"><div class="cli-name ok">Claude Code CLI</div>`;
       html += `<div class="cli-ver">${esc(h.claude.version || '')} &mdash; ${esc(h.claude.path || '')}</div>`;
       if (h.claude.authenticated === false) {
-        html += `<div class="cli-hint">Nicht authentifiziert. Starte einmalig <code>claude</code> im Terminal und melde dich an.</div>`;
+        html += `<div class="cli-hint">Not authenticated. Run <code>claude</code> once in a terminal and sign in.</div>`;
       }
       html += '</div>';
     } else {
       html += `<div class="cli-card missing"><div class="cli-name missing">Claude Code CLI</div>`;
-      html += `<div class="cli-hint">Nicht gefunden. Installiere mit:</div>`;
+      html += `<div class="cli-hint">Not found. Install with:</div>`;
       html += `<div class="install-cmd">npm install -g @anthropic-ai/claude-code</div>`;
-      html += `<div class="cli-ver" style="margin-top:6px">Voraussetzung: <code>Node.js 18+</code> &mdash; <a href="https://nodejs.org" target="_blank" style="color:var(--cyan)">nodejs.org</a></div>`;
-      html += `<div class="cli-ver">Danach einmalig <code>claude</code> im Terminal starten und mit Claude Pro / Max / Team Abo anmelden.</div>`;
+      html += `<div class="cli-ver" style="margin-top:6px">Requirement: <code>Node.js 18+</code> &mdash; <a href="https://nodejs.org" target="_blank" style="color:var(--cyan)">nodejs.org</a></div>`;
+      html += `<div class="cli-ver">Then run <code>claude</code> once in a terminal and sign in with your Claude Pro / Max / Team subscription.</div>`;
       html += '</div>';
     }
 
@@ -1965,20 +1964,20 @@ async function checkHealth() {
       html += '</div>';
     } else {
       html += `<div class="cli-card missing"><div class="cli-name missing">Codex CLI</div>`;
-      html += `<div class="cli-hint">Nicht gefunden. Installiere mit:</div>`;
+      html += `<div class="cli-hint">Not found. Install with:</div>`;
       html += `<div class="install-cmd">npm install -g @openai/codex</div>`;
-      html += `<div class="cli-ver" style="margin-top:6px">Voraussetzung: <code>Node.js 22+</code> &mdash; <a href="https://nodejs.org" target="_blank" style="color:var(--cyan)">nodejs.org</a></div>`;
-      html += `<div class="cli-ver">Danach einmalig <code>codex</code> im Terminal starten und mit ChatGPT Plus / Pro Abo anmelden.</div>`;
+      html += `<div class="cli-ver" style="margin-top:6px">Requirement: <code>Node.js 22+</code> &mdash; <a href="https://nodejs.org" target="_blank" style="color:var(--cyan)">nodejs.org</a></div>`;
+      html += `<div class="cli-ver">Then run <code>codex</code> once in a terminal and sign in with your ChatGPT Plus / Pro subscription.</div>`;
       html += '</div>';
     }
 
     html += '</div>';
 
     if (!h.claude?.installed || !h.codex?.installed) {
-      html += '<div class="cli-ver" style="margin-top:8px">Nach der Installation: OMADS-Server neu starten oder Seite neu laden.</div>';
+      html += '<div class="cli-ver" style="margin-top:8px">After installation, restart the OMADS server or reload the page.</div>';
     }
 
-    html += '<button class="dismiss-btn" onclick="el(\'onboardBanner\').style.display=\'none\'">Verstanden, ausblenden</button>';
+    html += '<button class="dismiss-btn" onclick="el(\'onboardBanner\').style.display=\'none\'">Got it, dismiss</button>';
 
     banner.className = 'onboard-banner';
     banner.innerHTML = html;

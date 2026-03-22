@@ -104,7 +104,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     def send(msg: dict):
         broadcast_sync(msg, proj_id_override=_frozen_proj_id)
 
-    send({"type": "agent_status", "agent": agent_label, "status": "Arbeitet..."})
+    send({"type": "agent_status", "agent": agent_label, "status": "Working..."})
 
     # Historie: User-Eingabe loggen
     proj_id = _frozen_proj_id
@@ -116,11 +116,11 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
         # OMADS-Kontext für Claude CLI
         omads_context = (
-            "Du arbeitest innerhalb von OMADS (Orchestrated Multi-Agent Development System). "
-            "Der User kommuniziert mit dir über eine Web-GUI. "
-            "Nach jeder Code-Änderung prüft Codex CLI automatisch deinen Code im Hintergrund. "
-            "Wenn Codex Probleme findet, bekommst du die Findings als nächste Nachricht und sollst sie fixen. "
-            "Antworte auf Deutsch.\n\n"
+            "You are working inside OMADS (Orchestrated Multi-Agent Development System). "
+            "The user interacts with you through a web GUI. "
+            "After every code change, Codex CLI automatically reviews your code in the background. "
+            "If Codex finds issues, you will receive the findings as the next message and should fix them. "
+            "Respond in English.\n\n"
         )
 
         # Projekt-Memory NUR bei neuer Session laden (spart Tokens bei --resume)
@@ -129,10 +129,10 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
             project_memory = _load_project_memory(target_repo)
             if project_memory:
                 omads_context += (
-                    "Du hast folgenden Kontext aus vorherigen Sessions und dem Projekt:\n\n"
+                    "You have the following context from previous sessions and the project:\n\n"
                     + project_memory + "\n\n"
-                    "Nutze diesen Kontext um nahtlos weiterzuarbeiten, ohne dass der User "
-                    "dir erklären muss wo ihr stehen geblieben seid."
+                    "Use this context to continue seamlessly without requiring the user "
+                    "to explain where the work left off."
                 )
 
         # Claude CLI mit stream-json für Live-Output
@@ -164,7 +164,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         for line in process.stdout:
             if _task_cancelled:
                 process.kill()
-                send({"type": "task_stopped", "text": "Abgebrochen."})
+                send({"type": "task_stopped", "text": "Stopped."})
                 break
 
             line = line.strip()
@@ -223,7 +223,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                             thinking = block.get("thinking", "").strip()
                             if thinking:
                                 send({"type": "stream_thinking", "agent": agent_label,
-                                      "text": f"[Denkprozess: {len(thinking)} Zeichen]"})
+                                      "text": f"[Thinking: {len(thinking)} chars]"})
 
                 elif ev_type == "user":
                     # Tool-Ergebnisse — was Claude nach Read/Bash/etc. zurückbekommt
@@ -272,7 +272,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
             if proj_id:
                 _append_history(proj_id, {
                     "type": "task_error",
-                    "text": f"Claude Task Exit-Code {process.returncode}",
+                    "text": f"Claude task exit code {process.returncode}",
                     "duration_s": elapsed,
                 })
             return
@@ -291,17 +291,17 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         if result_text and not output_lines:
             send({"type": "chat_response", "agent": agent_label, "text": result_text})
 
-        send({"type": "agent_status", "agent": agent_label, "status": f"Fertig ({elapsed}s)"})
+        send({"type": "agent_status", "agent": agent_label, "status": f"Done ({elapsed}s)"})
 
         # Projekt-Memory aktualisieren (Zusammenfassung für nächste Session)
         if success and (output_lines or result_text):
             summary_parts = []
             if files_changed:
-                summary_parts.append(f"Geänderte Dateien: {', '.join(f[-60:] for f in files_changed[:20])}")
+                summary_parts.append(f"Changed files: {', '.join(f[-60:] for f in files_changed[:20])}")
             # Letzte Ausgaben als Kontext-Zusammenfassung
             recent_output = "\n".join(output_lines[-10:]) if output_lines else result_text
-            summary_parts.append(f"Letzte Aufgabe: {user_text[:200]}")
-            summary_parts.append(f"Ergebnis: {recent_output[:2000]}")
+            summary_parts.append(f"Latest task: {user_text[:200]}")
+            summary_parts.append(f"Result: {recent_output[:2000]}")
             _save_project_memory(target_repo, "\n".join(summary_parts))
 
         # Historie: Ergebnis loggen
@@ -319,12 +319,12 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
             # Wenn Codex Probleme gefunden hat → Findings an Claude CLI zurückgeben
             if review_findings:
                 send({"type": "agent_status", "agent": "Claude Code",
-                      "status": "Behebt Codex-Findings..."})
+                      "status": "Fixing Codex findings..."})
 
                 fix_prompt = (
-                    "Der Codex Auto-Reviewer hat folgende Probleme in deinem Code gefunden. "
-                    "Bitte behebe diese:\n\n" + review_findings + "\n\n"
-                    "Regeln: Behebe NUR die gemeldeten Probleme. Kein Scope Creep."
+                    "The Codex auto-reviewer found the following issues in your code. "
+                    "Please fix them:\n\n" + review_findings + "\n\n"
+                    "Rules: Fix ONLY the reported issues. No scope creep."
                 )
 
                 # Claude CLI frische Session für Fix
@@ -419,20 +419,20 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                 else:
                     if fix_session_id and fix_process.returncode == 0:
                         _set_chat_session(repo_key, fix_session_id)
-                    send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes angewendet"})
+                    send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes applied"})
 
     except FileNotFoundError:
         send({"type": "chat_response", "agent": "System",
-              "text": "Claude CLI nicht gefunden. Installiere mit: npm install -g @anthropic-ai/claude-code"})
+              "text": "Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code"})
     except subprocess.TimeoutExpired:
         with _process_lock:
             if _active_process:
                 _active_process.kill()
-        send({"type": "chat_response", "agent": "System", "text": "Timeout — Claude CLI hat zu lange gebraucht."})
+        send({"type": "chat_response", "agent": "System", "text": "Timeout — Claude CLI took too long."})
     except Exception as e:
         import logging
-        logging.getLogger("omads.gui").error("Claude-Session-Fehler: %s", e, exc_info=True)
-        send({"type": "chat_response", "agent": "System", "text": "Ein interner Fehler ist aufgetreten. Details im Server-Log."})
+        logging.getLogger("omads.gui").error("Claude session error: %s", e, exc_info=True)
+        send({"type": "chat_response", "agent": "System", "text": "An internal error occurred. See the server log for details."})
     finally:
         with _process_lock:
             _active_process = None
@@ -440,8 +440,8 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         try:
             if output_lines:
                 crash_summary = (
-                    f"Letzte Aufgabe (unterbrochen): {user_text[:200]}\n"
-                    f"Bisheriger Output: {chr(10).join(output_lines[-5:])}"
+                    f"Latest task (interrupted): {user_text[:200]}\n"
+                    f"Output so far: {chr(10).join(output_lines[-5:])}"
                 )
                 _save_project_memory(target_repo, crash_summary)
         except Exception:
@@ -481,50 +481,50 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
     # Scope bestimmen
     if scope == "last_task" and _last_files_changed:
         review_files = _last_files_changed
-        scope_desc = f"Letzter Task ({len(review_files)} Dateien)"
+        scope_desc = f"Last task ({len(review_files)} files)"
     elif scope == "custom" and custom_scope.strip():
         review_files = [f.strip() for f in custom_scope.split(",") if f.strip()]
-        scope_desc = f"Auswahl: {custom_scope[:100]}"
+        scope_desc = f"Custom: {custom_scope[:100]}"
     else:
         review_files = []
-        scope_desc = "Ganzes Projekt"
+        scope_desc = "Whole project"
 
     # Fokus-Beschreibung
     focus_map = {
-        "all": "Sicherheit, Bugs, Fehlerbehandlung, Performance",
-        "security": "Sicherheitsprobleme (Injection, XSS, Secrets, Auth)",
-        "bugs": "Logikfehler, Bugs, Race Conditions, Edge Cases",
-        "performance": "Performance-Probleme, Memory Leaks, ineffiziente Algorithmen",
+        "all": "Security, bugs, error handling, performance",
+        "security": "Security issues (injection, XSS, secrets, auth)",
+        "bugs": "Logic bugs, race conditions, edge cases",
+        "performance": "Performance issues, memory leaks, inefficient algorithms",
     }
     focus_desc = focus_map.get(focus, focus_map["all"])
 
     file_hint = ""
     if review_files:
-        file_hint = f"\n\nPrüfe speziell diese Dateien:\n" + "\n".join(f"- {f}" for f in review_files[:30])
+        file_hint = f"\n\nPay special attention to these files:\n" + "\n".join(f"- {f}" for f in review_files[:30])
 
     env = _build_cli_env()
 
     send({"type": "stream_text", "agent": "Review",
-          "text": f"**Review gestartet**\nScope: {scope_desc}\nFokus: {focus_desc}\n\n"
-                  "Ablauf: Schritt 1 (Claude Code) → Schritt 2 (Codex) → Schritt 3 (Synthese + Fix-Vorschläge)"})
+          "text": f"**Review started**\nScope: {scope_desc}\nFocus: {focus_desc}\n\n"
+                  "Flow: Step 1 (Claude Code) -> Step 2 (Codex) -> Step 3 (synthesis + fix suggestions)"})
 
     try:
         # ── SCHRITT 1: Claude Code Review ─────────────────────────
-        send({"type": "agent_status", "agent": "Claude Code", "status": "Schritt 1/3 — Review läuft..."})
+        send({"type": "agent_status", "agent": "Claude Code", "status": "Step 1/3 - review in progress..."})
 
         project_memory = _load_project_memory(target_repo)
         claude_context = (
-            "Du führst ein Code-Review durch (KEINE Änderungen!). "
-            "Lies und analysiere den Code, mach aber KEINE Edits.\n\n"
+            "You are performing a code review (NO changes!). "
+            "Read and analyze the code, but do NOT edit anything.\n\n"
         )
         if project_memory:
-            claude_context += f"Projektkontext:\n{project_memory}\n\n"
+            claude_context += f"Project context:\n{project_memory}\n\n"
 
         review_prompt = (
-            f"Führe ein gründliches Code-Review durch. Fokus: {focus_desc}.{file_hint}\n\n"
-            "Antworte mit einer strukturierten Analyse:\n"
-            "## Zusammenfassung\n## Findings (nach Schweregrad: KRITISCH > HOCH > MITTEL)\n"
-            "## Positive Befunde\n\nAntworte auf Deutsch."
+            f"Perform a thorough code review. Focus: {focus_desc}.{file_hint}\n\n"
+            "Respond with a structured analysis:\n"
+            "## Summary\n## Findings (sorted by severity: CRITICAL > HIGH > MEDIUM)\n"
+            "## Positive notes\n\nRespond in English."
         )
 
         cmd = ["claude", "-p", review_prompt, "--output-format", "stream-json",
@@ -592,7 +592,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             send({
                 "type": "task_error",
                 "text": _build_process_failure_text(
-                    "Review Schritt 1 (Claude Code)",
+                    "Review step 1 (Claude Code)",
                     process.returncode,
                     output_lines=claude_output,
                 ),
@@ -602,23 +602,24 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         if captured_session_id and process.returncode == 0:
             _set_chat_session(repo_key, captured_session_id)
 
-        send({"type": "agent_status", "agent": "Claude Code", "status": "Schritt 1/3 fertig"})
+        send({"type": "agent_status", "agent": "Claude Code", "status": "Step 1/3 done"})
 
         if _task_cancelled:
             return
 
         # ── SCHRITT 2: Codex Review ───────────────────────────────
-        send({"type": "agent_status", "agent": "Codex Review", "status": "Schritt 2/3 — Review läuft..."})
+        send({"type": "agent_status", "agent": "Codex Review", "status": "Step 2/3 - review in progress..."})
 
         codex_prompt = (
-            f"Du bist ein Code-Reviewer. Führe ein gründliches Review durch.\n"
-            f"Fokus: {focus_desc}\n"
+            "You are a code reviewer. Perform a thorough review.\n"
+            f"Focus: {focus_desc}\n"
         )
         if review_files:
-            codex_prompt += f"Dateien: {', '.join(f.rsplit('/', 1)[-1] for f in review_files[:15])}\n"
+            codex_prompt += f"Files: {', '.join(f.rsplit('/', 1)[-1] for f in review_files[:15])}\n"
         codex_prompt += (
-            "\nAntworte mit:\n## Geprüfte Dateien\n## Findings\n"
-            "- [KRITISCH/HOCH/MITTEL] Datei:Zeile: Beschreibung\n## Positive Befunde\n"
+            "\nRespond with:\n## Files reviewed\n## Findings\n"
+            "- [CRITICAL/HIGH/MEDIUM] file:line: description\n## Positive notes\n\n"
+            "Respond in English."
         )
 
         codex_model = settings_snapshot.get("codex_model", "")
@@ -656,8 +657,8 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
                 if time.time() - last_output_time > _INACTIVITY_LIMIT:
                     codex_process.kill()
                     codex_process.wait()
-                    send({"type": "agent_status", "agent": "Codex Review", "status": "Inaktivität — Codex abgebrochen (15min ohne Output)"})
-                    codex_review = "\n".join(codex_lines) if codex_lines else "(Codex inaktiv)"
+                    send({"type": "agent_status", "agent": "Codex Review", "status": "Inactivity - Codex cancelled (15 min without output)"})
+                    codex_review = "\n".join(codex_lines) if codex_lines else "(Codex inactive)"
                     break
                 ready, _, _ = select.select([codex_process.stdout], [], [], 5.0)
                 if ready:
@@ -665,7 +666,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
                     if not line:  # EOF — Codex ist fertig
                         codex_process.wait(timeout=10)
                         codex_review = "\n".join(codex_lines)
-                        send({"type": "agent_status", "agent": "Codex Review", "status": "Schritt 2/3 fertig"})
+                        send({"type": "agent_status", "agent": "Codex Review", "status": "Step 2/3 done"})
                         break
                     last_output_time = time.time()
                     line = line.rstrip("\n")
@@ -687,57 +688,57 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
 
         except FileNotFoundError:
             send({"type": "agent_status", "agent": "Codex Review",
-                  "status": "Codex CLI nicht installiert — übersprungen"})
-            codex_review = "(Codex nicht verfügbar)"
+                  "status": "Codex CLI not installed - skipped"})
+            codex_review = "(Codex unavailable)"
         except Exception as e:
             try:
                 codex_process.kill()
                 codex_process.wait()
             except Exception:
                 pass
-            send({"type": "agent_status", "agent": "Codex Review", "status": f"Fehler: {str(e)[:100]}"})
-            codex_review = f"(Codex Fehler: {str(e)[:200]})"
+            send({"type": "agent_status", "agent": "Codex Review", "status": f"Error: {str(e)[:100]}"})
+            codex_review = f"(Codex error: {str(e)[:200]})"
 
         if _task_cancelled:
             return
 
         # ── SCHRITT 3: Claude Code Synthese ───────────────────────
         send({"type": "agent_status", "agent": "Claude Code",
-              "status": "Schritt 3/3 — Synthese: vergleicht beide Reviews..."})
+              "status": "Step 3/3 - synthesis: comparing both reviews..."})
         send({"type": "stream_text", "agent": "Review",
-              "text": "---\n**Schritt 3: Claude Code analysiert jetzt das Codex-Review und erstellt den finalen Bericht...**"})
+              "text": "---\n**Step 3: Claude Code is now analyzing the Codex review and preparing the final report...**"})
 
         synthesis_prompt = (
-            "Du hast gerade ein Code-Review durchgeführt (Schritt 1). "
-            "Jetzt hat Codex unabhängig dasselbe Projekt geprüft (Schritt 2). "
-            "Vergleiche beide Reviews und erstelle einen finalen Bericht.\n\n"
-            f"=== DEIN REVIEW (Claude Code) ===\n{claude_review[:6000]}\n\n"
+            "You just performed a code review (step 1). "
+            "Now Codex has independently reviewed the same project (step 2). "
+            "Compare both reviews and produce a final report.\n\n"
+            f"=== YOUR REVIEW (Claude Code) ===\n{claude_review[:6000]}\n\n"
             f"=== CODEX REVIEW ===\n{codex_review[:6000]}\n\n"
-            "Aufgabe:\n"
-            "1. Was haben beide gefunden (Übereinstimmungen)?\n"
-            "2. Was hat nur Codex gefunden, das du übersehen hast?\n"
-            "3. Was hast nur du gefunden?\n"
-            "4. Erstelle eine priorisierte Liste aller ECHTEN Findings die gefixt werden sollten.\n"
-            "   Ignoriere False Positives und zu kleinteilige Style-Hinweise.\n\n"
-            "Antworte mit:\n"
-            "## Übereinstimmungen (beide gefunden)\n"
-            "## Nur von Codex gefunden\n"
-            "## Nur von Claude Code gefunden\n"
-            "## Finaler Fix-Plan\n"
-            "Für jeden Fix: Datei, Zeile, was genau gefixt werden soll.\n\n"
-            "WICHTIG: Mach KEINE Änderungen, nur analysieren! Antworte auf Deutsch.\n\n"
-            "PFLICHT: Schreibe als ALLERLETZTE Zeile deiner Antwort genau einen dieser Marker:\n"
+            "Task:\n"
+            "1. What did both reviews find (overlap)?\n"
+            "2. What did only Codex find that you missed?\n"
+            "3. What did only you find?\n"
+            "4. Build a prioritized list of all REAL findings that should be fixed.\n"
+            "   Ignore false positives and overly minor style remarks.\n\n"
+            "Respond with:\n"
+            "## Overlap (found by both)\n"
+            "## Found only by Codex\n"
+            "## Found only by Claude Code\n"
+            "## Final fix plan\n"
+            "For each fix: file, line, and exactly what should be changed.\n\n"
+            "IMPORTANT: Do NOT make any changes, only analyze. Respond in English.\n\n"
+            "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:\n"
             "FIXES_NEEDED: true\n"
-            "oder\n"
+            "or\n"
             "FIXES_NEEDED: false\n"
-            "Nichts anderes in dieser Zeile. true = es gibt echte Fixes. false = alles OK oder nur Style-Hinweise."
+            "Nothing else on that line. true = there are real fixes needed. false = everything is fine or only style remarks remain."
         )
 
         synthesis_context = (
-            "Du vergleichst dein eigenes Review mit dem von Codex. "
-            "Sei ehrlich — wenn Codex etwas Wichtiges gefunden hat, das du übersehen hast, sag das. "
-            "Am Ende soll der User entscheiden ob die Fixes angewendet werden. "
-            "KEINE Code-Änderungen durchführen!\n"
+            "You are comparing your own review with Codex's review. "
+            "Be honest: if Codex found something important that you missed, say so. "
+            "At the end, the user should decide whether the fixes should be applied. "
+            "Do NOT make code changes.\n"
         )
 
         synth_cmd = ["claude", "-p", synthesis_prompt, "--output-format", "stream-json",
@@ -802,7 +803,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             send({
                 "type": "task_error",
                 "text": _build_process_failure_text(
-                    "Review Schritt 3 (Synthese)",
+                    "Review step 3 (synthesis)",
                     synth_process.returncode,
                     output_lines=synthesis_output,
                 ),
@@ -821,21 +822,21 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
                         "fixes_needed: true", "fixes_needed: false"]:
             synthesis_text = synthesis_text.replace(marker, "").strip()
 
-        send({"type": "agent_status", "agent": "Claude Code", "status": "Schritt 3/3 fertig"})
+        send({"type": "agent_status", "agent": "Claude Code", "status": "Step 3/3 done"})
         send({"type": "stream_text", "agent": "Review",
-              "text": "---\n**Review abgeschlossen** — 3 Schritte: Claude Code Review → Codex Review → Synthese"})
+              "text": "---\n**Review completed** - 3 steps: Claude Code review -> Codex review -> synthesis"})
 
         if has_fixes:
             # Fix-Vorschläge als Kontext speichern für den Apply-Schritt (pro Projekt)
             global _pending_review_fixes
             _pending_review_fixes[str(Path(target_repo).resolve())] = synthesis_text
             send({"type": "review_fixes_available",
-                  "text": "Fixes gefunden. Sollen die vorgeschlagenen Fixes angewendet werden?"})
+                  "text": "Fixes were identified. Should the suggested fixes be applied?"})
 
     except Exception as e:
         import logging
-        logging.getLogger("omads.gui").error("Review-Fehler: %s", e, exc_info=True)
-        send({"type": "chat_response", "agent": "System", "text": f"Review-Fehler: {str(e)[:200]}"})
+        logging.getLogger("omads.gui").error("Review error: %s", e, exc_info=True)
+        send({"type": "chat_response", "agent": "System", "text": f"Review error: {str(e)[:200]}"})
     finally:
         with _process_lock:
             _active_process = None
@@ -857,31 +858,31 @@ def _run_codex_auto_review(ws: WebSocket, target_repo: str, files_changed: list[
     short_files = [f.rsplit("/", 1)[-1] if "/" in f else f for f in files_changed[:10]]
     file_list = ", ".join(short_files)
 
-    send({"type": "agent_status", "agent": breaker_label, "status": f"Prüft {len(files_changed)} geänderte Datei(en)..."})
+    send({"type": "agent_status", "agent": breaker_label, "status": f"Reviewing {len(files_changed)} changed file(s)..."})
 
-    review_prompt = f"""Du bist ein Code-Reviewer. Prüfe die folgenden kürzlich geänderten Dateien auf Probleme:
+    review_prompt = f"""You are a code reviewer. Review the following recently changed files for issues:
 
-Geänderte Dateien: {file_list}
+Changed files: {file_list}
 
-Prüfe auf:
-1. Sicherheitsprobleme (Injection, XSS, offene Secrets)
-2. Logikfehler und Bugs
-3. Fehlende Fehlerbehandlung
-4. Offensichtliche Performance-Probleme
+Check for:
+1. Security issues (injection, XSS, exposed secrets)
+2. Logic bugs and regressions
+3. Missing error handling
+4. Obvious performance issues
 
-Antworte IMMER mit diesem Format:
+Always respond in this format:
 
-## Geprüfte Dateien
-- Dateiname: kurze Zusammenfassung was die Datei macht
+## Files reviewed
+- filename: short summary of what the file does
 
-## Analyse
-Beschreibe kurz was du geprüft hast (2-3 Sätze).
+## Analysis
+Briefly describe what you checked (2-3 sentences).
 
-## Ergebnis
-Falls Probleme: Pro Problem eine Zeile:
-- [HIGH/MEDIUM/LOW] Datei: Beschreibung
+## Result
+If there are issues, use one line per issue:
+- [HIGH/MEDIUM/LOW] file: description
 
-Falls keine Probleme: "Keine Probleme gefunden."
+If there are no issues, write exactly: "No issues found."
 """
 
     try:
@@ -898,9 +899,9 @@ Falls keine Probleme: "Keine Probleme gefunden."
         import time as _time
 
         send({"type": "stream_text", "agent": breaker_label,
-              "text": f"Starte Review: {file_list}"})
+              "text": f"Starting review: {file_list}"})
         send({"type": "stream_text", "agent": breaker_label,
-              "text": f"Prüfe auf: Sicherheit, Logikfehler, Fehlerbehandlung, Performance"})
+              "text": "Checking for: security, logic bugs, error handling, performance"})
 
         process = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -927,7 +928,7 @@ Falls keine Probleme: "Keine Probleme gefunden."
                 if not heartbeat_stop.is_set():
                     elapsed = round(_time.time() - start_time)
                     send({"type": "agent_status", "agent": breaker_label,
-                          "status": f"Codex analysiert... ({elapsed}s)"})
+                          "status": f"Codex is analyzing... ({elapsed}s)"})
 
         hb_thread = threading.Thread(target=_heartbeat, daemon=True)
         hb_thread.start()
@@ -947,7 +948,7 @@ Falls keine Probleme: "Keine Probleme gefunden."
                 process.kill()
                 process.wait()
                 heartbeat_stop.set()
-                send({"type": "agent_status", "agent": breaker_label, "status": "Inaktivität — Review abgebrochen (15min ohne Output)"})
+                send({"type": "agent_status", "agent": breaker_label, "status": "Inactivity - review cancelled (15 min without output)"})
                 return "\n".join(output_lines) if output_lines else None
             ready, _, _ = select.select([process.stdout], [], [], 5.0)
             if ready:
@@ -981,34 +982,33 @@ Falls keine Probleme: "Keine Probleme gefunden."
         output = "\n".join(output_lines).strip()
 
         if not output and process.returncode != 0:
-            output = f"Review-Fehler: Codex beendete mit Exit-Code {process.returncode}"
+            output = f"Review error: Codex exited with code {process.returncode}"
             send({"type": "stream_result", "agent": breaker_label, "text": output, "is_error": True})
 
         send({"type": "stream_text", "agent": breaker_label,
-              "text": f"Review abgeschlossen ({elapsed}s)"})
+              "text": f"Review completed ({elapsed}s)"})
 
         # Ergebnis auswerten — nur bei erfolgreichem Exit als Finding behandeln
         if process.returncode != 0:
             send({"type": "agent_status", "agent": breaker_label,
-                  "status": f"Codex-Fehler (Exit {process.returncode}) — kein Review-Ergebnis"})
+                  "status": f"Codex error (exit {process.returncode}) - no review result"})
             return None
-        if output and "keine probleme" not in output.lower():
+        output_lc = output.lower()
+        if output and "no issues found" not in output_lc:
             send({"type": "agent_activity", "agent": breaker_label, "activity": "finding", "text": output})
-            send({"type": "agent_status", "agent": breaker_label, "status": "Hinweise gefunden → Claude Code fixt"})
+            send({"type": "agent_status", "agent": breaker_label, "status": "Findings detected -> Claude Code is fixing"})
             return output  # Findings zurückgeben für Claude-Fix
         else:
-            send({"type": "agent_status", "agent": breaker_label, "status": "Alles OK"})
+            send({"type": "agent_status", "agent": breaker_label, "status": "All clear"})
             return None
 
     except FileNotFoundError:
         send({"type": "agent_status", "agent": breaker_label,
-              "status": "Codex CLI nicht installiert — Review übersprungen"})
+              "status": "Codex CLI not installed - review skipped"})
         return None
     except Exception as e:
-        send({"type": "agent_status", "agent": breaker_label, "status": f"Review-Fehler: {str(e)[:100]}"})
+        send({"type": "agent_status", "agent": breaker_label, "status": f"Review error: {str(e)[:100]}"})
         return None
     finally:
         with _process_lock:
             _active_process = None
-
-

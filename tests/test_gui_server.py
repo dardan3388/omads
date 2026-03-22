@@ -129,7 +129,7 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
         json={"name": "Extern", "path": str(outside_dir)},
     )
     assert response.status_code == 200
-    assert "Nur Verzeichnisse innerhalb von $HOME erlaubt" in response.json()["error"]
+    assert "Only directories inside $HOME are allowed" in response.json()["error"]
 
     response = client.post(
         "/api/projects",
@@ -150,11 +150,11 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
     project_repo.rmdir()
     response = client.post("/api/projects/switch", json={"id": project_id})
     assert response.status_code == 200
-    assert "Verzeichnis existiert nicht mehr" in response.json()["error"]
+    assert "Directory no longer exists" in response.json()["error"]
 
     response = client.post("/api/projects", json={})
     assert response.status_code == 200
-    assert response.json()["error"] == "Name und Pfad sind Pflichtfelder"
+    assert response.json()["error"] == "Name and path are required"
 
 
 def test_chat_session_persistence_roundtrip(isolated_server):
@@ -188,11 +188,11 @@ def test_claude_task_failure_emits_task_error_and_unlock(isolated_server, monkey
     monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
     monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
 
-    runtime._run_claude_session_thread(None, "Bitte pruefen")
+    runtime._run_claude_session_thread(None, "Please review")
 
-    assert any(msg["type"] == "task_error" and "Exit-Code 23" in msg["text"] for msg in messages)
+    assert any(msg["type"] == "task_error" and "exit code 23" in msg["text"].lower() for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
-    assert not any(msg["type"] == "agent_status" and "Fertig" in msg.get("status", "") for msg in messages)
+    assert not any(msg["type"] == "agent_status" and "Done" in msg.get("status", "") for msg in messages)
 
 
 def test_review_step_one_failure_emits_task_error_and_unlock(isolated_server, monkeypatch: pytest.MonkeyPatch):
@@ -205,6 +205,6 @@ def test_review_step_one_failure_emits_task_error_and_unlock(isolated_server, mo
 
     runtime._run_review_thread(None, "project", "all", "")
 
-    assert any(msg["type"] == "task_error" and "Exit-Code 7" in msg["text"] for msg in messages)
+    assert any(msg["type"] == "task_error" and "exit code 7" in msg["text"].lower() for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
-    assert not any(msg["type"] == "agent_status" and "Schritt 1/3 fertig" in msg.get("status", "") for msg in messages)
+    assert not any(msg["type"] == "agent_status" and "Step 1/3 done" in msg.get("status", "") for msg in messages)

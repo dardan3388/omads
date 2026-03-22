@@ -104,10 +104,10 @@ async def browse_directory(path: str = "~"):
         # Security: Nur Home-Verzeichnis und Unterverzeichnisse erlauben
         allowed_base = Path.home().resolve()
         if not (target == allowed_base or str(target).startswith(str(allowed_base) + "/")):
-            return {"error": "Zugriff nur innerhalb des Home-Verzeichnisses erlaubt", "path": str(target), "dirs": []}
+            return {"error": "Access is allowed only inside the home directory", "path": str(target), "dirs": []}
 
         if not target.exists() or not target.is_dir():
-            return {"error": "Verzeichnis existiert nicht", "path": str(target), "dirs": []}
+            return {"error": "Directory does not exist", "path": str(target), "dirs": []}
 
         dirs = []
         try:
@@ -141,7 +141,7 @@ async def refresh_claude_runtime_status():
     with runtime._process_lock:
         busy = runtime._active_process and runtime._active_process.poll() is None
     if busy:
-        return {"error": "Während eines laufenden Tasks bitte kurz warten"}
+        return {"error": "Please wait until the current task finishes"}
     target_repo = _get_setting("target_repo", str(Path(".").resolve()))
     try:
         limit = await asyncio.to_thread(_probe_claude_limit_status, target_repo)
@@ -157,7 +157,7 @@ async def refresh_codex_runtime_status():
     with runtime._process_lock:
         busy = runtime._active_process and runtime._active_process.poll() is None
     if busy:
-        return {"error": "Während eines laufenden Tasks bitte kurz warten"}
+        return {"error": "Please wait until the current task finishes"}
     target_repo = _get_setting("target_repo", str(Path(".").resolve()))
     try:
         codex_status = await asyncio.to_thread(_probe_codex_status, target_repo)
@@ -184,19 +184,19 @@ async def create_project(data: CreateProjectRequest):
     name = data.name.strip()
     path = data.path.strip()
     if not name or not path:
-        return {"error": "Name und Pfad sind Pflichtfelder"}
+        return {"error": "Name and path are required"}
 
     resolved = str(Path(path).expanduser().resolve())
     if not Path(resolved).is_dir():
-        return {"error": f"Kein Verzeichnis: {resolved}"}
+        return {"error": f"Not a directory: {resolved}"}
     home_str = str(Path.home().resolve())
     if resolved != home_str and not resolved.startswith(home_str + "/"):
-        return {"error": f"Nur Verzeichnisse innerhalb von $HOME erlaubt"}
+        return {"error": "Only directories inside $HOME are allowed"}
 
     # Prüfe ob Projekt mit diesem Pfad bereits existiert
     existing = _find_project_by_path(resolved)
     if existing:
-        return {"error": f"Projekt '{existing['name']}' existiert bereits für diesen Pfad"}
+        return {"error": f"Project '{existing['name']}' already exists for this path"}
 
     project_id = hashlib.sha256(resolved.encode()).hexdigest()[:12]
     project = {
@@ -230,14 +230,14 @@ async def switch_project(data: SwitchProjectRequest):
             # Pfad validieren (könnte gelöscht/verschoben worden sein)
             proj_path = Path(p["path"])
             if not proj_path.is_dir():
-                return {"error": f"Verzeichnis existiert nicht mehr: {p['path']}"}
+                return {"error": f"Directory no longer exists: {p['path']}"}
             _update_settings(lambda settings: settings.__setitem__("target_repo", p["path"]))
             p["last_used"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _save_projects(projects)
             await runtime.broadcast({"type": "system", "text": p["path"]})
             return {"ok": True, "project": p}
 
-    return {"error": "Projekt nicht gefunden"}
+    return {"error": "Project not found"}
 
 
 @router.delete("/api/projects/{project_id}")
@@ -246,7 +246,7 @@ async def delete_project(project_id: str):
     try:
         _validate_project_id(project_id)
     except ValueError:
-        return {"error": "Ungültige Projekt-ID"}
+        return {"error": "Invalid project ID"}
     projects = _load_projects()
     projects = [p for p in projects if p["id"] != project_id]
     _save_projects(projects)
@@ -259,7 +259,7 @@ async def get_project_history(project_id: str):
     try:
         return _read_history(project_id)
     except ValueError:
-        return {"error": "Ungültige Projekt-ID"}
+        return {"error": "Invalid project ID"}
 
 
 @router.get("/api/projects/{project_id}/logs")
@@ -268,7 +268,7 @@ async def get_project_logs(project_id: str):
     try:
         return _read_log(project_id)
     except ValueError:
-        return {"error": "Ungültige Projekt-ID"}
+        return {"error": "Invalid project ID"}
 
 
 @router.get("/api/health")
@@ -362,5 +362,4 @@ async def get_ledger():
         except OSError:
             pass
     return entries
-
 
