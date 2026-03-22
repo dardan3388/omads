@@ -19,11 +19,9 @@ from .state import (
     SwitchProjectRequest,
     UpdateSettingsRequest,
     _find_project_by_path,
-    _get_gui_status_snapshot,
     _get_setting,
     _get_settings_snapshot,
     _load_projects,
-    _probe_claude_limit_status,
     _read_history,
     _read_log,
     _save_projects,
@@ -208,28 +206,6 @@ async def browse_directory(path: str = "~"):
         }
     except Exception as e:
         return {"error": str(e), "path": path, "dirs": []}
-
-
-@router.get("/api/runtime-status")
-async def get_runtime_status():
-    """Gibt den letzten bekannten GUI-Limitstatus zurück."""
-    return _get_gui_status_snapshot()
-
-
-@router.post("/api/runtime-status/claude/refresh")
-async def refresh_claude_runtime_status():
-    """Aktualisiert die echte Claude-Limitanzeige."""
-    with runtime._process_lock:
-        busy = runtime._active_process and runtime._active_process.poll() is None
-    if busy:
-        return {"error": "Please wait until the current task finishes"}
-    target_repo = _get_setting("target_repo", str(Path(".").resolve()))
-    try:
-        limit = await asyncio.to_thread(_probe_claude_limit_status, target_repo)
-    except Exception as exc:
-        return {"error": str(exc)}
-    await runtime.broadcast({"type": "claude_limit_update", "limit": limit})
-    return {"ok": True, "limit": limit}
 
 
 # ─── Projekt-Management Endpoints ─────────────────────────────────

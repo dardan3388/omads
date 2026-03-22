@@ -629,7 +629,6 @@
   </div>
   <div class="header-right">
     <span class="badge on" title="Codex auto-review enabled">Auto Review</span>
-    <span class="badge limit-unknown" id="claudeLimitBadge" title="Claude limit not checked yet">Claude ?</span>
     <button class="btn-sm" id="btnThemeToggle" onclick="toggleTheme()">Theme: Dark</button>
     <button class="btn-log-toggle" id="btnLogToggle" onclick="toggleLiveLog()">Live Log</button>
     <button class="btn-sm" onclick="openSettings()">Settings</button>
@@ -853,14 +852,6 @@
         <div class="hint">More turns allow more complex tasks, but they also take longer.</div>
       </div>
 
-      <div class="form-group status-card">
-        <div class="status-card-head">
-          <div class="status-card-title">Real Claude limit status</div>
-          <button class="btn-sm" id="btnClaudeLimitRefresh" onclick="refreshClaudeLimit()">Check now</button>
-        </div>
-        <div class="status-body" id="claudeLimitDetails">No real Claude data available yet.</div>
-        <div class="hint" id="claudeLimitHint">Only data that Claude itself provides is shown. No remaining-% value is displayed because Claude does not expose one.</div>
-      </div>
     </div>
 
     <!-- Tab: Codex -->
@@ -941,7 +932,6 @@
 <script>
 let ws = null, busy = false, fpPath = '~';
 let _logFilter = 'all';  // 'all', 'claude', 'codex'
-let _runtimeStatus = { claude_limit: {} };
 let _uiTheme = 'dark';
 let _builderAgent = 'claude';
 
@@ -955,7 +945,6 @@ function connect() {
     el('connBadge').textContent = 'Connected';
     el('connBadge').classList.add('on');
     loadSettings();
-    loadRuntimeStatus();
     loadProjects();  // Historie nach Reconnect/Neustart neu laden
   };
   ws.onclose = () => {
@@ -1038,10 +1027,6 @@ function handle(msg) {
     case 'task_error':
       addAgent('System', msg.text);
       unlock();
-      break;
-
-    case 'claude_limit_update':
-      renderClaudeLimit(msg.limit);
       break;
 
     case 'settings_updated':
@@ -1556,120 +1541,11 @@ async function loadDiffViewer() {
 }
 
 // ─── Runtime-Status ────────────────────
-async function loadRuntimeStatus() {
-  try {
-    const res = await fetch('/api/runtime-status');
-    const status = await res.json();
-    if (status) {
-      renderClaudeLimit(status.claude_limit || {});
-    }
-  } catch (e) {}
-}
-
-function fmtRemaining(unixTs) {
-  if (!unixTs) return '—';
-  const diffMs = unixTs * 1000 - Date.now();
-  if (diffMs <= 0) return 'now';
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 60) return `${diffMin} min`;
-  const h = Math.floor(diffMin / 60);
-  const m = diffMin % 60;
-  if (h < 24) return `${h} h ${m} min`;
-  const d = Math.floor(h / 24);
-  return `${d} d ${h % 24} h`;
-}
-
 function fmtTimestamp(unixTs) {
   if (!unixTs) return '—';
   return new Date(unixTs * 1000).toLocaleString('en-US', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   });
-}
-
-function fmtLimitType(type) {
-  if (type === 'five_hour') return '5h';
-  if (type === 'weekly') return 'week';
-  return 'limit';
-}
-
-function renderClaudeLimit(limit = _runtimeStatus.claude_limit || {}) {
-  _runtimeStatus.claude_limit = limit || {};
-  const badge = el('claudeLimitBadge');
-  const details = el('claudeLimitDetails');
-  const hint = el('claudeLimitHint');
-  const data = _runtimeStatus.claude_limit || {};
-  const lastChecked = data.last_checked || 0;
-  const typeLabel = fmtLimitType(data.rate_limit_type);
-  const resetText = fmtRemaining(data.resets_at || 0);
-
-  badge.classList.remove('limit-ok', 'limit-warn', 'limit-unknown');
-
-  if (!lastChecked) {
-    badge.classList.add('limit-unknown');
-    badge.textContent = 'Claude ?';
-    badge.title = 'Claude limit not checked yet';
-    details.textContent = 'No real Claude limit data available yet.';
-    hint.textContent = 'Only data that Claude itself provides is shown. No remaining-% value is displayed because Claude does not expose one.';
-    return;
-  }
-
-  if (data.status === 'rate_limited') {
-    badge.classList.add('limit-warn');
-    badge.textContent = data.rate_limit_type === 'weekly' ? 'Claude Woche LIMIT' : 'Claude LIMIT';
-  } else if (data.status === 'allowed') {
-    badge.classList.add('limit-ok');
-    badge.textContent = data.resets_at ? `Claude ${typeLabel} ${resetText}` : 'Claude OK';
-  } else {
-    badge.classList.add('limit-unknown');
-    badge.textContent = 'Claude ?';
-  }
-
-  badge.title = data.resets_at
-    ? `Claude ${typeLabel} Reset: ${fmtTimestamp(data.resets_at)}`
-    : 'Claude limit status without a reset time';
-
-  let html = '';
-  if (data.status === 'rate_limited') {
-    html += `<strong style="color:var(--red);">Limit reached</strong> (${esc(typeLabel)})`;
-  } else if (data.status === 'allowed') {
-    html += `<strong style="color:var(--green);">Available</strong> (${esc(typeLabel)})`;
-  } else {
-    html += `<strong>Unknown</strong>`;
-  }
-  html += `<br>Reset: <strong>${esc(resetText)}</strong>`;
-  html += `<br>Next reset: <strong>${esc(fmtTimestamp(data.resets_at || 0))}</strong>`;
-  html += `<br>Last checked: <strong>${esc(fmtTimestamp(lastChecked))}</strong>`;
-  if (data.is_using_overage) {
-    html += `<br>Overage: <strong>active</strong>`;
-  } else if (data.overage_status) {
-    html += `<br>Overage: <strong>${esc(data.overage_status)}</strong>`;
-  }
-  details.innerHTML = html;
-
-  let hintText = 'Only data that Claude itself provides is shown. No remaining-% value is displayed because Claude does not expose one.';
-  if (data.overage_disabled_reason) hintText += ` Overage reason: ${data.overage_disabled_reason}.`;
-  hint.textContent = hintText;
-}
-
-async function refreshClaudeLimit() {
-  const btn = el('btnClaudeLimitRefresh');
-  const oldText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Checking...';
-  try {
-    const res = await fetch('/api/runtime-status/claude/refresh', { method: 'POST' });
-    const data = await res.json();
-    if (data.error) {
-      el('claudeLimitHint').textContent = data.error;
-      return;
-    }
-    if (data.limit) renderClaudeLimit(data.limit);
-  } catch (e) {
-    el('claudeLimitHint').textContent = 'Claude limit could not be fetched right now.';
-  } finally {
-    btn.disabled = false;
-    btn.textContent = oldText;
-  }
 }
 
 // ─── Helpers ───────────────────────────
@@ -2199,9 +2075,7 @@ async function checkHealth() {
 // ─── Init ──────────────────────────────
 connect();
 // loadProjects() wird in ws.onopen aufgerufen (nicht doppelt)
-loadRuntimeStatus();
 checkHealth();
-setInterval(() => renderClaudeLimit(), 30000);
 el('input').focus();
 </script>
 </body>

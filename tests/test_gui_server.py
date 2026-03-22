@@ -366,25 +366,6 @@ def test_websocket_rejects_new_work_while_task_is_running(client: TestClient, mo
         assert "A task is already running" in message["text"]
 
 
-def test_runtime_status_refresh_and_busy_guards(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    sent_events: list[dict] = []
-
-    async def fake_broadcast(msg):
-        sent_events.append(msg)
-
-    monkeypatch.setattr(runtime, "broadcast", fake_broadcast)
-    monkeypatch.setattr(routes, "_probe_claude_limit_status", lambda repo: {"status": "allowed", "last_checked": 1})
-
-    claude = client.post("/api/runtime-status/claude/refresh")
-    assert claude.status_code == 200
-    assert claude.json()["limit"]["status"] == "allowed"
-    assert any(msg["type"] == "claude_limit_update" for msg in sent_events)
-
-    monkeypatch.setattr(runtime, "_active_process", BusyProcess())
-    busy_claude = client.post("/api/runtime-status/claude/refresh")
-    assert "Please wait until the current task finishes" in busy_claude.json()["error"]
-
-
 def test_builder_dispatch_uses_selected_primary_builder(isolated_server, monkeypatch: pytest.MonkeyPatch):
     called: list[tuple[str, str]] = []
 
@@ -441,8 +422,6 @@ def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_
     health = client.get("/api/health")
     status = client.get("/api/status")
     ledger = client.get("/api/ledger")
-    runtime_status = client.get("/api/runtime-status")
-
     assert health.status_code == 200
     assert health.json()["claude"]["installed"] is True
     assert health.json()["claude"]["authenticated"] is True
@@ -458,8 +437,6 @@ def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_
     assert len(ledger.json()) == 2
     assert ledger.json()[-1]["task"] == "two"
 
-    assert runtime_status.status_code == 200
-    assert runtime_status.json()["claude_limit"] == state._GUI_STATUS_DEFAULTS["claude_limit"]
 
 
 def test_theme_settings_diff_endpoint_and_openapi_docs(
