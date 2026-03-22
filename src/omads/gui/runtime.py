@@ -23,6 +23,7 @@ from .state import (
     _build_process_failure_text,
     _get_active_project_id,
     _get_chat_session,
+    _get_setting,
     _get_settings_snapshot,
     _load_project_memory,
     _save_project_memory,
@@ -80,6 +81,15 @@ def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
 
 
 _loop: asyncio.AbstractEventLoop | None = None
+
+
+def _run_builder_session_thread(ws: WebSocket, user_text: str) -> None:
+    """Route one chat task to the currently selected primary builder."""
+    builder_agent = _get_setting("builder_agent", "claude")
+    if builder_agent == "codex":
+        _run_codex_session_thread(ws, user_text)
+    else:
+        _run_claude_session_thread(ws, user_text)
 
 
 def _forward_claude_stream_line(
@@ -424,6 +434,177 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         except Exception:
             pass
         # Unlock im Frontend
+        send({"type": "unlock"})
+
+
+def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
+    """Run one chat/coding task through Codex as the selected builder."""
+    import select
+    import time as _time
+
+    global _active_process, _task_cancelled
+    with _process_lock:
+        _task_cancelled = False
+
+    settings_snapshot = _get_settings_snapshot()
+    target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
+    codex_model = settings_snapshot.get("codex_model", "")
+    codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
+    codex_fast = settings_snapshot.get("codex_fast", False)
+    agent_label = "Codex"
+
+    _frozen_proj_id = _get_active_project_id()
+
+    def send(msg: dict):
+        broadcast_sync(msg, proj_id_override=_frozen_proj_id)
+
+    send({"type": "agent_status", "agent": agent_label, "status": "Working..."})
+
+    proj_id = _frozen_proj_id
+    if proj_id:
+        _append_history(proj_id, {"type": "user_input", "text": user_text})
+
+    output_lines: list[str] = []
+    try:
+        env = _build_cli_env()
+        project_memory = _load_project_memory(target_repo)
+        prompt_parts = [
+            "You are working inside OMADS (Orchestrated Multi-Agent Development System).",
+            "The user interacts with you through a web GUI.",
+            "You are the currently selected primary builder for this task.",
+            "Respond in English.",
+        ]
+        if project_memory:
+            prompt_parts.append("\nProject context:\n" + project_memory)
+        prompt_parts.append("\nUser request:\n" + user_text)
+        prompt = "\n".join(prompt_parts)
+
+        cmd = [
+            "codex", "exec",
+            "-s", "workspace-write",
+            "--skip-git-repo-check",
+            "--json",
+            "-C", str(target_repo),
+        ]
+        if codex_model:
+            cmd.extend(["-m", codex_model])
+        if codex_reasoning:
+            cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
+        if codex_fast:
+            cmd.extend(["-c", 'service_tier="fast"'])
+        cmd.append("-")
+
+        start_time = _time.time()
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            cwd=str(target_repo),
+            env=env,
+        )
+        with _process_lock:
+            _active_process = process
+
+        process.stdin.write(prompt)
+        process.stdin.close()
+
+        _INACTIVITY_LIMIT = 900
+        last_output_time = _time.time()
+        while True:
+            if _task_cancelled:
+                process.kill()
+                process.wait()
+                send({"type": "task_stopped", "text": "Stopped."})
+                return
+            if _time.time() - last_output_time > _INACTIVITY_LIMIT:
+                process.kill()
+                process.wait()
+                send({
+                    "type": "task_error",
+                    "text": "Codex task timed out after 15 minutes without output.",
+                })
+                return
+            ready, _, _ = select.select([process.stdout], [], [], 5.0)
+            if not ready:
+                continue
+            line = process.stdout.readline()
+            if not line:
+                break
+            last_output_time = _time.time()
+            _forward_codex_stream_line(
+                line,
+                agent_label=agent_label,
+                send=send,
+                text_buffer=output_lines,
+            )
+
+        process.wait(timeout=10)
+        with _process_lock:
+            _active_process = None
+
+        elapsed = round(_time.time() - start_time)
+        result_text = "\n".join(output_lines).strip()
+        if process.returncode != 0 and not _task_cancelled:
+            send({
+                "type": "task_error",
+                "text": _build_process_failure_text(
+                    "Codex Task",
+                    process.returncode,
+                    result_text=result_text,
+                    output_lines=output_lines,
+                ),
+            })
+            if proj_id:
+                _append_history(proj_id, {
+                    "type": "task_error",
+                    "text": f"Codex task exit code {process.returncode}",
+                    "duration_s": elapsed,
+                })
+            return
+
+        if result_text and not output_lines:
+            send({"type": "chat_response", "agent": agent_label, "text": result_text})
+
+        send({"type": "agent_status", "agent": agent_label, "status": f"Done ({elapsed}s)"})
+
+        if result_text:
+            _save_project_memory(
+                target_repo,
+                "\n".join([
+                    f"Latest task: {user_text[:200]}",
+                    f"Result: {result_text[:2000]}",
+                ]),
+            )
+
+        if proj_id:
+            _append_history(proj_id, {
+                "type": "builder_response",
+                "agent": agent_label,
+                "text": result_text[:500],
+                "files_changed": 0,
+                "duration_s": elapsed,
+            })
+
+    except FileNotFoundError:
+        send({
+            "type": "chat_response",
+            "agent": "System",
+            "text": "Codex CLI not found. Install it with: npm install -g @openai/codex",
+        })
+    except subprocess.TimeoutExpired:
+        with _process_lock:
+            if _active_process:
+                _active_process.kill()
+        send({"type": "chat_response", "agent": "System", "text": "Timeout — Codex took too long."})
+    except Exception as e:
+        import logging
+        logging.getLogger("omads.gui").error("Codex session error: %s", e, exc_info=True)
+        send({"type": "chat_response", "agent": "System", "text": "An internal error occurred. See the server log for details."})
+    finally:
+        with _process_lock:
+            _active_process = None
         send({"type": "unlock"})
 
 

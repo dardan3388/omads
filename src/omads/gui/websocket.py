@@ -65,9 +65,9 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
-                # Alles geht an Claude CLI — kein Chat/Task-Routing mehr
+                # Normale Chat-Tasks gehen immer an den aktuell gewählten Builder
                 thread = threading.Thread(
-                    target=runtime._run_claude_session_thread,
+                    target=runtime._run_builder_session_thread,
                     args=(ws, user_text),
                     daemon=True,
                 )

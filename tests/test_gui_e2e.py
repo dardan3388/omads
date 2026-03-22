@@ -138,6 +138,24 @@ def test_e2e_theme_toggle_and_diff_viewer(page, live_gui):
 
 
 @pytest.mark.e2e
+def test_e2e_builder_selection_persists_and_updates_badge(page, live_gui):
+    page.goto(live_gui["base_url"])
+    page.wait_for_function("() => document.getElementById('connBadge')?.textContent === 'Connected'")
+
+    assert page.locator("#builderBadge").text_content() == "Builder: Claude"
+
+    page.get_by_role("button", name="Settings").click()
+    page.locator("#sBuilder").select_option("codex")
+    page.get_by_role("button", name="Save").click()
+
+    page.wait_for_function("() => document.getElementById('builderBadge')?.textContent === 'Builder: Codex'")
+
+    settings_data = state._load_config()
+    assert settings_data["builder_agent"] == "codex"
+    assert page.locator("#builderBadge").text_content() == "Builder: Codex"
+
+
+@pytest.mark.e2e
 def test_e2e_chat_flow_updates_browser_via_websocket(page, live_gui, monkeypatch: pytest.MonkeyPatch):
     received_inputs: list[str] = []
 

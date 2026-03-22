@@ -19,5 +19,5 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Later
 
-- [ ] Selectable builder agent / Codex fallback builder
-  Let OMADS choose between Claude Code and Codex as the primary builder so work can continue when one builder is unavailable or out of quota.
+- [ ] Configurable review pipeline order
+  Make the review flow configurable so users can choose who reviews first, who reviews second, and who performs the final synthesis/fix decision step instead of hardcoding Claude -> Codex -> Claude.

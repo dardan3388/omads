@@ -19,8 +19,8 @@ FastAPI App
 
 OMADS is a local web GUI that orchestrates:
 
-- **Claude Code CLI** as the builder agent
-- **Codex CLI** as the review agent
+- **Claude Code CLI** or **Codex CLI** as the user-selected primary builder
+- **Codex CLI** as the review agent in the current fixed review pipeline
 
 The browser interacts with the backend over REST and WebSocket. The backend starts CLI subprocesses, streams progress back to the UI, persists project-specific state, and records logs/history.
 
@@ -94,7 +94,9 @@ Owns runtime-only state and process orchestration:
 - active connections
 - active subprocess tracking
 - broadcast helpers
+- builder-task dispatch
 - Claude task runner
+- Codex builder task runner
 - review pipeline runner
 - Codex auto-review runner
 
@@ -125,8 +127,8 @@ Owns local startup behavior:
 
 1. The browser sends a `chat` message over WebSocket.
 2. `websocket.py` validates the request and starts a background thread.
-3. `runtime.py` starts `claude` as a subprocess with `stream-json`.
-4. Claude events are converted into GUI stream events and broadcast back to the browser.
+3. `runtime.py` routes the task to the selected primary builder from GUI settings.
+4. The chosen builder subprocess streams readable events back to the browser.
 5. If Claude changed files and auto-review is enabled, Codex review may start automatically.
 
 ### Review Flow
@@ -162,8 +164,9 @@ It covers:
 - diff and OpenAPI route visibility
 - CLI and launcher startup flags
 - log filtering and session persistence
+- builder selection and dispatch
 - key Claude/review failure paths
-- browser-driven E2E coverage for theme switching, diff inspection, and the WebSocket chat flow
+- browser-driven E2E coverage for theme switching, builder switching, diff inspection, and the WebSocket chat flow
 
 The next highest-value test areas are deeper browser-driven scenarios such as reconnect recovery, review dialogs, and multi-project switching.
 

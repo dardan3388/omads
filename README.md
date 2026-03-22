@@ -2,8 +2,8 @@
 
 OMADS is a web GUI that orchestrates two AI agents:
 
-- **Claude Code CLI** — builder agent for chat, coding, and debugging
-- **Codex CLI** — auto-reviewer that checks code after changes
+- **Claude Code CLI** or **Codex CLI** as the selectable primary builder for chat, coding, and debugging
+- **Codex CLI** as the auto-reviewer that checks Claude-built changes after code edits
 
 No API keys are required. Both CLIs use existing subscriptions such as Claude Pro/Max/Team and ChatGPT Plus/Pro.
 
@@ -56,7 +56,7 @@ For the browser-based E2E suite, install Chromium once:
 python -m playwright install chromium
 ```
 
-The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, diff and OpenAPI routes, WebSocket guardrails, log filtering, chat-session persistence, mocked Codex auto-review outcomes, mocked Claude/Codex review-fix handoff paths, and real browser E2E flows for theme switching, the diff viewer, and the WebSocket chat UI without requiring live Claude/Codex quota.
+The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, diff and OpenAPI routes, WebSocket guardrails, log filtering, chat-session persistence, builder selection, mocked Codex auto-review outcomes, mocked Claude/Codex review-fix handoff paths, and real browser E2E flows for theme switching, builder switching, the diff viewer, and the WebSocket chat UI without requiring live Claude/Codex quota.
 
 ---
 
@@ -67,8 +67,8 @@ The current tests cover server startup, security headers, settings and project v
 | **Python** | 3.11+ | OMADS backend |
 | **Node.js** | 18+ for Claude Code, 22+ for Codex | CLI tools |
 | **npm** | bundled with Node.js | CLI installation |
-| **Claude Code CLI** | current | Builder agent |
-| **Codex CLI** | current | Auto-reviewer (optional) |
+| **Claude Code CLI** | current | Selectable builder agent |
+| **Codex CLI** | current | Selectable builder agent and auto-reviewer |
 
 ### Subscription Requirements
 
@@ -320,7 +320,7 @@ When the GUI opens for the first time, OMADS checks whether Claude Code CLI and 
 
 1. Click **+ New** in the sidebar
 2. Choose your project directory
-3. Start chatting with Claude Code
+3. Start chatting with your selected builder
 
 ---
 
@@ -330,19 +330,20 @@ When the GUI opens for the first time, OMADS checks whether Claude Code CLI and 
 Browser (localhost:8080)
     ↕ WebSocket + REST
 FastAPI Backend
-    ├── Claude Code CLI (builder, writes code)
-    └── Codex CLI (reviewer, read-only)
+    ├── Claude Code CLI (selectable builder)
+    └── Codex CLI (selectable builder + reviewer)
 ```
 
 1. You send a task in the chat
-2. **Claude Code** works on it with live streaming
-3. After code changes, **Codex** starts an automatic review
-4. If Codex finds issues, Claude can fix them
+2. The selected primary builder works on it with live streaming
+3. If **Claude Code** is the builder and code changes were made, **Codex** can start an automatic review
+4. If Codex finds issues, Claude can fix them in the current fixed review pipeline
 5. You see the full process in real time
 
 ### Features
 
-- Chat with Claude Code
+- Switch the primary builder between Claude Code and Codex
+- Chat with the selected builder
 - Automatic Codex review after code changes
 - Three-step review flow (Claude → Codex → synthesis)
 - Real-time token and activity tracking
@@ -363,6 +364,7 @@ All settings are controlled through the GUI and stored in `~/.config/omads/`.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| Primary builder | `claude` | Persistent builder selection for normal chat tasks |
 | Claude model | `sonnet` | Claude model such as `sonnet`, `opus`, or `haiku` |
 | Effort | `high` | Claude reasoning depth |
 | Max turns | `25` | Working steps per task |
@@ -419,7 +421,7 @@ source .venv/bin/activate    # Linux/macOS
 
 - **Python 3.11+** with FastAPI, Uvicorn, and WebSockets
 - **Claude Code CLI** (`claude -p`, `stream-json`)
-- **Codex CLI** (`codex exec`, `--json`, read-only)
+- **Codex CLI** (`codex exec`, `--json`) for builder and review tasks
 - **Frontend:** vanilla HTML/CSS/JS without a build step
 
 ---

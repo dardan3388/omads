@@ -81,6 +81,7 @@ def _default_target_repo() -> str:
 
 _DEFAULT_SETTINGS: dict[str, Any] = {
     "target_repo": _default_target_repo(),
+    "builder_agent": "claude",  # claude, codex
     # Claude Code CLI
     "claude_model": "sonnet",
     "claude_permission_mode": "default",  # default, auto, plan, bypassPermissions
@@ -101,6 +102,7 @@ class _RequestModel(BaseModel):
 
 class UpdateSettingsRequest(_RequestModel):
     target_repo: str | None = None
+    builder_agent: str | None = None
     claude_model: str | None = None
     claude_permission_mode: str | None = None
     claude_max_turns: int | None = None

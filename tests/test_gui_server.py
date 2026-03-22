@@ -150,6 +150,7 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
         "/api/settings",
         json={
             "target_repo": str(outside_dir),
+            "builder_agent": "invalid",
             "claude_max_turns": 999,
             "codex_reasoning": "invalid",
             "codex_fast": True,
@@ -163,6 +164,7 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
 
     settings = client.get("/api/settings").json()
     assert settings["target_repo"] == str(repo_dir.resolve())
+    assert settings["builder_agent"] == "claude"
     assert settings["claude_max_turns"] == 100
     assert settings["codex_reasoning"] == "high"
     assert settings["codex_fast"] is True
@@ -175,6 +177,10 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     assert response.status_code == 200
     assert client.get("/api/settings").json()["target_repo"] == str(valid_repo.resolve())
     assert json.loads(state._CONFIG_PATH.read_text())["target_repo"] == str(valid_repo.resolve())
+
+    response = client.post("/api/settings", json={"builder_agent": "codex"})
+    assert response.status_code == 200
+    assert client.get("/api/settings").json()["builder_agent"] == "codex"
 
 
 def test_project_endpoints_enforce_home_boundary_and_missing_paths(
@@ -324,7 +330,7 @@ def test_websocket_chat_validates_length_and_rate_limit(client: TestClient, monk
 
     assert len(started_threads) == 1
     assert started_threads[0].started is True
-    assert started_threads[0].target is runtime._run_claude_session_thread
+    assert started_threads[0].target is runtime._run_builder_session_thread
     assert started_threads[0].args[1] == "first"
 
 
@@ -384,6 +390,21 @@ def test_runtime_status_refresh_and_busy_guards(client: TestClient, monkeypatch:
     busy_codex = client.post("/api/runtime-status/codex/refresh")
     assert "Please wait until the current task finishes" in busy_claude.json()["error"]
     assert "Please wait until the current task finishes" in busy_codex.json()["error"]
+
+
+def test_builder_dispatch_uses_selected_primary_builder(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    called: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(runtime, "_run_claude_session_thread", lambda ws, text: called.append(("claude", text)))
+    monkeypatch.setattr(runtime, "_run_codex_session_thread", lambda ws, text: called.append(("codex", text)))
+
+    state._update_settings(lambda settings: settings.__setitem__("builder_agent", "claude"))
+    runtime._run_builder_session_thread(None, "first task")
+
+    state._update_settings(lambda settings: settings.__setitem__("builder_agent", "codex"))
+    runtime._run_builder_session_thread(None, "second task")
+
+    assert called == [("claude", "first task"), ("codex", "second task")]
 
 
 def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_server, monkeypatch: pytest.MonkeyPatch):
@@ -477,6 +498,7 @@ def test_theme_settings_diff_endpoint_and_openapi_docs(
     settings = client.get("/api/settings")
     assert settings.status_code == 200
     assert settings.json()["ui_theme"] == "light"
+    assert settings.json()["builder_agent"] == "claude"
 
     diff = client.get("/api/diff")
     assert diff.status_code == 200
@@ -494,6 +516,30 @@ def test_theme_settings_diff_endpoint_and_openapi_docs(
     assert redoc.status_code == 200
     assert openapi.status_code == 200
     assert openapi.json()["info"]["title"] == "OMADS GUI"
+
+
+def test_codex_builder_task_emits_output_and_unlock(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+
+    process = DummyProcess(lines=[
+        json.dumps({
+            "type": "item.completed",
+            "item": {"text": "Implemented the requested change."},
+        }) + "\n"
+    ])
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_codex_session_thread(None, "Implement a small feature")
+
+    assert any(msg["type"] == "agent_status" and msg.get("agent") == "Codex" for msg in messages)
+    assert any(msg["type"] == "stream_text" and msg.get("text") == "Implemented the requested change." for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
 
 
 def test_codex_auto_review_returns_none_when_no_issues_found(isolated_server, monkeypatch: pytest.MonkeyPatch):

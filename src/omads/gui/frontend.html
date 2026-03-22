@@ -624,6 +624,7 @@
   <div class="header-left">
     <span class="logo">OMADS</span>
     <span class="badge" id="connBadge">Connecting...</span>
+    <span class="badge" id="builderBadge" title="Selected builder">Builder: Claude</span>
     <span class="badge" id="repoBadge" title="Click to change" style="cursor:pointer" onclick="openSettings()">No project</span>
   </div>
   <div class="header-right">
@@ -757,6 +758,14 @@
 
     <!-- Tab: Projekt -->
     <div class="tab-content active" id="tabProject">
+      <div class="form-group">
+        <label>Primary builder</label>
+        <select id="sBuilder">
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex</option>
+        </select>
+        <div class="hint">All normal chat tasks go to this builder until you change the setting again.</div>
+      </div>
       <div class="form-group">
         <label>Project directory</label>
         <div class="folder-picker" id="folderPicker">
@@ -940,6 +949,7 @@ let ws = null, busy = false, fpPath = '~';
 let _logFilter = 'all';  // 'all', 'claude', 'codex'
 let _runtimeStatus = { claude_limit: {}, codex_status: {} };
 let _uiTheme = 'dark';
+let _builderAgent = 'claude';
 
 // ─── WebSocket ─────────────────────────
 let _reconnectDelay = 2000;
@@ -1048,6 +1058,7 @@ function handle(msg) {
       if (msg.settings) {
         if (msg.settings.target_repo) el('repoBadge').textContent = shortPath(msg.settings.target_repo);
         if (msg.settings.ui_theme) applyTheme(msg.settings.ui_theme);
+        if (msg.settings.builder_agent) applyBuilderAgent(msg.settings.builder_agent);
       }
       break;
 
@@ -1389,6 +1400,14 @@ function applyTheme(theme) {
   if (select) select.value = _uiTheme;
 }
 
+function applyBuilderAgent(builderAgent) {
+  _builderAgent = builderAgent === 'codex' ? 'codex' : 'claude';
+  const badge = el('builderBadge');
+  if (badge) badge.textContent = `Builder: ${_builderAgent === 'codex' ? 'Codex' : 'Claude'}`;
+  const select = el('sBuilder');
+  if (select) select.value = _builderAgent;
+}
+
 async function persistTheme(theme) {
   await fetch('/api/settings', {
     method: 'POST',
@@ -1454,6 +1473,7 @@ async function loadSettings() {
     const s = await res.json();
     _savedSettings = s;
     el('sRepo').value = s.target_repo || '';
+    el('sBuilder').value = s.builder_agent || 'claude';
     el('sPerms').value = s.claude_permission_mode || 'default';
     el('sClaude').value = s.claude_model || 'sonnet';
     el('sClaudeEffort').value = s.claude_effort || 'high';
@@ -1464,6 +1484,7 @@ async function loadSettings() {
     el('sAutoReview').value = s.auto_review !== false ? 'true' : 'false';
     el('sTheme').value = s.ui_theme || 'dark';
     applyTheme(s.ui_theme || 'dark');
+    applyBuilderAgent(s.builder_agent || 'claude');
     el('repoBadge').textContent = shortPath(s.target_repo || 'No project');
   } catch (e) {}
 }
@@ -1472,6 +1493,7 @@ let _savedSettings = {};
 async function saveSettings() {
   const data = {
     target_repo: el('sRepo').value,
+    builder_agent: el('sBuilder').value,
     claude_permission_mode: el('sPerms').value,
     claude_model: el('sClaude').value,
     claude_effort: el('sClaudeEffort').value,
@@ -1485,6 +1507,7 @@ async function saveSettings() {
   if (ws && data.target_repo) ws.send(JSON.stringify({ type: 'set_repo', path: data.target_repo }));
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
   applyTheme(data.ui_theme);
+  applyBuilderAgent(data.builder_agent);
   el('repoBadge').textContent = shortPath(data.target_repo);
   closeSettings();
 }
@@ -2076,14 +2099,16 @@ async function loadHistoryIntoChat(projectId, projectName) {
         d.innerHTML = `<span style="font-size:10px;color:inherit;opacity:0.7;display:block;margin-bottom:2px;">${esc(time)}</span>${label} ${score} — ${esc(truncate(e.intent, 60))}`;
         if (e.files_changed) d.innerHTML += `<span style="font-size:11px;opacity:0.7;margin-left:8px;">(${e.files_changed} file${e.files_changed > 1 ? 's' : ''})</span>`;
         s.appendChild(d);
-      } else if (e.type === 'claude_response') {
-        // Claude Code Antwort (neue Architektur)
+      } else if (e.type === 'claude_response' || e.type === 'builder_response') {
+        // Builder-Antwort (Claude Code / Codex)
         const da = document.createElement('div');
         da.className = 'msg msg-agent';
         let meta = '';
         if (e.files_changed) meta += `${e.files_changed} file${e.files_changed > 1 ? 's' : ''} changed`;
         if (e.duration_s) meta += `${meta ? ' · ' : ''}${e.duration_s}s`;
-        da.innerHTML = `<span class="agent-name claude">Claude Code</span>${formatMsg(e.text)}${meta ? '<span style="font-size:10px;color:var(--text-dim);display:block;margin-top:4px;">' + meta + '</span>' : ''}`;
+        const historyAgent = e.agent || 'Claude Code';
+        const historyClass = agentClass(historyAgent);
+        da.innerHTML = `<span class="agent-name ${historyClass}">${esc(historyAgent)}</span>${formatMsg(e.text)}${meta ? '<span style="font-size:10px;color:var(--text-dim);display:block;margin-top:4px;">' + meta + '</span>' : ''}`;
         s.appendChild(da);
       } else if (e.type === 'chat') {
         // User-Frage (alte Architektur)

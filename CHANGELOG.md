@@ -8,13 +8,14 @@ The format is loosely based on Keep a Changelog.
 
 ### Added
 
+- Added a persistent primary-builder setting so normal chat tasks can be routed to either Claude Code or Codex from the GUI until the user changes the selection.
 - Added `start-omads.sh` as a one-command local launcher for Linux/macOS.
 - Added `start-omads.ps1` as a Windows-friendly one-command launcher.
 - Added `python -m omads` support through `src/omads/__main__.py`.
 - Added mock-based tests for WebSocket guardrails, Codex auto-review outcomes, review fix suggestions, and Claude/Codex handoff flows without requiring live CLI access.
 - Added backend integration tests for health/status/ledger routes, runtime status refresh, and project history/log/error paths.
 - Added backend integration tests for theme settings, the diff endpoint, and local OpenAPI docs.
-- Added Playwright-based browser E2E tests for theme switching, diff viewing, and the WebSocket chat flow.
+- Added Playwright-based browser E2E tests for theme switching, builder switching, diff viewing, and the WebSocket chat flow.
 - Added a built-in diff viewer for the active Git working tree in the OMADS GUI.
 - Added a switchable dark/light theme stored in GUI settings.
 - Added `compose.yaml` plus `.env.docker.example` for Docker-based workspace/auth mounting.
@@ -23,6 +24,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Changed
 
+- Normal chat tasks now follow the persistent GUI builder selection instead of being hardwired to Claude Code.
 - Replaced the custom `PROJEKTPROTOKOLL.md` project diary with standard English documentation.
 - Added `docs/architecture.md` as the durable reference for backend structure and module boundaries.
 - Standardized the main repository documentation in English for broader external use.

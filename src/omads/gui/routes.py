@@ -51,6 +51,7 @@ async def get_settings():
 
 _ALLOWED_SETTINGS = {
     "target_repo": str,
+    "builder_agent": str,
     "claude_model": str,
     "claude_permission_mode": str,
     "claude_max_turns": int,
@@ -86,6 +87,8 @@ async def update_settings(data: UpdateSettingsRequest):
 
         # Bounds erzwingen
         settings["claude_max_turns"] = max(1, min(int(settings.get("claude_max_turns", 25)), 100))
+        if settings.get("builder_agent") not in ("claude", "codex"):
+            settings["builder_agent"] = "claude"
         if settings.get("claude_effort") not in ("low", "medium", "high", "max"):
             settings["claude_effort"] = "high"
         if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
@@ -417,6 +420,7 @@ async def get_status():
         "phase": phase,
         "total_tasks": ledger_count,
         "target_repo": _get_setting("target_repo", str(Path(".").resolve())),
+        "builder_agent": _get_setting("builder_agent", "claude"),
         "auto_review": _get_setting("auto_review", True),
     }
 
