@@ -6,6 +6,9 @@ __pycache__/
 dist/
 build/
 .venv/
+venv/
+.env
+.env*
 
 # Legacy-Archiv (nicht aktiv, bläht Repo auf)
 _legacy/
@@ -16,6 +19,9 @@ dna/cold_start_state.json
 
 # Claude Code lokale Config
 .claude/
+
+# Node
+node_modules/
 
 # OS
 .DS_Store
@@ -32,3 +38,6 @@ desktop.ini
 # Logs
 *.log
 /tmp/
+
+# Secrets
+secrets.*

@@ -565,6 +565,7 @@
           onkeydown="onKey(event)"></textarea>
         <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Code-Review mit Claude + Codex">Review</button>
         <button class="btn-send" id="btnSend" onclick="send()">Senden</button>
+        <button class="btn-stop" id="btnStop" onclick="stop()" style="display:none">Stop</button>
       </div>
     </div>
 
@@ -772,12 +773,6 @@
       </div>
 
       <div class="section-title">Einstellungen</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Timeout (Sekunden)</label>
-          <input type="text" id="sBreakerTimeout" value="120">
-        </div>
-      </div>
       <div class="section-title">Status</div>
       <div class="form-group status-card">
         <div class="status-card-head">
@@ -807,10 +802,12 @@ let _logFilter = 'all';  // 'all', 'claude', 'codex'
 let _runtimeStatus = { claude_limit: {}, codex_status: {} };
 
 // ─── WebSocket ─────────────────────────
+let _reconnectDelay = 2000;
 function connect() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${protocol}://${location.host}/ws`);
   ws.onopen = () => {
+    _reconnectDelay = 2000;  // Reset bei erfolgreicher Verbindung
     el('connBadge').textContent = 'Verbunden';
     el('connBadge').classList.add('on');
     loadSettings();
@@ -820,7 +817,8 @@ function connect() {
   ws.onclose = () => {
     el('connBadge').textContent = 'Getrennt';
     el('connBadge').classList.remove('on');
-    setTimeout(connect, 2000);
+    setTimeout(connect, _reconnectDelay);
+    _reconnectDelay = Math.min(_reconnectDelay * 2, 30000);  // Exponential Backoff, max 30s
   };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
@@ -881,6 +879,11 @@ function handle(msg) {
 
     case 'task_stopped':
       addSystem(msg.text);
+      unlock();
+      break;
+
+    case 'error':
+      addSystem(msg.text || 'Fehler');
       unlock();
       break;
 
@@ -969,6 +972,7 @@ function applyFixes() {
 
 // ─── Nachricht senden ──────────────────
 function send() {
+  if (busy) return;  // Kein Senden während laufendem Task
   const inp = el('input');
   const text = inp.value.trim();
   if (!text || !ws) return;
@@ -992,6 +996,7 @@ function stop() {
 
 function onKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  if (e.key === 'Escape' && busy) { e.preventDefault(); stop(); }
   setTimeout(() => {
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
@@ -1000,20 +1005,16 @@ function onKey(e) {
 
 function lock() {
   busy = true;
-  // Send-Button durch Stop-Button ersetzen
-  el('btnSend').outerHTML = '<button class="btn-stop" id="btnStop" onclick="stop()">Stop</button>';
-  // Review-Button deaktivieren
+  el('btnSend').style.display = 'none';
+  el('btnStop').style.display = '';
   const rb = document.getElementById('btnReview');
   if (rb) rb.disabled = true;
 }
 
 function unlock() {
   busy = false;
-  const btn = document.getElementById('btnStop');
-  if (btn) {
-    btn.outerHTML = '<button class="btn-send" id="btnSend" onclick="send()">Senden</button>';
-  }
-  // Review-Button reaktivieren
+  el('btnStop').style.display = 'none';
+  el('btnSend').style.display = '';
   const rb = document.getElementById('btnReview');
   if (rb) rb.disabled = false;
 }
@@ -1150,19 +1151,25 @@ function buildResultCard(msg) {
 
   html += `</div><div class="rc-actions">`;
 
-  // Buttons pro Decision-Typ
+  // Buttons pro Decision-Typ (data-Attribute statt onclick-Interpolation → XSS-sicher)
   if (decision === 'accept') {
-    html += `<button class="rc-btn primary" onclick="resultAction('new')">Neuer Auftrag</button>`;
+    html += `<button class="rc-btn primary" data-action="new">Neuer Auftrag</button>`;
   } else if (decision === 'reject') {
-    html += `<button class="rc-btn primary" onclick="resultAction('revise', '${esc(intent)}')">Anpassen &amp; Neu starten</button>`;
+    html += `<button class="rc-btn primary" data-action="revise" data-param="${esc(intent)}">Anpassen &amp; Neu starten</button>`;
   } else if (decision === 'escalate') {
-    html += `<button class="rc-btn primary" onclick="resultAction('approve', '${esc(msg.task_id)}')">Freigeben</button>`;
-    html += `<button class="rc-btn danger" onclick="resultAction('reject_escalation', '${esc(msg.task_id)}')">Ablehnen</button>`;
-    html += `<button class="rc-btn" onclick="resultAction('revise', '${esc(intent)}')">Nachbessern lassen</button>`;
+    html += `<button class="rc-btn primary" data-action="approve" data-param="${esc(msg.task_id)}">Freigeben</button>`;
+    html += `<button class="rc-btn danger" data-action="reject_escalation" data-param="${esc(msg.task_id)}">Ablehnen</button>`;
+    html += `<button class="rc-btn" data-action="revise" data-param="${esc(intent)}">Nachbessern lassen</button>`;
   }
 
   html += `</div>`;
   card.innerHTML = html;
+  // Event-Listener statt inline onclick (XSS-sicher)
+  for (const btn of card.querySelectorAll('.rc-btn[data-action]')) {
+    btn.addEventListener('click', () => {
+      resultAction(btn.dataset.action, btn.dataset.param);
+    });
+  }
   return card;
 }
 
@@ -1278,7 +1285,6 @@ async function loadSettings() {
     el('sCodexModel').value = s.codex_model || '';
     el('sCodexReasoning').value = s.codex_reasoning || 'high';
     el('sCodexFast').value = s.codex_fast ? 'true' : 'false';
-    el('sBreakerTimeout').value = s.breaker_timeout || 120;
     el('sAutoReview').value = s.auto_review !== false ? 'true' : 'false';
     el('repoBadge').textContent = shortPath(s.target_repo || 'Kein Projekt');
   } catch (e) {}
@@ -1295,7 +1301,6 @@ async function saveSettings() {
     codex_model: el('sCodexModel').value,
     codex_reasoning: el('sCodexReasoning').value,
     codex_fast: el('sCodexFast').value === 'true',
-    breaker_timeout: parseInt(el('sBreakerTimeout').value) || 120,
     auto_review: el('sAutoReview').value === 'true',
   };
   if (ws && data.target_repo) ws.send(JSON.stringify({ type: 'set_repo', path: data.target_repo }));
@@ -1459,7 +1464,17 @@ async function refreshCodexStatus() {
 
 // ─── Helpers ───────────────────────────
 function el(id) { return document.getElementById(id); }
-function scrollDown() { const s = el('stream'); s.scrollTop = s.scrollHeight; }
+let _scrollRAF = 0;
+function scrollDown() {
+  if (_scrollRAF) return;  // Bereits geplant — kein doppelter Reflow
+  _scrollRAF = requestAnimationFrame(() => {
+    const s = el('stream');
+    // DOM-Limit: max 500 Chat-Elemente, älteste entfernen
+    while (s.children.length > 500) s.removeChild(s.firstChild);
+    s.scrollTop = s.scrollHeight;
+    _scrollRAF = 0;
+  });
+}
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 function formatMsg(text) {
   // Einfaches Markdown-Rendering: Code-Blöcke, Inline-Code, Fett, Kursiv, Listen, Links, Zeilenumbrüche
@@ -1612,6 +1627,8 @@ function logEvent(msg) {
   }
 
   container.appendChild(d);
+  // DOM-Limit: max 1000 Log-Einträge, älteste entfernen
+  while (container.children.length > 1000) container.removeChild(container.firstChild);
   container.scrollTop = container.scrollHeight;
 }
 
@@ -1662,9 +1679,17 @@ function renderProjects() {
           <div class="project-path" title="${esc(p.path)}">${esc(shortP)}</div>
           <div class="project-meta">Zuletzt: ${lastUsed}</div>
         </div>
-        <button onclick="event.stopPropagation();deleteProject('${p.id}','${esc(p.name)}')" title="Projekt l&ouml;schen" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
+        <button class="btn-delete-project" data-id="${esc(p.id)}" data-name="${esc(p.name)}" title="Projekt l&ouml;schen" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
       </div>
     `;
+    // Event-Listener statt Inline-onclick (verhindert XSS über Projektnamen)
+    const delBtn = d.querySelector('.btn-delete-project');
+    if (delBtn) {
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteProject(delBtn.dataset.id, delBtn.dataset.name);
+      });
+    }
     d.onclick = () => switchProject(p.id);
     list.appendChild(d);
   }
@@ -1902,7 +1927,7 @@ async function checkHealth() {
     if (allOk) {
       // Alles installiert — kurze Bestätigung, auto-hide nach 5s
       banner.className = 'onboard-banner';
-      banner.innerHTML = `<div class="onboard-ok">Claude Code CLI ${h.claude.version ? '(' + h.claude.version + ')' : ''} + Codex CLI ${h.codex.version ? '(' + h.codex.version + ')' : ''} — bereit.</div>`;
+      banner.innerHTML = `<div class="onboard-ok">Claude Code CLI ${h.claude.version ? '(' + esc(h.claude.version) + ')' : ''} + Codex CLI ${h.codex.version ? '(' + esc(h.codex.version) + ')' : ''} — bereit.</div>`;
       banner.style.display = '';
       setTimeout(() => { banner.style.display = 'none'; }, 5000);
       return;
@@ -1915,7 +1940,7 @@ async function checkHealth() {
     // Claude Card
     if (h.claude?.installed) {
       html += `<div class="cli-card ok"><div class="cli-name ok">Claude Code CLI</div>`;
-      html += `<div class="cli-ver">${h.claude.version || ''} &mdash; ${h.claude.path || ''}</div>`;
+      html += `<div class="cli-ver">${esc(h.claude.version || '')} &mdash; ${esc(h.claude.path || '')}</div>`;
       if (h.claude.authenticated === false) {
         html += `<div class="cli-hint">Nicht authentifiziert. Starte einmalig <code>claude</code> im Terminal und melde dich an.</div>`;
       }
@@ -1932,7 +1957,7 @@ async function checkHealth() {
     // Codex Card
     if (h.codex?.installed) {
       html += `<div class="cli-card ok"><div class="cli-name ok">Codex CLI</div>`;
-      html += `<div class="cli-ver">${h.codex.version || ''} &mdash; ${h.codex.path || ''}</div>`;
+      html += `<div class="cli-ver">${esc(h.codex.version || '')} &mdash; ${esc(h.codex.path || '')}</div>`;
       html += '</div>';
     } else {
       html += `<div class="cli-card missing"><div class="cli-name missing">Codex CLI</div>`;
@@ -1961,7 +1986,7 @@ async function checkHealth() {
 
 // ─── Init ──────────────────────────────
 connect();
-loadProjects();
+// loadProjects() wird in ws.onopen aufgerufen (nicht doppelt)
 loadRuntimeStatus();
 checkHealth();
 setInterval(() => renderClaudeLimit(), 30000);

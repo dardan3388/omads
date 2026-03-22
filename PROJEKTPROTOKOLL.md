@@ -874,10 +874,93 @@ OMADS soll auf GitHub veröffentlicht werden — dafür braucht es ein vollstän
 - **Onboarding-Banner** im Frontend: Beim Start wird `/api/health` abgefragt. Bei fehlenden CLIs zeigt ein gelb umrandetes Banner mit CLI-Cards (grün=OK, rot=fehlt) genau, was zu installieren ist — inkl. npm-Befehle und Links. Bei vollständiger Installation: kurze Bestätigung die nach 5s verschwindet.
 - **README.md** erstellt: Vollständige Setup-Anleitung von A bis Z, plattformunabhängig (Windows, macOS, Linux). Enthält: Voraussetzungen-Tabelle, Schritt-für-Schritt Installation mit OS-spezifischen Details (collapsible), CLI-Einrichtung mit Abo-Hinweisen, OMADS-Einrichtung, Feature-Übersicht, Konfigurationsreferenz, Fehlerbehebung.
 
+### Security-Review + Fixes (2026-03-21)
+Umfassendes Security-Review durch das OMADS 3-Schritt-Verfahren (Claude Code → Codex → Synthese):
+
+**Runde 1 — 6 Security-Fixes:**
+- **Path Traversal**: `_validate_project_id()` mit Regex `^[a-zA-Z0-9_-]+$` in allen Projekt-Routen
+- **DOM-XSS**: Inline `onclick` durch `data-*` Attribute + `addEventListener` ersetzt (Projekt-Delete-Button)
+- **WebSocket Origin-Check**: Dynamisch aus Server-Port abgeleitet statt hardcoded
+- **CORS Middleware**: `CORSMiddleware` mit localhost-only Regex
+- **CSP Header**: `default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'` + `X-Content-Type-Options: nosniff`
+- **Thread-Safety**: `_process_lock` konsistent auf alle `_active_process`-Zuweisungen angewendet
+
+**Runde 2 — Concurrency-Fixes + Timeout-Entfernung:**
+- **Codex-Timeout entfernt**: `breaker_timeout` (120s deadline) komplett entfernt — Codex wird nicht mehr abgewürgt, sondern arbeitet bis EOF oder manueller Abbruch. Setting aus Backend, Frontend und Config entfernt.
+- **`_active_process` Reads gelockt**: Alle 5 ungelockten Reads (`refresh_claude_runtime_status`, `refresh_codex_runtime_status`, WebSocket-Handler für chat/review/apply_fixes`) mit `_process_lock` geschützt gegen TOCTOU-Race.
+- **`_task_cancelled` Race behoben**: Reset (`= False`) in Worker-Threads und Set (`= True`) im Stop-Handler jetzt unter `_process_lock` — kein gegenseitiges Überschreiben mehr möglich.
+- **`_connections` Thread-sicher**: Eigener `_connections_lock` eingeführt. `broadcast()` und `broadcast_sync()` arbeiten auf Snapshot-Kopien. `append()`/`remove()` unter Lock.
+
+**Runde 3 — Performance-Fixes (aus OMADS Performance-Review):**
+Diesmal hat Codex komplett fertig gearbeitet (kein Timeout mehr!) — die Timeout-Entfernung aus Runde 2 hat sich direkt bewährt. Codex hat das wichtigste Finding (stderr-Pipe-Deadlock) geliefert, das Claude übersehen hatte.
+- **stderr-Pipe-Deadlock behoben** (Codex-Finding): Alle 6 `Popen`-Aufrufe von `stderr=subprocess.PIPE` auf `stderr=subprocess.DEVNULL` umgestellt. Vorher konnte ein voller stderr-Puffer (64KB auf Linux) den Child-Prozess blockieren und den Worker zum Hängen bringen.
+- **Inactivity-Timeout für Codex** (Codex-Finding): 15 Minuten ohne Output → Prozess wird gekillt und `_active_process` freigegeben. Kein starrer Timer, sondern Safety-Net falls Codex wirklich hängt. In beiden Codex-Schleifen (3-Schritt-Review + Auto-Review) implementiert.
+- **DOM-Limit Live-Log**: Max 1000 Einträge im Live-Log, älteste werden automatisch entfernt.
+- **DOM-Limit Chat-Stream**: Max 500 Elemente im Chat-Bereich via `scrollDown()`. Verhindert unbegrenztes DOM-Wachstum bei langen Sessions.
+- **scrollDown() Reflow-Throttling** (Codex-Finding): `requestAnimationFrame`-basiert statt bei jedem Token einen forced Layout-Reflow. Verhindert Rendering-Stau bei schnellem Streaming.
+- **Timeout-Setting aus Frontend entfernt**: Das Eingabefeld "Timeout (Sekunden)" in den Codex-Einstellungen wurde entfernt, da es keine Funktion mehr hat.
+
+### Runde 4: Full-Review Fixes (2026-03-21, Nachmittag)
+
+Vierter OMADS-Review-Zyklus — vollständiger 3-Schritt-Review (Claude Code → Codex → Synthese). Codex hat erneut wichtige Findings geliefert, die Claude übersehen hatte.
+
+**HOCH-Fixes:**
+- **F1: Codex-Popen ohne `env=_build_cli_env()`** (Codex-Finding): Beide Codex-Subprozesse (3-Schritt-Review + Auto-Review) erbten die komplette Server-Umgebung statt der Env-Allowlist. Fix: `env=_build_cli_env()` hinzugefügt.
+- **F2: `_pending_review_fixes` global statt pro Projekt** (Codex-Finding): Nach Projektwechsel konnten Review-Fixes aus Projekt A auf Projekt B angewendet werden. Fix: Dict `{repo_path: fixes_text}` statt einfacher String.
+- **F3: `_active_process = None` vor `process.wait()`** (Beide): Race Window erlaubte neuen Task während alter noch terminiert. Fix: Erst `wait(timeout=30)`, bei Timeout `kill()` + `wait()`, dann erst `_active_process = None`. An 4 Stellen korrigiert.
+- **F4: `_get_memory_path` nur `.name`** (Beide): Zwei Repos mit gleichem Ordnernamen überschrieben sich gegenseitig. Fix: SHA-256-Hash des vollständigen Pfads als Suffix (`api_a0ace028.md` statt `api.md`).
+
+**MITTEL-Fixes:**
+- **F5: `set_repo` ohne Validierung**: Kein `is_dir()`-Check, kein Home-Dir-Check. Fix: Konsistent mit `/api/browse` — nur Verzeichnisse innerhalb `$HOME` erlaubt. Auch in `create_project` nachgezogen.
+- **F6: `_read_log` lädt komplette Datei**: Fix: `collections.deque(f, maxlen=500)` — liest zeilenweise, behält nur die letzten 500.
+- **F7: `resultAction` XSS via onclick**: String-Interpolation in `onclick`-Attribute war anfällig für Intent-Strings mit Quotes. Fix: `data-*` Attribute + `addEventListener` (wie bei Delete-Button bereits gemacht).
+- **F8: `loadProjects()` doppelt**: Beim Init + ws.onopen = Race Condition. Fix: Init-Aufruf entfernt, ws.onopen reicht.
+- **F9: WebSocket-Reconnect ohne Backoff**: Fester 2s-Intervall bei Server-Down = hunderte Verbindungsversuche. Fix: Exponential Backoff (2s → 4s → 8s → ... → max 30s), Reset bei erfolgreicher Verbindung.
+
+### Runde 5: Vollständiger Review-Zyklus (2026-03-21, Nachmittag)
+
+Fünfter OMADS-Review-Zyklus. Codex hat erneut kritische Findings geliefert — insbesondere den `startswith`-Bug in der Pfad-Validierung, die erst in Runde 4 eingebaut wurde und von Anfang an fehlerhaft war.
+
+**HOCH-Fixes:**
+- **F1: `startswith`-Check Bug** (Codex-Finding): `/home/dani_backup` passierte den Home-Check, weil `startswith("/home/dani")` auch Geschwisterpfade matcht. Fix: `startswith(home + "/")` oder Gleichheit. An 3 Stellen korrigiert.
+- **F2: `update_settings` validiert `target_repo` nicht**: Über den REST-Endpoint konnte `target_repo` auf beliebige Pfade gesetzt werden. Fix: Extra-Validierung mit `is_dir()` + korrektem Home-Check.
+- **F3: `switch_project` ohne Pfad-Validierung**: Ein gespeichertes Projekt mit gelöschtem Verzeichnis wurde ungeprüft als `cwd` verwendet. Fix: `is_dir()`-Check vor dem Wechsel.
+- **F4: Codex-Fehlermeldungen als Code-Findings**: Auth-/CLI-Fehler wurden an Claude zum "Fixen" weitergeleitet. Fix: Nur bei `returncode == 0` als Finding behandeln.
+- **F5: Auto-Review-Prozess nicht in `_active_process`** (Codex-Finding): `stop` konnte den Codex-Auto-Review nicht abbrechen. Fix: Prozess nach Popen registrieren, in finally-Block freigeben.
+
+**MITTEL-Fixes:**
+- **F6: `send()` ignoriert `busy`-Flag**: User konnte während laufendem Task erneut senden → UI-Lock-Zustand. Fix: `if (busy) return;` + `case 'error'` in WebSocket-Handler.
+- **F7: `outerHTML` durch CSS-Toggle**: DOM-Node-Replacement bei `lock()`/`unlock()` konnte UI brechen. Fix: Beide Buttons permanent im DOM, Ein-/Ausblenden per `display`.
+- **F8: Logs im falschen Projekt bei Projektwechsel** (Codex-Finding): `broadcast_sync` las die Projekt-ID global statt task-gebunden. Fix: Projekt-ID beim Task-Start einfrieren, als `proj_id_override` durchreichen.
+- **F9: `_read_history` und `get_ledger` tail-read**: Komplettes Einlesen wie bei `_read_log` vor Runde 4. Fix: `deque(f, maxlen=N)`.
+- **F10: Onboard-Banner ohne `esc()`**: Version-/Pfad-Strings roh in `innerHTML`. Fix: Konsequent `esc()` anwenden.
+
 ---
 
-## Offene Punkte / Nächste Schritte
+### Quick-Fixes nach OMADS Self-Review (2026-03-21, Abend)
 
-- [ ] Web GUI testen und verfeinern
-- [ ] GUI: Diff-Viewer, bessere Code-Anzeige
-- [ ] GUI: Projekt-Templates und Vorlagen
+OMADS hat sich selbst analysiert und Verbesserungsvorschläge gemacht. Drei schnelle Punkte sofort umgesetzt:
+
+- **LICENSE-Datei (MIT)**: Fehlte komplett — ohne Lizenz kann niemand den Code legal nutzen. `LICENSE` + `pyproject.toml` `license`-Feld ergänzt.
+- **Keyboard-Shortcuts**: `Escape`-Taste stoppt laufenden Task (in `onKey()` ergänzt). `Ctrl+Enter` war bereits vorhanden (`Enter` ohne Shift).
+- **Token-Verschwendung gefixt**: `_load_project_memory()` wurde bei JEDEM Prompt aufgerufen und per `--append-system-prompt` mitgesendet — auch wenn die Session via `--resume` fortgesetzt wurde. Claude CLI hat bei `--resume` bereits den vollen Kontext. Fix: Memory nur bei neuer Session laden (kein `session_id` vorhanden).
+
+---
+
+## Warteliste (Priorisiert)
+
+Features und Verbesserungen die noch ausstehen, sortiert nach Impact:
+
+- [ ] **Graceful Error Recovery** — CLI-Crash lässt UI im "Arbeitet..."-Zustand hängen, kein klarer Fehler
+- [ ] **server.py aufteilen** — 1900 Zeilen Monolith in 4-5 Module splitten (config, projects, agents, websocket, rest)
+- [ ] **Tests schreiben** — Mindestens Smoke-Tests (Server-Start, Pfad-Validierung, Session-Management)
+- [ ] **Setup-Script / Docker** — install.sh oder Dockerfile für einfaches Onboarding
+- [ ] **Diff-Viewer** — Bessere Code-Anzeige in der GUI
+- [ ] **Dark/Light-Mode Toggle**
+- [ ] **OpenAPI/Swagger-Docs** für REST-Endpoints
+- [ ] **Pydantic-Models** statt rohe Dicts für Request-Validation
+- [ ] **GitHub Issue-Templates, CONTRIBUTING.md**
+- [ ] **`_chat_sessions` unter Lock** — Thread-Safety für Session-Dict
+- [ ] **Stream-Parsing in Helper-Funktion extrahieren** — DRY für Claude/Codex Parsing
+- [ ] **`_settings` Thread-Lock** — Concurrent Reads/Writes absichern
+- [ ] **`_append_log` File-Locking** — Parallel-Writes auf JSONL absichern

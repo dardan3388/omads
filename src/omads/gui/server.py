@@ -5,18 +5,41 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from omads.utils.paths import get_data_dir, get_dna_dir
 
 app = FastAPI(title="OMADS GUI")
+
+# Security: CORS — nur lokale Origins erlauben (schützt REST-Endpoints gegen CSRF)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:*", "http://localhost:*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type"],
+    allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$",
+)
+
+
+# Security: CSP-Header auf allen Responses
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 # ─── Config-Datei (persistent) ────────────────────────────────────
 
@@ -34,7 +57,6 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "codex_model": "",  # Leer = Codex-Default (gpt-5.4)
     "codex_reasoning": "high",  # low, medium, high, xhigh
     "codex_fast": False,  # service_tier: fast vs default
-    "breaker_timeout": 120,
     "auto_review": True,  # Codex reviewt automatisch nach Code-Änderungen
 }
 
@@ -144,14 +166,26 @@ def _save_projects(projects: list[dict]) -> None:
     _PROJECTS_PATH.write_text(json.dumps(projects, indent=2, ensure_ascii=False))
 
 
+_SAFE_PROJECT_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_project_id(project_id: str) -> str:
+    """Validiert project_id gegen Path-Traversal (nur alphanumerisch, -, _)."""
+    if not project_id or not _SAFE_PROJECT_ID.match(project_id):
+        raise ValueError(f"Ungültige Projekt-ID: {project_id!r}")
+    return project_id
+
+
 def _get_project_history_path(project_id: str) -> Path:
     """Pfad zur Historie-Datei eines Projekts."""
+    _validate_project_id(project_id)
     _HISTORY_DIR.mkdir(parents=True, exist_ok=True)
     return _HISTORY_DIR / f"{project_id}.jsonl"
 
 
 def _get_project_log_path(project_id: str) -> Path:
     """Pfad zur Log-Datei eines Projekts."""
+    _validate_project_id(project_id)
     _HISTORY_DIR.mkdir(parents=True, exist_ok=True)
     return _HISTORY_DIR / f"{project_id}_log.jsonl"
 
@@ -180,32 +214,45 @@ def _append_log(project_id: str, entry: dict) -> None:
 
 
 def _read_history(project_id: str) -> list[dict]:
-    """Liest die komplette Historie eines Projekts."""
+    """Liest die letzten 200 Historie-Einträge eines Projekts (tail-read)."""
+    from collections import deque
     path = _get_project_history_path(project_id)
     entries = []
     if path.exists():
-        for line in path.read_text().strip().split("\n"):
-            if line.strip():
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
+        try:
+            with open(path, encoding="utf-8") as f:
+                tail = deque(f, maxlen=200)
+            for line in tail:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            pass
     return entries
 
 
 def _read_log(project_id: str) -> list[dict]:
-    """Liest die Log-Einträge eines Projekts."""
+    """Liest die letzten 500 Log-Einträge eines Projekts (tail-read)."""
+    from collections import deque
     path = _get_project_log_path(project_id)
     entries = []
     if path.exists():
-        for line in path.read_text().strip().split("\n"):
-            if line.strip():
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    # Letzte 500 Einträge (ältere sind für die Anzeige irrelevant)
-    return entries[-500:]
+        try:
+            with open(path, encoding="utf-8") as f:
+                tail = deque(f, maxlen=500)
+            for line in tail:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            pass
+    return entries
 
 
 def _find_project_by_path(path: str) -> dict | None:
@@ -372,38 +419,49 @@ def _probe_codex_status(target_repo: str) -> dict[str, Any]:
 
     return _set_codex_status(status_text, source="manual_refresh")
 
-# Aktive WebSocket-Verbindungen
+# Aktive WebSocket-Verbindungen (Lock schützt add/remove/iterate)
+_connections_lock = threading.Lock()
 _connections: list[WebSocket] = []
 
-# Laufender Prozess (für Abbruch)
+# Laufender Prozess (für Abbruch) — Lock schützt gegen Race Conditions
+_process_lock = threading.Lock()
 _active_process: subprocess.Popen | None = None
 _task_cancelled: bool = False
 _last_files_changed: list[str] = []  # Zuletzt geänderte Dateien (für Review "Letzter Task")
-_pending_review_fixes: str = ""  # Letzte Review-Synthese mit Fix-Vorschlägen
+_pending_review_fixes: dict[str, str] = {}  # {repo_path: fixes_text} — pro Projekt
 
 
 async def broadcast(msg: dict) -> None:
     """Sendet eine Nachricht an alle verbundenen Clients."""
+    with _connections_lock:
+        snapshot = list(_connections)
     dead = []
-    for ws in _connections:
+    for ws in snapshot:
         try:
             await ws.send_json(msg)
         except Exception:
             dead.append(ws)
-    for ws in dead:
-        _connections.remove(ws)
+    if dead:
+        with _connections_lock:
+            for ws in dead:
+                try:
+                    _connections.remove(ws)
+                except ValueError:
+                    pass
 
 
-def broadcast_sync(msg: dict) -> None:
+def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
     """Synchroner Wrapper für broadcast (aus Threads heraus)."""
     # Log-Events pro Projekt persistieren
-    proj_id = _get_active_project_id()
+    proj_id = proj_id_override or _get_active_project_id()
     if proj_id:
         try:
             _append_log(proj_id, dict(msg))
         except Exception:
             pass
-    for ws in _connections:
+    with _connections_lock:
+        snapshot = list(_connections)
+    for ws in snapshot:
         try:
             asyncio.run_coroutine_threadsafe(ws.send_json(msg), _loop)
         except Exception:
@@ -439,7 +497,6 @@ _ALLOWED_SETTINGS = {
     "codex_model": str,
     "codex_reasoning": str,
     "codex_fast": bool,
-    "breaker_timeout": int,
     "auto_review": bool,
 }
 
@@ -452,11 +509,18 @@ async def update_settings(data: dict):
         expected_type = _ALLOWED_SETTINGS[key]
         if not isinstance(value, expected_type):
             continue
-        _settings[key] = value
+        # target_repo braucht Extra-Validierung (is_dir + Home-Check)
+        if key == "target_repo":
+            resolved = Path(value).resolve()
+            home_dir = Path.home().resolve()
+            if not resolved.is_dir() or (resolved != home_dir and not str(resolved).startswith(str(home_dir) + "/")):
+                continue  # Ungültigen Pfad still ignorieren
+            _settings[key] = str(resolved)
+        else:
+            _settings[key] = value
 
     # Bounds erzwingen
     _settings["claude_max_turns"] = max(1, min(int(_settings.get("claude_max_turns", 25)), 100))
-    _settings["breaker_timeout"] = max(10, min(int(_settings.get("breaker_timeout", 120)), 600))
     if _settings.get("claude_effort") not in ("low", "medium", "high", "max"):
         _settings["claude_effort"] = "high"
     if _settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
@@ -510,7 +574,9 @@ async def get_runtime_status():
 @app.post("/api/runtime-status/claude/refresh")
 async def refresh_claude_runtime_status():
     """Aktualisiert die echte Claude-Limitanzeige."""
-    if _active_process and _active_process.poll() is None:
+    with _process_lock:
+        busy = _active_process and _active_process.poll() is None
+    if busy:
         return {"error": "Während eines laufenden Tasks bitte kurz warten"}
     target_repo = _settings.get("target_repo", str(Path(".").resolve()))
     try:
@@ -524,7 +590,9 @@ async def refresh_claude_runtime_status():
 @app.post("/api/runtime-status/codex/refresh")
 async def refresh_codex_runtime_status():
     """Fragt Codex /status ab und liefert den letzten Text zurück."""
-    if _active_process and _active_process.poll() is None:
+    with _process_lock:
+        busy = _active_process and _active_process.poll() is None
+    if busy:
         return {"error": "Während eines laufenden Tasks bitte kurz warten"}
     target_repo = _settings.get("target_repo", str(Path(".").resolve()))
     try:
@@ -555,8 +623,11 @@ async def create_project(data: dict):
         return {"error": "Name und Pfad sind Pflichtfelder"}
 
     resolved = str(Path(path).expanduser().resolve())
-    if not Path(resolved).exists():
-        return {"error": f"Verzeichnis existiert nicht: {resolved}"}
+    if not Path(resolved).is_dir():
+        return {"error": f"Kein Verzeichnis: {resolved}"}
+    home_str = str(Path.home().resolve())
+    if resolved != home_str and not resolved.startswith(home_str + "/"):
+        return {"error": f"Nur Verzeichnisse innerhalb von $HOME erlaubt"}
 
     # Prüfe ob Projekt mit diesem Pfad bereits existiert
     existing = _find_project_by_path(resolved)
@@ -593,6 +664,10 @@ async def switch_project(data: dict):
 
     for p in projects:
         if p["id"] == project_id:
+            # Pfad validieren (könnte gelöscht/verschoben worden sein)
+            proj_path = Path(p["path"])
+            if not proj_path.is_dir():
+                return {"error": f"Verzeichnis existiert nicht mehr: {p['path']}"}
             _settings["target_repo"] = p["path"]
             _save_config(_settings)
             p["last_used"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -606,6 +681,10 @@ async def switch_project(data: dict):
 @app.delete("/api/projects/{project_id}")
 async def delete_project(project_id: str):
     """Entfernt ein Projekt aus der Registry (Dateien bleiben erhalten)."""
+    try:
+        _validate_project_id(project_id)
+    except ValueError:
+        return {"error": "Ungültige Projekt-ID"}
     projects = _load_projects()
     projects = [p for p in projects if p["id"] != project_id]
     _save_projects(projects)
@@ -615,13 +694,19 @@ async def delete_project(project_id: str):
 @app.get("/api/projects/{project_id}/history")
 async def get_project_history(project_id: str):
     """Gibt die komplette Historie eines Projekts zurück."""
-    return _read_history(project_id)
+    try:
+        return _read_history(project_id)
+    except ValueError:
+        return {"error": "Ungültige Projekt-ID"}
 
 
 @app.get("/api/projects/{project_id}/logs")
 async def get_project_logs(project_id: str):
     """Gibt die Log-Einträge eines Projekts zurück."""
-    return _read_log(project_id)
+    try:
+        return _read_log(project_id)
+    except ValueError:
+        return {"error": "Ungültige Projekt-ID"}
 
 
 @app.get("/api/health")
@@ -698,16 +783,23 @@ async def get_status():
 @app.get("/api/ledger")
 async def get_ledger():
     """Gibt die letzten 20 Ledger-Einträge zurück."""
+    from collections import deque
     ledger_path = get_data_dir() / "ledger" / "task_history.jsonl"
     entries = []
     if ledger_path.exists():
-        for line in ledger_path.read_text().strip().split("\n"):
-            if line.strip():
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    return entries[-20:]
+        try:
+            with open(ledger_path, encoding="utf-8") as f:
+                tail = deque(f, maxlen=20)
+            for line in tail:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            pass
+    return entries
 
 
 # ─── WebSocket ────────────────────────────────────────────────────
@@ -716,18 +808,20 @@ async def get_ledger():
 async def websocket_endpoint(ws: WebSocket):
     global _loop, _task_cancelled, _active_process
 
-    # Security: Origin-Check — nur lokale Verbindungen erlauben
+    # Security: Origin-Check — nur lokale Verbindungen erlauben (dynamischer Port)
     origin = ws.headers.get("origin", "")
-    allowed_origins = [
-        "http://127.0.0.1:8080", "http://localhost:8080",
-        "http://127.0.0.1:8081", "http://localhost:8081",
-    ]
+    server_port = ws.scope.get("server", ("", 8080))[1]
+    allowed_origins = set()
+    for host in ("127.0.0.1", "localhost"):
+        for port in (server_port, server_port + 1):
+            allowed_origins.add(f"http://{host}:{port}")
     if origin and origin not in allowed_origins:
         await ws.close(code=1008, reason="Origin nicht erlaubt")
         return
 
     await ws.accept()
-    _connections.append(ws)
+    with _connections_lock:
+        _connections.append(ws)
     _loop = asyncio.get_event_loop()
 
     _MAX_MESSAGE_LENGTH = 50000
@@ -757,7 +851,9 @@ async def websocket_endpoint(ws: WebSocket):
                 _last_message_time = now
 
                 # Security: Nur einen Task gleichzeitig erlauben
-                if _active_process and _active_process.poll() is None:
+                with _process_lock:
+                    busy = _active_process and _active_process.poll() is None
+                if busy:
                     await ws.send_json({"type": "error", "text": "Es läuft bereits ein Task — bitte warten oder abbrechen"})
                     continue
 
@@ -771,7 +867,9 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg_type == "review":
                 # Review-Modus: Claude + Codex parallel
-                if _active_process and _active_process.poll() is None:
+                with _process_lock:
+                    busy = _active_process and _active_process.poll() is None
+                if busy:
                     await ws.send_json({"type": "error", "text": "Es läuft bereits ein Task — bitte warten oder abbrechen"})
                     continue
 
@@ -788,16 +886,20 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg_type == "apply_fixes":
                 # Fixes aus Review anwenden
-                if _active_process and _active_process.poll() is None:
+                with _process_lock:
+                    busy = _active_process and _active_process.poll() is None
+                if busy:
                     await ws.send_json({"type": "error", "text": "Es läuft bereits ein Task — bitte warten oder abbrechen"})
                     continue
-                if not _pending_review_fixes:
+                current_repo = str(Path(_settings.get("target_repo", ".")).resolve())
+                repo_fixes = _pending_review_fixes.get(current_repo, "")
+                if not repo_fixes:
                     await ws.send_json({"type": "error", "text": "Keine Review-Fixes vorhanden"})
                     continue
 
                 fix_prompt = (
                     "Wende jetzt die folgenden Fixes aus dem Review an:\n\n"
-                    + _pending_review_fixes[:8000] + "\n\n"
+                    + repo_fixes[:8000] + "\n\n"
                     "Regeln: Setze NUR die im Fix-Plan beschriebenen Änderungen um. Kein Scope Creep."
                 )
                 thread = threading.Thread(
@@ -809,28 +911,40 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg_type == "stop":
                 # Session abbrechen
-                _task_cancelled = True
-                if _active_process and _active_process.poll() is None:
-                    _active_process.kill()
-                    _active_process = None
+                with _process_lock:
+                    _task_cancelled = True
+                    if _active_process and _active_process.poll() is None:
+                        _active_process.kill()
+                        _active_process = None
                 await ws.send_json({"type": "task_stopped", "text": "Abgebrochen."})
 
             elif msg_type == "set_repo":
                 repo_path = data.get("path", "").strip()
-                if repo_path and Path(repo_path).exists():
-                    _settings["target_repo"] = str(Path(repo_path).resolve())
+                resolved = Path(repo_path).resolve() if repo_path else None
+                home_dir = Path.home().resolve()
+                if resolved and resolved.is_dir() and (resolved == home_dir or str(resolved).startswith(str(home_dir) + "/")):
+                    _settings["target_repo"] = str(resolved)
                     await ws.send_json({
                         "type": "system",
                         "text": f"Projekt: {_settings['target_repo']}",
                     })
+                elif resolved and not resolved.is_dir():
+                    await ws.send_json({
+                        "type": "error",
+                        "text": f"Kein Verzeichnis: {repo_path}",
+                    })
                 else:
                     await ws.send_json({
                         "type": "error",
-                        "text": f"Verzeichnis existiert nicht: {repo_path}",
+                        "text": f"Verzeichnis nicht erlaubt oder existiert nicht: {repo_path}",
                     })
 
     except WebSocketDisconnect:
-        _connections.remove(ws)
+        with _connections_lock:
+            try:
+                _connections.remove(ws)
+            except ValueError:
+                pass
 
 
 # ─── Chat-Session-Persistenz (Claude CLI) ─────────────────────────
@@ -857,8 +971,11 @@ _MEMORY_DIR = Path.home() / ".config" / "omads" / "memory"
 
 def _get_memory_path(repo_path: str) -> Path:
     """Gibt den Memory-Dateipfad für ein bestimmtes Repo zurück."""
-    safe_name = Path(repo_path).resolve().name or "default"
-    return _MEMORY_DIR / f"{safe_name}.md"
+    import hashlib
+    resolved = str(Path(repo_path).resolve())
+    short_hash = hashlib.sha256(resolved.encode()).hexdigest()[:12]
+    friendly_name = Path(resolved).name or "default"
+    return _MEMORY_DIR / f"{friendly_name}_{short_hash}.md"
 
 
 def _load_project_memory(repo_path: str) -> str:
@@ -906,7 +1023,8 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     from omads.cli.main import _format_tool_use
 
     global _active_process, _task_cancelled
-    _task_cancelled = False
+    with _process_lock:
+        _task_cancelled = False
 
     target_repo = _settings.get("target_repo", str(Path(".").resolve()))
     repo_key = str(Path(target_repo).resolve())
@@ -916,21 +1034,21 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     effort = _settings.get("claude_effort", "high")
     agent_label = "Claude Code"
 
+    # Projekt-ID beim Task-Start einfrieren (bleibt korrekt auch bei Projektwechsel)
+    _frozen_proj_id = _get_active_project_id()
+
     def send(msg: dict):
-        broadcast_sync(msg)
+        broadcast_sync(msg, proj_id_override=_frozen_proj_id)
 
     send({"type": "agent_status", "agent": agent_label, "status": "Arbeitet..."})
 
     # Historie: User-Eingabe loggen
-    proj_id = _get_active_project_id()
+    proj_id = _frozen_proj_id
     if proj_id:
         _append_history(proj_id, {"type": "user_input", "text": user_text})
 
     try:
         env = _build_cli_env()
-
-        # Projekt-Memory laden (CLAUDE.md + letzte Zusammenfassung)
-        project_memory = _load_project_memory(target_repo)
 
         # OMADS-Kontext für Claude CLI
         omads_context = (
@@ -940,13 +1058,18 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
             "Wenn Codex Probleme findet, bekommst du die Findings als nächste Nachricht und sollst sie fixen. "
             "Antworte auf Deutsch.\n\n"
         )
-        if project_memory:
-            omads_context += (
-                "Du hast folgenden Kontext aus vorherigen Sessions und dem Projekt:\n\n"
-                + project_memory + "\n\n"
-                "Nutze diesen Kontext um nahtlos weiterzuarbeiten, ohne dass der User "
-                "dir erklären muss wo ihr stehen geblieben seid."
-            )
+
+        # Projekt-Memory NUR bei neuer Session laden (spart Tokens bei --resume)
+        session_id = _chat_sessions.get(repo_key)
+        if not session_id:
+            project_memory = _load_project_memory(target_repo)
+            if project_memory:
+                omads_context += (
+                    "Du hast folgenden Kontext aus vorherigen Sessions und dem Projekt:\n\n"
+                    + project_memory + "\n\n"
+                    "Nutze diesen Kontext um nahtlos weiterzuarbeiten, ohne dass der User "
+                    "dir erklären muss wo ihr stehen geblieben seid."
+                )
 
         # Claude CLI mit stream-json für Live-Output
         cmd = ["claude", "-p", user_text, "--output-format", "stream-json",
@@ -955,7 +1078,6 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                "--append-system-prompt", omads_context]
 
         # Session fortsetzen wenn vorhanden (Gesprächsgedächtnis)
-        session_id = _chat_sessions.get(repo_key)
         if session_id:
             cmd.extend(["--resume", session_id])
 
@@ -964,10 +1086,11 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
         start_time = _time.time()
         process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, cwd=target_repo, env=env,
         )
-        _active_process = process
+        with _process_lock:
+            _active_process = process
 
         output_lines = []
         final_result = ""
@@ -1061,8 +1184,13 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
             except (ValueError, KeyError, TypeError):
                 continue
 
-        _active_process = None
-        process.wait(timeout=300)
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        with _process_lock:
+            _active_process = None
         elapsed = round(_time.time() - start_time)
         success = process.returncode == 0 and not _task_cancelled
 
@@ -1127,10 +1255,11 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                     fix_cmd.extend(["--resume", fix_session])
 
                 fix_process = subprocess.Popen(
-                    fix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    fix_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                     text=True, cwd=target_repo, env=env,
                 )
-                _active_process = fix_process
+                with _process_lock:
+                    _active_process = fix_process
 
                 fix_output_lines = []
                 fix_session_id = None
@@ -1188,8 +1317,13 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                     except (ValueError, KeyError, TypeError):
                         continue
 
-                _active_process = None
-                fix_process.wait(timeout=300)
+                try:
+                    fix_process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    fix_process.kill()
+                    fix_process.wait()
+                with _process_lock:
+                    _active_process = None
 
                 if fix_session_id and fix_process.returncode == 0:
                     _chat_sessions[repo_key] = fix_session_id
@@ -1201,15 +1335,17 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         send({"type": "chat_response", "agent": "System",
               "text": "Claude CLI nicht gefunden. Installiere mit: npm install -g @anthropic-ai/claude-code"})
     except subprocess.TimeoutExpired:
-        if _active_process:
-            _active_process.kill()
+        with _process_lock:
+            if _active_process:
+                _active_process.kill()
         send({"type": "chat_response", "agent": "System", "text": "Timeout — Claude CLI hat zu lange gebraucht."})
     except Exception as e:
         import logging
         logging.getLogger("omads.gui").error("Claude-Session-Fehler: %s", e, exc_info=True)
         send({"type": "chat_response", "agent": "System", "text": "Ein interner Fehler ist aufgetreten. Details im Server-Log."})
     finally:
-        _active_process = None
+        with _process_lock:
+            _active_process = None
         # Memory auch bei Crash/Rate-Limit sichern (was wir bisher haben)
         try:
             if output_lines:
@@ -1238,14 +1374,18 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
     import time as _time
 
     global _active_process, _task_cancelled
-    _task_cancelled = False
+    with _process_lock:
+        _task_cancelled = False
 
     target_repo = _settings.get("target_repo", str(Path(".").resolve()))
     model = _settings.get("claude_model", "sonnet")
     max_turns = str(max(1, min(int(_settings.get("claude_max_turns", 25)), 100)))
 
+    # Projekt-ID beim Task-Start einfrieren
+    _frozen_proj_id = _get_active_project_id()
+
     def send(msg: dict):
-        broadcast_sync(msg)
+        broadcast_sync(msg, proj_id_override=_frozen_proj_id)
 
     # Scope bestimmen
     if scope == "last_task" and _last_files_changed:
@@ -1306,10 +1446,11 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             cmd.extend(["--resume", session_id])
 
         process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, cwd=target_repo, env=env,
         )
-        _active_process = process
+        with _process_lock:
+            _active_process = process
 
         claude_output = []
         captured_session_id = None
@@ -1347,8 +1488,13 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             except (ValueError, KeyError, TypeError):
                 continue
 
-        process.wait(timeout=300)
-        _active_process = None
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        with _process_lock:
+            _active_process = None
         claude_review = "\n".join(claude_output)
 
         if captured_session_id and process.returncode == 0:
@@ -1375,7 +1521,6 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         )
 
         codex_model = _settings.get("codex_model", "")
-        codex_timeout = int(_settings.get("breaker_timeout", 120))
         codex_reasoning = _settings.get("codex_reasoning", "high")
         codex_fast = _settings.get("codex_fast", False)
         codex_review = ""
@@ -1392,27 +1537,27 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             codex_cmd.append("-")
 
             codex_process = subprocess.Popen(
-                codex_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, cwd=str(target_repo),
+                codex_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                text=True, cwd=str(target_repo), env=_build_cli_env(),
             )
             codex_process.stdin.write(codex_prompt)
             codex_process.stdin.close()
 
             import select
             codex_lines = []
-            deadline = time.time() + codex_timeout
+            _INACTIVITY_LIMIT = 900  # 15 Minuten ohne Output → kill
+            last_output_time = time.time()
             while True:
-                remaining = deadline - time.time()
-                if remaining <= 0:
-                    codex_process.kill()
-                    codex_process.wait()
-                    send({"type": "agent_status", "agent": "Codex Review", "status": f"Timeout ({codex_timeout}s) — abgebrochen"})
-                    codex_review = "\n".join(codex_lines) if codex_lines else "(Codex Timeout)"
-                    break
                 if _task_cancelled:
                     codex_process.kill()
                     codex_process.wait()
                     return
+                if time.time() - last_output_time > _INACTIVITY_LIMIT:
+                    codex_process.kill()
+                    codex_process.wait()
+                    send({"type": "agent_status", "agent": "Codex Review", "status": "Inaktivität — Codex abgebrochen (15min ohne Output)"})
+                    codex_review = "\n".join(codex_lines) if codex_lines else "(Codex inaktiv)"
+                    break
                 ready, _, _ = select.select([codex_process.stdout], [], [], 5.0)
                 if ready:
                     line = codex_process.stdout.readline()
@@ -1421,6 +1566,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
                         codex_review = "\n".join(codex_lines)
                         send({"type": "agent_status", "agent": "Codex Review", "status": "Schritt 2/3 fertig"})
                         break
+                    last_output_time = time.time()
                     line = line.rstrip("\n")
                     if not line.strip():
                         continue
@@ -1501,10 +1647,11 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             synth_cmd.extend(["--resume", captured_session_id])
 
         synth_process = subprocess.Popen(
-            synth_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            synth_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, cwd=target_repo, env=env,
         )
-        _active_process = synth_process
+        with _process_lock:
+            _active_process = synth_process
 
         synthesis_output = []
         synth_session_id = None
@@ -1542,8 +1689,13 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             except (ValueError, KeyError, TypeError):
                 continue
 
-        synth_process.wait(timeout=300)
-        _active_process = None
+        try:
+            synth_process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            synth_process.kill()
+            synth_process.wait()
+        with _process_lock:
+            _active_process = None
 
         if synth_session_id and synth_process.returncode == 0:
             _chat_sessions[repo_key] = synth_session_id
@@ -1563,9 +1715,9 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
               "text": "---\n**Review abgeschlossen** — 3 Schritte: Claude Code Review → Codex Review → Synthese"})
 
         if has_fixes:
-            # Fix-Vorschläge als Kontext speichern für den Apply-Schritt
+            # Fix-Vorschläge als Kontext speichern für den Apply-Schritt (pro Projekt)
             global _pending_review_fixes
-            _pending_review_fixes = synthesis_text
+            _pending_review_fixes[str(Path(target_repo).resolve())] = synthesis_text
             send({"type": "review_fixes_available",
                   "text": "Fixes gefunden. Sollen die vorgeschlagenen Fixes angewendet werden?"})
 
@@ -1574,7 +1726,8 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         logging.getLogger("omads.gui").error("Review-Fehler: %s", e, exc_info=True)
         send({"type": "chat_response", "agent": "System", "text": f"Review-Fehler: {str(e)[:200]}"})
     finally:
-        _active_process = None
+        with _process_lock:
+            _active_process = None
         send({"type": "unlock"})
 
 
@@ -1587,7 +1740,6 @@ def _run_codex_auto_review(ws: WebSocket, target_repo: str, files_changed: list[
     codex_model = _settings.get("codex_model", "")
     codex_reasoning = _settings.get("codex_reasoning", "high")
     codex_fast = _settings.get("codex_fast", False)
-    timeout = int(_settings.get("breaker_timeout", 120))
 
     # Nur Dateinamen (kurz) für den Prompt
     short_files = [f.rsplit("/", 1)[-1] if "/" in f else f for f in files_changed[:10]]
@@ -1639,9 +1791,14 @@ Falls keine Probleme: "Keine Probleme gefunden."
               "text": f"Prüfe auf: Sicherheit, Logikfehler, Fehlerbehandlung, Performance"})
 
         process = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, cwd=str(target_repo),
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, cwd=str(target_repo), env=_build_cli_env(),
         )
+
+        # Auto-Review-Prozess registrieren damit stop() ihn killen kann
+        global _active_process
+        with _process_lock:
+            _active_process = process
 
         # Prompt an stdin senden und schließen
         process.stdin.write(review_prompt)
@@ -1663,23 +1820,29 @@ Falls keine Probleme: "Keine Probleme gefunden."
         hb_thread = threading.Thread(target=_heartbeat, daemon=True)
         hb_thread.start()
 
-        # Stdout lesen mit echtem Timeout (select-basiert) — JSONL-Format
+        # Stdout lesen — JSONL-Format, Inactivity-Timeout als Safety-Net
         import select
         output_lines = []
-        deadline = _time.time() + timeout
+        _INACTIVITY_LIMIT = 900  # 15 Minuten ohne Output → kill
+        last_output_time = _time.time()
         while True:
-            remaining = deadline - _time.time()
-            if remaining <= 0:
+            if _task_cancelled:
                 process.kill()
                 process.wait()
                 heartbeat_stop.set()
-                send({"type": "agent_status", "agent": breaker_label, "status": f"Timeout ({timeout}s) — Review abgebrochen"})
+                return None
+            if _time.time() - last_output_time > _INACTIVITY_LIMIT:
+                process.kill()
+                process.wait()
+                heartbeat_stop.set()
+                send({"type": "agent_status", "agent": breaker_label, "status": "Inaktivität — Review abgebrochen (15min ohne Output)"})
                 return "\n".join(output_lines) if output_lines else None
             ready, _, _ = select.select([process.stdout], [], [], 5.0)
             if ready:
                 line = process.stdout.readline()
                 if not line:  # EOF — Codex fertig
                     break
+                last_output_time = _time.time()
                 line = line.rstrip("\n")
                 if not line.strip():
                     continue
@@ -1700,19 +1863,23 @@ Falls keine Probleme: "Keine Probleme gefunden."
 
         heartbeat_stop.set()
         process.wait(timeout=10)
+        with _process_lock:
+            _active_process = None
         elapsed = round(_time.time() - start_time)
         output = "\n".join(output_lines).strip()
 
         if not output and process.returncode != 0:
-            stderr = process.stderr.read().strip()[:200] if process.stderr else ""
-            output = f"Review-Fehler: {stderr}" if stderr else ""
-            if stderr:
-                send({"type": "stream_result", "agent": breaker_label, "text": stderr, "is_error": True})
+            output = f"Review-Fehler: Codex beendete mit Exit-Code {process.returncode}"
+            send({"type": "stream_result", "agent": breaker_label, "text": output, "is_error": True})
 
         send({"type": "stream_text", "agent": breaker_label,
               "text": f"Review abgeschlossen ({elapsed}s)"})
 
-        # Ergebnis auswerten
+        # Ergebnis auswerten — nur bei erfolgreichem Exit als Finding behandeln
+        if process.returncode != 0:
+            send({"type": "agent_status", "agent": breaker_label,
+                  "status": f"Codex-Fehler (Exit {process.returncode}) — kein Review-Ergebnis"})
+            return None
         if output and "keine probleme" not in output.lower():
             send({"type": "agent_activity", "agent": breaker_label, "activity": "finding", "text": output})
             send({"type": "agent_status", "agent": breaker_label, "status": "Hinweise gefunden → Claude Code fixt"})
@@ -1725,14 +1892,12 @@ Falls keine Probleme: "Keine Probleme gefunden."
         send({"type": "agent_status", "agent": breaker_label,
               "status": "Codex CLI nicht installiert — Review übersprungen"})
         return None
-    except subprocess.TimeoutExpired:
-        if process:
-            process.kill()
-        send({"type": "agent_status", "agent": breaker_label, "status": f"Timeout ({timeout}s) — Review abgebrochen"})
-        return None
     except Exception as e:
         send({"type": "agent_status", "agent": breaker_label, "status": f"Review-Fehler: {str(e)[:100]}"})
         return None
+    finally:
+        with _process_lock:
+            _active_process = None
 
 
 def start_gui(host: str = "127.0.0.1", port: int = 8080):
