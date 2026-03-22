@@ -88,12 +88,14 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     assert settings["claude_max_turns"] == 100
     assert settings["codex_reasoning"] == "high"
     assert settings["codex_fast"] is True
+    assert json.loads(server._CONFIG_PATH.read_text())["codex_fast"] is True
 
     valid_repo = isolated_server["home_dir"] / "other-repo"
     valid_repo.mkdir()
     response = client.post("/api/settings", json={"target_repo": str(valid_repo)})
     assert response.status_code == 200
     assert client.get("/api/settings").json()["target_repo"] == str(valid_repo.resolve())
+    assert json.loads(server._CONFIG_PATH.read_text())["target_repo"] == str(valid_repo.resolve())
 
 
 def test_project_endpoints_enforce_home_boundary_and_missing_paths(
@@ -124,6 +126,8 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
     assert len(projects) == 1
     assert projects[0]["id"] == project_id
     assert client.get("/api/settings").json()["target_repo"] == str(project_repo.resolve())
+    assert json.loads(server._PROJECTS_PATH.read_text())[0]["id"] == project_id
+    assert json.loads(server._CONFIG_PATH.read_text())["target_repo"] == str(project_repo.resolve())
 
     project_repo.rmdir()
     response = client.post("/api/projects/switch", json={"id": project_id})
@@ -132,11 +136,23 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
 
 
 def test_chat_session_persistence_roundtrip(isolated_server):
-    sessions = {
-        str(isolated_server["repo_dir"].resolve()): "session-123",
-    }
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    server._set_chat_session(repo_key, "session-123")
 
-    server._save_chat_sessions(sessions)
+    assert server._get_chat_session(repo_key) == "session-123"
+    assert json.loads(server._CHAT_SESSIONS_PATH.read_text()) == {repo_key: "session-123"}
+    assert server._load_chat_sessions() == {repo_key: "session-123"}
 
-    assert json.loads(server._CHAT_SESSIONS_PATH.read_text()) == sessions
-    assert server._load_chat_sessions() == sessions
+
+def test_append_log_filters_unknown_types_and_reads_valid_entries(isolated_server):
+    project_id = "proj123"
+
+    server._append_log(project_id, {"type": "stream_text", "agent": "Claude", "text": "Hallo"})
+    server._append_log(project_id, {"type": "unknown_type", "text": "skip me"})
+
+    entries = server._read_log(project_id)
+
+    assert len(entries) == 1
+    assert entries[0]["type"] == "stream_text"
+    assert entries[0]["text"] == "Hallo"
+    assert "timestamp" in entries[0]

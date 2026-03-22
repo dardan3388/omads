@@ -10,7 +10,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +41,47 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     return response
 
+
+_file_locks_guard = threading.Lock()
+_file_locks: dict[Path, threading.Lock] = {}
+
+
+def _get_file_lock(path: Path) -> threading.Lock:
+    """Gibt einen stabilen Lock pro Datei zurück."""
+    normalized = path.expanduser().resolve(strict=False)
+    with _file_locks_guard:
+        lock = _file_locks.get(normalized)
+        if lock is None:
+            lock = threading.Lock()
+            _file_locks[normalized] = lock
+        return lock
+
+
+def _write_text_file(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    """Schreibt eine Datei atomar unter einem per-Datei-Lock."""
+    path = path.expanduser().resolve(strict=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    with _get_file_lock(path):
+        tmp_path.write_text(content, encoding=encoding)
+        tmp_path.replace(path)
+
+
+def _append_jsonl_line(path: Path, entry: dict[str, Any]) -> None:
+    """Hängt genau eine JSONL-Zeile thread-sicher an."""
+    path = path.expanduser().resolve(strict=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _get_file_lock(path):
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _read_json_text(path: Path, *, encoding: str = "utf-8") -> str:
+    """Liest eine Datei unter demselben per-Datei-Lock wie die Schreibpfade."""
+    path = path.expanduser().resolve(strict=False)
+    with _get_file_lock(path):
+        return path.read_text(encoding=encoding)
+
 # ─── Config-Datei (persistent) ────────────────────────────────────
 
 _CONFIG_PATH = Path.home() / ".config" / "omads" / "gui_settings.json"
@@ -66,7 +107,7 @@ def _load_config() -> dict[str, Any]:
     settings = dict(_DEFAULT_SETTINGS)
     if _CONFIG_PATH.exists():
         try:
-            saved = json.loads(_CONFIG_PATH.read_text())
+            saved = json.loads(_read_json_text(_CONFIG_PATH))
             settings.update(saved)
         except (json.JSONDecodeError, OSError):
             pass
@@ -75,12 +116,36 @@ def _load_config() -> dict[str, Any]:
 
 def _save_config(settings: dict[str, Any]) -> None:
     """Speichert Settings persistent."""
-    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(json.dumps(settings, indent=2, ensure_ascii=False))
+    _write_text_file(_CONFIG_PATH, json.dumps(settings, indent=2, ensure_ascii=False))
 
 
 # Globaler State — wird beim Start aus Config geladen
+_settings_lock = threading.RLock()
 _settings: dict[str, Any] = _load_config()
+
+
+def _get_settings_snapshot() -> dict[str, Any]:
+    """Liefert eine konsistente Kopie der aktuellen Einstellungen."""
+    with _settings_lock:
+        return dict(_settings)
+
+
+def _get_setting(key: str, default: Any = None) -> Any:
+    """Liest genau einen Setting-Wert unter Lock."""
+    with _settings_lock:
+        return _settings.get(key, default)
+
+
+def _update_settings(update_fn: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """Aktualisiert Settings atomar, persistiert sie und liefert einen Snapshot zurück."""
+    with _settings_lock:
+        mutable = dict(_settings)
+        update_fn(mutable)
+        _settings.clear()
+        _settings.update(mutable)
+        snapshot = dict(_settings)
+        _save_config(snapshot)
+        return snapshot
 
 _GUI_STATUS_DEFAULTS: dict[str, Any] = {
     "claude_limit": {
@@ -111,7 +176,7 @@ def _load_gui_status() -> dict[str, Any]:
     }
     if _GUI_STATUS_PATH.exists():
         try:
-            saved = json.loads(_GUI_STATUS_PATH.read_text())
+            saved = json.loads(_read_json_text(_GUI_STATUS_PATH))
             if isinstance(saved.get("claude_limit"), dict):
                 status["claude_limit"].update(saved["claude_limit"])
             if isinstance(saved.get("codex_status"), dict):
@@ -123,8 +188,7 @@ def _load_gui_status() -> dict[str, Any]:
 
 def _save_gui_status() -> None:
     """Speichert den letzten bekannten Claude-/Codex-Status."""
-    _GUI_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _GUI_STATUS_PATH.write_text(json.dumps(_gui_status, indent=2, ensure_ascii=False))
+    _write_text_file(_GUI_STATUS_PATH, json.dumps(_gui_status, indent=2, ensure_ascii=False))
 
 
 _CLI_ENV_ALLOWLIST = {
@@ -154,7 +218,7 @@ def _load_projects() -> list[dict]:
     """Lädt die Projekt-Registry."""
     if _PROJECTS_PATH.exists():
         try:
-            return json.loads(_PROJECTS_PATH.read_text())
+            return json.loads(_read_json_text(_PROJECTS_PATH))
         except (json.JSONDecodeError, OSError):
             pass
     return []
@@ -162,8 +226,7 @@ def _load_projects() -> list[dict]:
 
 def _save_projects(projects: list[dict]) -> None:
     """Speichert die Projekt-Registry."""
-    _PROJECTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _PROJECTS_PATH.write_text(json.dumps(projects, indent=2, ensure_ascii=False))
+    _write_text_file(_PROJECTS_PATH, json.dumps(projects, indent=2, ensure_ascii=False))
 
 
 _SAFE_PROJECT_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -195,8 +258,7 @@ def _append_history(project_id: str, entry: dict) -> None:
     from datetime import datetime
     entry["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     path = _get_project_history_path(project_id)
-    with open(path, "a") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    _append_jsonl_line(path, entry)
 
 
 def _append_log(project_id: str, entry: dict) -> None:
@@ -209,8 +271,7 @@ def _append_log(project_id: str, entry: dict) -> None:
         return
     entry["timestamp"] = datetime.now().strftime("%d.%m. %H:%M:%S")
     path = _get_project_log_path(project_id)
-    with open(path, "a") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    _append_jsonl_line(path, entry)
 
 
 def _read_history(project_id: str) -> list[dict]:
@@ -220,8 +281,9 @@ def _read_history(project_id: str) -> list[dict]:
     entries = []
     if path.exists():
         try:
-            with open(path, encoding="utf-8") as f:
-                tail = deque(f, maxlen=200)
+            with _get_file_lock(path):
+                with open(path, encoding="utf-8") as f:
+                    tail = deque(f, maxlen=200)
             for line in tail:
                 line = line.strip()
                 if line:
@@ -241,8 +303,9 @@ def _read_log(project_id: str) -> list[dict]:
     entries = []
     if path.exists():
         try:
-            with open(path, encoding="utf-8") as f:
-                tail = deque(f, maxlen=500)
+            with _get_file_lock(path):
+                with open(path, encoding="utf-8") as f:
+                    tail = deque(f, maxlen=500)
             for line in tail:
                 line = line.strip()
                 if line:
@@ -266,7 +329,7 @@ def _find_project_by_path(path: str) -> dict | None:
 
 def _get_active_project_id() -> str | None:
     """Gibt die ID des aktiven Projekts zurück."""
-    target = _settings.get("target_repo", "")
+    target = _get_setting("target_repo", "")
     if not target:
         return None
     proj = _find_project_by_path(target)
@@ -326,7 +389,7 @@ def _set_codex_status(text: str, source: str, error: str = "") -> dict[str, Any]
 
 def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
     """Fragt Claude minimal ab, um echte Limitdaten zu erhalten."""
-    model = _settings.get("claude_model", "sonnet")
+    model = _get_setting("claude_model", "sonnet")
     cmd = [
         "claude",
         "-p",
@@ -485,7 +548,7 @@ async def index():
 
 @app.get("/api/settings")
 async def get_settings():
-    return _settings
+    return _get_settings_snapshot()
 
 
 _ALLOWED_SETTINGS = {
@@ -502,32 +565,33 @@ _ALLOWED_SETTINGS = {
 
 @app.post("/api/settings")
 async def update_settings(data: dict):
-    # Security: Nur bekannte Keys mit korrekten Typen akzeptieren
-    for key, value in data.items():
-        if key not in _ALLOWED_SETTINGS:
-            continue
-        expected_type = _ALLOWED_SETTINGS[key]
-        if not isinstance(value, expected_type):
-            continue
-        # target_repo braucht Extra-Validierung (is_dir + Home-Check)
-        if key == "target_repo":
-            resolved = Path(value).resolve()
-            home_dir = Path.home().resolve()
-            if not resolved.is_dir() or (resolved != home_dir and not str(resolved).startswith(str(home_dir) + "/")):
-                continue  # Ungültigen Pfad still ignorieren
-            _settings[key] = str(resolved)
-        else:
-            _settings[key] = value
+    def apply_updates(settings: dict[str, Any]) -> None:
+        # Security: Nur bekannte Keys mit korrekten Typen akzeptieren
+        for key, value in data.items():
+            if key not in _ALLOWED_SETTINGS:
+                continue
+            expected_type = _ALLOWED_SETTINGS[key]
+            if not isinstance(value, expected_type):
+                continue
+            # target_repo braucht Extra-Validierung (is_dir + Home-Check)
+            if key == "target_repo":
+                resolved = Path(value).resolve()
+                home_dir = Path.home().resolve()
+                if not resolved.is_dir() or (resolved != home_dir and not str(resolved).startswith(str(home_dir) + "/")):
+                    continue  # Ungültigen Pfad still ignorieren
+                settings[key] = str(resolved)
+            else:
+                settings[key] = value
 
-    # Bounds erzwingen
-    _settings["claude_max_turns"] = max(1, min(int(_settings.get("claude_max_turns", 25)), 100))
-    if _settings.get("claude_effort") not in ("low", "medium", "high", "max"):
-        _settings["claude_effort"] = "high"
-    if _settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
-        _settings["codex_reasoning"] = "high"
+        # Bounds erzwingen
+        settings["claude_max_turns"] = max(1, min(int(settings.get("claude_max_turns", 25)), 100))
+        if settings.get("claude_effort") not in ("low", "medium", "high", "max"):
+            settings["claude_effort"] = "high"
+        if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
+            settings["codex_reasoning"] = "high"
 
-    _save_config(_settings)
-    await broadcast({"type": "settings_updated", "settings": _settings})
+    snapshot = _update_settings(apply_updates)
+    await broadcast({"type": "settings_updated", "settings": snapshot})
     return {"ok": True}
 
 
@@ -578,7 +642,7 @@ async def refresh_claude_runtime_status():
         busy = _active_process and _active_process.poll() is None
     if busy:
         return {"error": "Während eines laufenden Tasks bitte kurz warten"}
-    target_repo = _settings.get("target_repo", str(Path(".").resolve()))
+    target_repo = _get_setting("target_repo", str(Path(".").resolve()))
     try:
         limit = await asyncio.to_thread(_probe_claude_limit_status, target_repo)
     except Exception as exc:
@@ -594,7 +658,7 @@ async def refresh_codex_runtime_status():
         busy = _active_process and _active_process.poll() is None
     if busy:
         return {"error": "Während eines laufenden Tasks bitte kurz warten"}
-    target_repo = _settings.get("target_repo", str(Path(".").resolve()))
+    target_repo = _get_setting("target_repo", str(Path(".").resolve()))
     try:
         codex_status = await asyncio.to_thread(_probe_codex_status, target_repo)
     except Exception as exc:
@@ -648,8 +712,7 @@ async def create_project(data: dict):
     _save_projects(projects)
 
     # Direkt zu diesem Projekt wechseln
-    _settings["target_repo"] = resolved
-    _save_config(_settings)
+    _update_settings(lambda settings: settings.__setitem__("target_repo", resolved))
 
     return {"ok": True, "project": project}
 
@@ -668,8 +731,7 @@ async def switch_project(data: dict):
             proj_path = Path(p["path"])
             if not proj_path.is_dir():
                 return {"error": f"Verzeichnis existiert nicht mehr: {p['path']}"}
-            _settings["target_repo"] = p["path"]
-            _save_config(_settings)
+            _update_settings(lambda settings: settings.__setitem__("target_repo", p["path"]))
             p["last_used"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _save_projects(projects)
             await broadcast({"type": "system", "text": p["path"]})
@@ -775,8 +837,8 @@ async def get_status():
     return {
         "phase": phase,
         "total_tasks": ledger_count,
-        "target_repo": _settings["target_repo"],
-        "auto_review": _settings.get("auto_review", True),
+        "target_repo": _get_setting("target_repo", str(Path(".").resolve())),
+        "auto_review": _get_setting("auto_review", True),
     }
 
 
@@ -891,7 +953,7 @@ async def websocket_endpoint(ws: WebSocket):
                 if busy:
                     await ws.send_json({"type": "error", "text": "Es läuft bereits ein Task — bitte warten oder abbrechen"})
                     continue
-                current_repo = str(Path(_settings.get("target_repo", ".")).resolve())
+                current_repo = str(Path(_get_setting("target_repo", ".")).resolve())
                 repo_fixes = _pending_review_fixes.get(current_repo, "")
                 if not repo_fixes:
                     await ws.send_json({"type": "error", "text": "Keine Review-Fixes vorhanden"})
@@ -923,10 +985,10 @@ async def websocket_endpoint(ws: WebSocket):
                 resolved = Path(repo_path).resolve() if repo_path else None
                 home_dir = Path.home().resolve()
                 if resolved and resolved.is_dir() and (resolved == home_dir or str(resolved).startswith(str(home_dir) + "/")):
-                    _settings["target_repo"] = str(resolved)
+                    snapshot = _update_settings(lambda settings: settings.__setitem__("target_repo", str(resolved)))
                     await ws.send_json({
                         "type": "system",
-                        "text": f"Projekt: {_settings['target_repo']}",
+                        "text": f"Projekt: {snapshot['target_repo']}",
                     })
                 elif resolved and not resolved.is_dir():
                     await ws.send_json({
@@ -953,16 +1015,29 @@ _CHAT_SESSIONS_PATH = Path.home() / ".config" / "omads" / "chat_sessions.json"
 def _load_chat_sessions() -> dict[str, str]:
     if _CHAT_SESSIONS_PATH.exists():
         try:
-            return json.loads(_CHAT_SESSIONS_PATH.read_text())
+            return json.loads(_read_json_text(_CHAT_SESSIONS_PATH))
         except (json.JSONDecodeError, OSError):
             pass
     return {}
 
 def _save_chat_sessions(sessions: dict[str, str]) -> None:
-    _CHAT_SESSIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _CHAT_SESSIONS_PATH.write_text(json.dumps(sessions, indent=2))
+    _write_text_file(_CHAT_SESSIONS_PATH, json.dumps(sessions, indent=2))
 
+_chat_sessions_lock = threading.RLock()
 _chat_sessions: dict[str, str] = _load_chat_sessions()
+
+
+def _get_chat_session(repo_key: str) -> str | None:
+    """Liest eine gespeicherte Claude-Session konsistent unter Lock."""
+    with _chat_sessions_lock:
+        return _chat_sessions.get(repo_key)
+
+
+def _set_chat_session(repo_key: str, session_id: str) -> None:
+    """Aktualisiert eine Claude-Session atomar und persistiert sie."""
+    with _chat_sessions_lock:
+        _chat_sessions[repo_key] = session_id
+        _save_chat_sessions(dict(_chat_sessions))
 
 
 # ─── Projekt-Memory (persistenter Kontext über Sessions hinweg) ───
@@ -1005,12 +1080,11 @@ def _load_project_memory(repo_path: str) -> str:
 
 def _save_project_memory(repo_path: str, summary: str) -> None:
     """Speichert eine Projekt-Zusammenfassung für die nächste Session."""
-    _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     mem_path = _get_memory_path(repo_path)
     # Zusammenfassung mit Zeitstempel
     from datetime import datetime, timezone
     header = f"Letzte Aktualisierung: {datetime.now(timezone.utc).isoformat()}\n\n"
-    mem_path.write_text(header + summary[:6000], encoding="utf-8")
+    _write_text_file(mem_path, header + summary[:6000], encoding="utf-8")
 
 
 def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
@@ -1026,12 +1100,13 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     with _process_lock:
         _task_cancelled = False
 
-    target_repo = _settings.get("target_repo", str(Path(".").resolve()))
+    settings_snapshot = _get_settings_snapshot()
+    target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
     repo_key = str(Path(target_repo).resolve())
-    model = _settings.get("claude_model", "sonnet")
-    max_turns = str(max(1, min(int(_settings.get("claude_max_turns", 25)), 100)))
-    perm_mode = _settings.get("claude_permission_mode", "default")
-    effort = _settings.get("claude_effort", "high")
+    model = settings_snapshot.get("claude_model", "sonnet")
+    max_turns = str(max(1, min(int(settings_snapshot.get("claude_max_turns", 25)), 100)))
+    effort = settings_snapshot.get("claude_effort", "high")
+    auto_review = settings_snapshot.get("auto_review", True)
     agent_label = "Claude Code"
 
     # Projekt-ID beim Task-Start einfrieren (bleibt korrekt auch bei Projektwechsel)
@@ -1060,7 +1135,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         )
 
         # Projekt-Memory NUR bei neuer Session laden (spart Tokens bei --resume)
-        session_id = _chat_sessions.get(repo_key)
+        session_id = _get_chat_session(repo_key)
         if not session_id:
             project_memory = _load_project_memory(target_repo)
             if project_memory:
@@ -1196,8 +1271,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
         # Session-ID für Folge-Nachrichten speichern (Gesprächsgedächtnis)
         if captured_session_id and success:
-            _chat_sessions[repo_key] = captured_session_id
-            _save_chat_sessions(_chat_sessions)
+            _set_chat_session(repo_key, captured_session_id)
 
         # Letzte geänderte Dateien merken (für Review "Letzter Task")
         global _last_files_changed
@@ -1231,7 +1305,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
         # === CODEX AUTO-REVIEW ===
         # Wenn Claude Dateien geändert hat und Auto-Review aktiviert ist → Codex reviewt
-        if files_changed and _settings.get("auto_review", True) and success:
+        if files_changed and auto_review and success:
             review_findings = _run_codex_auto_review(ws, target_repo, files_changed, send)
 
             # Wenn Codex Probleme gefunden hat → Findings an Claude CLI zurückgeben
@@ -1250,7 +1324,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                            "--verbose", "--max-turns", max_turns, "--model", model,
                            "--effort", effort,
                            "--append-system-prompt", omads_context]
-                fix_session = _chat_sessions.get(repo_key)
+                fix_session = _get_chat_session(repo_key)
                 if fix_session:
                     fix_cmd.extend(["--resume", fix_session])
 
@@ -1326,8 +1400,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                     _active_process = None
 
                 if fix_session_id and fix_process.returncode == 0:
-                    _chat_sessions[repo_key] = fix_session_id
-                    _save_chat_sessions(_chat_sessions)
+                    _set_chat_session(repo_key, fix_session_id)
 
                 send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes angewendet"})
 
@@ -1377,9 +1450,10 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
     with _process_lock:
         _task_cancelled = False
 
-    target_repo = _settings.get("target_repo", str(Path(".").resolve()))
-    model = _settings.get("claude_model", "sonnet")
-    max_turns = str(max(1, min(int(_settings.get("claude_max_turns", 25)), 100)))
+    settings_snapshot = _get_settings_snapshot()
+    target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
+    model = settings_snapshot.get("claude_model", "sonnet")
+    max_turns = str(max(1, min(int(settings_snapshot.get("claude_max_turns", 25)), 100)))
 
     # Projekt-ID beim Task-Start einfrieren
     _frozen_proj_id = _get_active_project_id()
@@ -1441,7 +1515,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
                "--append-system-prompt", claude_context]
 
         repo_key = str(Path(target_repo).resolve())
-        session_id = _chat_sessions.get(repo_key)
+        session_id = _get_chat_session(repo_key)
         if session_id:
             cmd.extend(["--resume", session_id])
 
@@ -1498,8 +1572,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         claude_review = "\n".join(claude_output)
 
         if captured_session_id and process.returncode == 0:
-            _chat_sessions[repo_key] = captured_session_id
-            _save_chat_sessions(_chat_sessions)
+            _set_chat_session(repo_key, captured_session_id)
 
         send({"type": "agent_status", "agent": "Claude Code", "status": "Schritt 1/3 fertig"})
 
@@ -1520,9 +1593,9 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             "- [KRITISCH/HOCH/MITTEL] Datei:Zeile: Beschreibung\n## Positive Befunde\n"
         )
 
-        codex_model = _settings.get("codex_model", "")
-        codex_reasoning = _settings.get("codex_reasoning", "high")
-        codex_fast = _settings.get("codex_fast", False)
+        codex_model = settings_snapshot.get("codex_model", "")
+        codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
+        codex_fast = settings_snapshot.get("codex_fast", False)
         codex_review = ""
 
         try:
@@ -1698,8 +1771,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             _active_process = None
 
         if synth_session_id and synth_process.returncode == 0:
-            _chat_sessions[repo_key] = synth_session_id
-            _save_chat_sessions(_chat_sessions)
+            _set_chat_session(repo_key, synth_session_id)
 
         synthesis_text = "\n".join(synthesis_output)
 
@@ -1737,9 +1809,10 @@ def _run_codex_auto_review(ws: WebSocket, target_repo: str, files_changed: list[
     Gibt die Findings als String zurück (oder None wenn alles OK).
     """
     breaker_label = "Codex Review"
-    codex_model = _settings.get("codex_model", "")
-    codex_reasoning = _settings.get("codex_reasoning", "high")
-    codex_fast = _settings.get("codex_fast", False)
+    settings_snapshot = _get_settings_snapshot()
+    codex_model = settings_snapshot.get("codex_model", "")
+    codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
+    codex_fast = settings_snapshot.get("codex_fast", False)
 
     # Nur Dateinamen (kurz) für den Prompt
     short_files = [f.rsplit("/", 1)[-1] if "/" in f else f for f in files_changed[:10]]

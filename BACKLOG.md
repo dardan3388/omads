@@ -14,9 +14,6 @@ Diese Datei ist die einzige Quelle der Wahrheit fuer offene Arbeit, Prioritaeten
 
 ## Jetzt
 
-- [ ] Shared State absichern
-  `_settings`, `_chat_sessions` und `_append_log` fuer parallele Agenten- und Thread-Zugriffe absichern.
-
 - [ ] Graceful Error Recovery vervollstaendigen
   Die Basis ist vorhanden, aber restliche Fehlerpfade sollen konsistent sichtbare Fehlermeldungen und saubere UI-Entsperrung liefern.
 
@@ -29,7 +26,7 @@ Diese Datei ist die einzige Quelle der Wahrheit fuer offene Arbeit, Prioritaeten
 ## Danach
 
 - [ ] Testabdeckung ausbauen
-  Die ersten Smoke-Tests stehen. Als Naechstes koennen WebSocket-, Auto-Review- und Fehlerpfade abgesichert werden.
+  Die ersten Smoke-Tests stehen. Als Naechstes koennen WebSocket-, Auto-Review-, Shared-State-Fehler- und UI-Fehlerpfade abgesichert werden.
 
 - [ ] Setup-Script / Docker
   Onboarding vereinfachen ueber `install.sh`, `Dockerfile` oder beides.

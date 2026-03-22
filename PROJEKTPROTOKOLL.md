@@ -965,3 +965,18 @@ Die von Claude vorgeschlagene Warteliste wurde technisch eingeordnet und neu pri
 - **`pyproject.toml` um Dev-Dependencies erweitert**: `pytest` und `httpx` als optionale Dev-Abhaengigkeiten dokumentiert.
 
 Ziel dieser Runde: Nicht nur Features sammeln, sondern die naechsten Arbeiten absichern und fuer weitere Agenten nachvollziehbar machen.
+
+---
+
+### Shared-State-Hardening (2026-03-22)
+
+Der naechste Kernpunkt fuer das Multi-Agent-Setup wurde umgesetzt: gemeinsam genutzter Server-State ist jetzt deutlich robuster gegen parallele Zugriffe aus Threads und Agenten.
+
+- **Settings unter Lock + Snapshot-Helfer**: `_settings` wird nicht mehr ungeschuetzt direkt verteilt, sondern ueber konsistente Snapshots gelesen und atomar aktualisiert.
+- **Chat-Sessions unter Lock**: `_chat_sessions` hat jetzt eigene Getter/Setter mit persistenter Speicherung unter Lock, damit Session-IDs sich nicht gegenseitig ueberschreiben.
+- **Datei-Schreibpfade abgesichert**: Config, Projekt-Registry, GUI-Status, Chat-Sessions, Projekt-Memory sowie JSONL-History/Logs laufen jetzt ueber per-Datei-Locks und atomare Writes.
+- **Smoke-Tests erweitert**: Testbasis prueft jetzt zusaetzlich persistierte Settings/Projekte, Log-Filterung und Session-Roundtrips.
+
+Verifikation:
+- `pytest` erfolgreich: 5 Tests gruen
+- Syntax-Check erfolgreich: `python -m py_compile` ueber das Projekt-Python
