@@ -18,6 +18,7 @@ The format is loosely based on Keep a Changelog.
 - Standardized the main repository documentation in English for broader external use.
 - Standardized the GUI labels, onboarding copy, review flow messages, and API-facing project errors in English.
 - Clarified the README start flow with explicit quick-start and troubleshooting guidance.
+- Reduced `CLAUDE.md` to a minimal Claude-specific bridge file that delegates to the standard repository docs.
 
 ## 2026-03-22
 

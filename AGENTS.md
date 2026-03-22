@@ -70,6 +70,7 @@ Never commit:
 - `BACKLOG.md` is the single source of truth for open work.
 - `CHANGELOG.md` records notable shipped changes.
 - `docs/architecture.md` explains the current structure and technical rationale.
+- `CLAUDE.md` may exist as a Claude-native entrypoint, but it must stay short and defer to the standard repository docs.
 - Do not reintroduce `PROJEKTPROTOKOLL.md` or any hidden project diary.
 - Git explains who changed what and when; docs explain why and how the system is meant to work.
 

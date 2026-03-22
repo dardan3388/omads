@@ -21,6 +21,7 @@ Additional repository-specific rules for this project.
 
 - Project-facing documentation should be kept in English.
 - Avoid custom history documents that duplicate Git.
+- `CLAUDE.md` may remain for Claude-specific bootstrapping, but it must not become a parallel source of truth.
 - Use standard files for standard purposes:
 - `README.md` for onboarding
 - `BACKLOG.md` for open work
