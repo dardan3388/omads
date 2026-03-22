@@ -22,6 +22,19 @@ Wenn mehrere Agenten oder Entwickler am selben Stand arbeiten, sind diese Dateie
 
 ---
 
+## Tests
+
+Die erste Smoke-Testbasis fuer Backend und Projektverwaltung wird mit `pytest` ausgefuehrt:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Die aktuellen Smoke-Tests decken Server-Start, Security-Header, Pfad-Validierung und Chat-Session-Persistenz ab.
+
+---
+
 ## Voraussetzungen
 
 | Was | Mindestversion | Wozu |

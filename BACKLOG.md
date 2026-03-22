@@ -14,16 +14,22 @@ Diese Datei ist die einzige Quelle der Wahrheit fuer offene Arbeit, Prioritaeten
 
 ## Jetzt
 
-- [ ] Graceful Error Recovery
-  CLI-Crashs sollen die UI sauber entsperren und eine klare Fehlermeldung anzeigen.
+- [ ] Shared State absichern
+  `_settings`, `_chat_sessions` und `_append_log` fuer parallele Agenten- und Thread-Zugriffe absichern.
+
+- [ ] Graceful Error Recovery vervollstaendigen
+  Die Basis ist vorhanden, aber restliche Fehlerpfade sollen konsistent sichtbare Fehlermeldungen und saubere UI-Entsperrung liefern.
+
+- [ ] Pydantic-Models einfuehren
+  Request-Validation fuer REST-Endpoints von rohen Dicts auf klare Modelle umstellen.
 
 - [ ] `server.py` in Module splitten
-  Monolith in Bereiche wie config, projects, agents, websocket und rest aufteilen.
-
-- [ ] Tests schreiben
-  Mindestens Smoke-Tests fuer Server-Start, Pfad-Validierung und Session-Management.
+  Monolith nach gesicherter Testbasis in Bereiche wie config, projects, agents, websocket und rest aufteilen.
 
 ## Danach
+
+- [ ] Testabdeckung ausbauen
+  Die ersten Smoke-Tests stehen. Als Naechstes koennen WebSocket-, Auto-Review- und Fehlerpfade abgesichert werden.
 
 - [ ] Setup-Script / Docker
   Onboarding vereinfachen ueber `install.sh`, `Dockerfile` oder beides.
@@ -37,22 +43,10 @@ Diese Datei ist die einzige Quelle der Wahrheit fuer offene Arbeit, Prioritaeten
 - [ ] OpenAPI/Swagger-Docs
   REST-Endpoints dokumentieren und sichtbarer machen.
 
-- [ ] Pydantic-Models
-  Request-Validation von rohen Dicts auf klare Modelle umstellen.
-
 - [ ] GitHub Issue-Templates und `CONTRIBUTING.md`
   Zusammenarbeit auf GitHub strukturieren.
 
 ## Technische Schulden
 
-- [ ] `_chat_sessions` unter Lock
-  Thread-Safety fuer Session-Dict absichern.
-
 - [ ] Stream-Parsing in Helper-Funktion extrahieren
   Duplizierte Parsing-Logik zwischen Claude und Codex abbauen.
-
-- [ ] `_settings` Thread-Lock
-  Concurrent Reads/Writes absichern.
-
-- [ ] `_append_log` File-Locking
-  Parallel-Writes auf JSONL absichern.

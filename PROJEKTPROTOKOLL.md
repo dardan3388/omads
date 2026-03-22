@@ -952,3 +952,16 @@ OMADS hat sich selbst analysiert und Verbesserungsvorschläge gemacht. Drei schn
 Die aktive Warteliste wurde nach `BACKLOG.md` verschoben, damit offene Arbeit auf GitHub und fuer alle Agenten sofort sichtbar ist.
 
 `PROJEKTPROTOKOLL.md` dient ab hier nur noch als Historie und Projekttagebuch.
+
+---
+
+### Backlog-Repriorisierung + erste Testbasis (2026-03-22)
+
+Die von Claude vorgeschlagene Warteliste wurde technisch eingeordnet und neu priorisiert. Fuer das Multi-Agent-Setup sind derzeit fehlende Tests und ungesicherter Shared State wichtiger als Komfort-Features wie Dark Mode oder Swagger.
+
+- **BACKLOG neu priorisiert**: Fokus jetzt auf Shared State, Error Recovery, Pydantic-Models und erst danach dem Split von `server.py`.
+- **Smoke-Tests eingefuehrt**: Erste Testbasis fuer Server-Start, Security-Header, Pfad-Validierung und Chat-Session-Persistenz angelegt.
+- **README um Test-Workflow erweitert**: Kurzer Einstiegspunkt fuer Agenten und Entwickler, wie die neue Testbasis lokal ausgefuehrt wird.
+- **`pyproject.toml` um Dev-Dependencies erweitert**: `pytest` und `httpx` als optionale Dev-Abhaengigkeiten dokumentiert.
+
+Ziel dieser Runde: Nicht nur Features sammeln, sondern die naechsten Arbeiten absichern und fuer weitere Agenten nachvollziehbar machen.
