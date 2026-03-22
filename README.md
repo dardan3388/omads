@@ -5,6 +5,15 @@ OMADS is a web GUI that orchestrates two AI agents:
 - **Claude Code CLI** or **Codex CLI** as the selectable primary builder for chat, coding, and debugging
 - an automatic breaker step after builder-created code changes
 
+The default OMADS flow is:
+
+1. You chat with the selected primary builder
+2. The builder works on the task
+3. If code changed, the breaker checks the result
+4. Findings go back to the active builder for a follow-up fix decision
+
+The **Review** button is a separate manual feature for users who want to inspect an existing local project or intentionally trigger a full review outside the normal builder flow.
+
 No API keys are required. Both CLIs use existing subscriptions such as Claude Pro/Max/Team and ChatGPT Plus/Pro.
 
 ![OMADS GUI](https://img.shields.io/badge/Port-8080-blue) ![Python](https://img.shields.io/badge/Python-3.11+-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
@@ -181,7 +190,7 @@ For first-time login, run:
 codex
 ```
 
-If Codex is not installed, OMADS still works, but Claude-built changes cannot use the automatic breaker step.
+If Codex is not installed, OMADS still works for Claude-only builder usage, but Claude-built changes cannot use the automatic breaker step and Codex cannot be selected as builder or reviewer.
 
 ### 5. Clone and set up OMADS
 
@@ -339,16 +348,31 @@ FastAPI Backend
 3. If the selected builder changes files, OMADS can start the current automatic breaker step
 4. Today that means `Codex` reviews Claude-built changes, while `Claude Review` checks Codex-built changes
 5. If the breaker reports real findings, the active builder gets them back for a follow-up fix decision
-5. You see the full process in real time
+6. You see the full process in real time
+
+### Manual Review Button
+
+The **Review** button is not the main OMADS coding loop.
+
+It is an additional manual feature for cases like:
+
+- you want to review an existing local project without starting a coding task first
+- you want to trigger a deliberate full-project review
+- you want to inspect the last task or a custom file/folder scope on demand
+
+Today this manual review flow is fixed to:
+
+1. Claude Code review
+2. Codex review
+3. Claude Code synthesis and optional fix suggestions
 
 ### Features
 
 - Switch the primary builder between Claude Code and Codex
 - Chat with the selected builder
 - Automatic breaker step after code changes
-- Three-step review flow (Claude → Codex → synthesis)
-- Real-time token and activity tracking
-- Claude rate-limit status with reset countdown
+- Manual three-step review flow (Claude → Codex → Claude synthesis)
+- Live activity streaming from the active CLI tools
 - Multi-project management
 - Built-in diff viewer for the current Git working tree
 - Switchable dark and light themes
@@ -371,7 +395,7 @@ All settings are controlled through the GUI and stored in `~/.config/omads/`.
 | Permission mode | `default` | Permission mode for Claude CLI |
 | Codex model | default | Model override for Codex |
 | Codex reasoning | `high` | Codex reasoning level for builder/reviewer work |
-| Auto review | enabled | Run the current automatic breaker step after code changes |
+| Auto review | enabled | Run the current automatic breaker step after builder-created code changes |
 
 ---
 
