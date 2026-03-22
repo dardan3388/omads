@@ -14,6 +14,7 @@ The format is loosely based on Keep a Changelog.
 - Added mock-based tests for WebSocket guardrails, Codex auto-review outcomes, review fix suggestions, and Claude/Codex handoff flows without requiring live CLI access.
 - Added backend integration tests for health/status/ledger routes, runtime status refresh, and project history/log/error paths.
 - Added backend integration tests for theme settings, the diff endpoint, and local OpenAPI docs.
+- Added Playwright-based browser E2E tests for theme switching, diff viewing, and the WebSocket chat flow.
 - Added a built-in diff viewer for the active Git working tree in the OMADS GUI.
 - Added a switchable dark/light theme stored in GUI settings.
 - Added `compose.yaml` plus `.env.docker.example` for Docker-based workspace/auth mounting.
@@ -31,6 +32,7 @@ The format is loosely based on Keep a Changelog.
 - Added an explicit browserless startup mode for headless and container use.
 - Upgraded the Docker image from a basic headless shell to an authenticated OMADS runtime with Node.js, Git, Claude Code CLI, Codex CLI, and `/workspace` as the default target repo.
 - Surfaced FastAPI docs through visible GUI and README entry points.
+- Documented the one-time Playwright Chromium install step for browser E2E coverage.
 
 ## 2026-03-22
 

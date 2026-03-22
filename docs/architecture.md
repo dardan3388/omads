@@ -163,8 +163,9 @@ It covers:
 - CLI and launcher startup flags
 - log filtering and session persistence
 - key Claude/review failure paths
+- browser-driven E2E coverage for theme switching, diff inspection, and the WebSocket chat flow
 
-The next highest-value test areas are full browser-driven UI scenarios such as reconnect handling and end-to-end theme/diff interactions.
+The next highest-value test areas are deeper browser-driven scenarios such as reconnect recovery, review dialogs, and multi-project switching.
 
 ## Legacy Code
 

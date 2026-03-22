@@ -38,6 +38,12 @@ pytest
 
 The test suite is intentionally mock-heavy so it can validate OMADS behavior without consuming live Claude Code or Codex quota.
 
+For the browser-based E2E suite, install Chromium once:
+
+```bash
+python -m playwright install chromium
+```
+
 ## Workflow Expectations
 
 - Prefer small, focused changes.

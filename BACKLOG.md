@@ -15,12 +15,9 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 ## Now
 
 - No active backlog items right now.
-- The previously scheduled setup, GUI, docs, and stream-parsing tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.
+- The previously scheduled setup, GUI, docs, stream-parsing, and browser E2E tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.
 
 ## Later
 
 - [ ] Selectable builder agent / Codex fallback builder
   Let OMADS choose between Claude Code and Codex as the primary builder so work can continue when one builder is unavailable or out of quota.
-
-- [ ] Full browser E2E coverage
-  The automated suite now covers backend flows, docs visibility, diff inspection, and mocked CLI orchestration. A future Playwright-style browser suite would still add value for reconnect and UI interaction paths.

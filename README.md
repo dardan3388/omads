@@ -50,7 +50,13 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, diff and OpenAPI routes, WebSocket guardrails, log filtering, chat-session persistence, mocked Codex auto-review outcomes, and mocked Claude/Codex review-fix handoff paths without requiring live CLI quota.
+For the browser-based E2E suite, install Chromium once:
+
+```bash
+python -m playwright install chromium
+```
+
+The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, diff and OpenAPI routes, WebSocket guardrails, log filtering, chat-session persistence, mocked Codex auto-review outcomes, mocked Claude/Codex review-fix handoff paths, and real browser E2E flows for theme switching, the diff viewer, and the WebSocket chat UI without requiring live Claude/Codex quota.
 
 ---
 
