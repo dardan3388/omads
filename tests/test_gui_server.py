@@ -374,22 +374,15 @@ def test_runtime_status_refresh_and_busy_guards(client: TestClient, monkeypatch:
 
     monkeypatch.setattr(runtime, "broadcast", fake_broadcast)
     monkeypatch.setattr(routes, "_probe_claude_limit_status", lambda repo: {"status": "allowed", "last_checked": 1})
-    monkeypatch.setattr(routes, "_probe_codex_status", lambda repo: {"text": "Codex OK", "last_checked": 2})
 
     claude = client.post("/api/runtime-status/claude/refresh")
-    codex = client.post("/api/runtime-status/codex/refresh")
     assert claude.status_code == 200
-    assert codex.status_code == 200
     assert claude.json()["limit"]["status"] == "allowed"
-    assert codex.json()["codex_status"]["text"] == "Codex OK"
     assert any(msg["type"] == "claude_limit_update" for msg in sent_events)
-    assert any(msg["type"] == "codex_status_update" for msg in sent_events)
 
     monkeypatch.setattr(runtime, "_active_process", BusyProcess())
     busy_claude = client.post("/api/runtime-status/claude/refresh")
-    busy_codex = client.post("/api/runtime-status/codex/refresh")
     assert "Please wait until the current task finishes" in busy_claude.json()["error"]
-    assert "Please wait until the current task finishes" in busy_codex.json()["error"]
 
 
 def test_builder_dispatch_uses_selected_primary_builder(isolated_server, monkeypatch: pytest.MonkeyPatch):
@@ -467,7 +460,6 @@ def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_
 
     assert runtime_status.status_code == 200
     assert runtime_status.json()["claude_limit"] == state._GUI_STATUS_DEFAULTS["claude_limit"]
-    assert runtime_status.json()["codex_status"] == state._GUI_STATUS_DEFAULTS["codex_status"]
 
 
 def test_theme_settings_diff_endpoint_and_openapi_docs(

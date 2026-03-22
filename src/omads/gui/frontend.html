@@ -902,19 +902,10 @@
         <div class="hint">Fast mode favors lower-latency responses.</div>
       </div>
 
-      <div class="section-title">Status</div>
-      <div class="form-group status-card">
-        <div class="status-card-head">
-          <div class="status-card-title">Codex /status</div>
-          <button class="btn-sm" id="btnCodexStatusRefresh" onclick="refreshCodexStatus()">Fetch status</button>
-        </div>
-        <div class="status-pre" id="codexStatusText">Not fetched yet.</div>
-        <div class="hint" id="codexStatusHint">Shows Codex's response to <code>/status</code>. This is not an exact local usage meter.</div>
-      </div>
       <div class="hint" style="margin-top:12px;color:var(--text-dim);font-size:12px">
-        <strong>Claude Code</strong> builds and responds.<br>
-        <strong>Codex</strong> reviews automatically after changes.<br>
-        <span style="color:var(--text-dim);">The GUI intentionally shows only the settings that are actually used here.</span>
+        <strong>The selected primary builder</strong> handles normal chat tasks and coding work.<br>
+        <strong>Automatic review</strong> currently uses the fixed Claude -> Codex -> Claude pipeline after code changes.<br>
+        <span style="color:var(--text-dim);">This tab shows the Codex-specific settings and status that are used in the current OMADS flow.</span>
       </div>
     </div>
 
@@ -950,7 +941,7 @@
 <script>
 let ws = null, busy = false, fpPath = '~';
 let _logFilter = 'all';  // 'all', 'claude', 'codex'
-let _runtimeStatus = { claude_limit: {}, codex_status: {} };
+let _runtimeStatus = { claude_limit: {} };
 let _uiTheme = 'dark';
 let _builderAgent = 'claude';
 
@@ -1051,10 +1042,6 @@ function handle(msg) {
 
     case 'claude_limit_update':
       renderClaudeLimit(msg.limit);
-      break;
-
-    case 'codex_status_update':
-      renderCodexStatus(msg.codex_status);
       break;
 
     case 'settings_updated':
@@ -1575,7 +1562,6 @@ async function loadRuntimeStatus() {
     const status = await res.json();
     if (status) {
       renderClaudeLimit(status.claude_limit || {});
-      renderCodexStatus(status.codex_status || {});
     }
   } catch (e) {}
 }
@@ -1665,20 +1651,6 @@ function renderClaudeLimit(limit = _runtimeStatus.claude_limit || {}) {
   hint.textContent = hintText;
 }
 
-function renderCodexStatus(codexStatus = _runtimeStatus.codex_status || {}) {
-  _runtimeStatus.codex_status = codexStatus || {};
-  const textEl = el('codexStatusText');
-  const hintEl = el('codexStatusHint');
-  const data = _runtimeStatus.codex_status || {};
-
-  textEl.textContent = data.text || 'Not fetched yet.';
-
-  let hint = 'Shows Codex\'s response to /status. This is not an exact local usage meter.';
-  if (data.last_checked) hint += ` Updated: ${fmtTimestamp(data.last_checked)}.`;
-  if (data.error) hint += ` Error: ${data.error}`;
-  hintEl.textContent = hint;
-}
-
 async function refreshClaudeLimit() {
   const btn = el('btnClaudeLimitRefresh');
   const oldText = btn.textContent;
@@ -1694,27 +1666,6 @@ async function refreshClaudeLimit() {
     if (data.limit) renderClaudeLimit(data.limit);
   } catch (e) {
     el('claudeLimitHint').textContent = 'Claude limit could not be fetched right now.';
-  } finally {
-    btn.disabled = false;
-    btn.textContent = oldText;
-  }
-}
-
-async function refreshCodexStatus() {
-  const btn = el('btnCodexStatusRefresh');
-  const oldText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Fetching...';
-  try {
-    const res = await fetch('/api/runtime-status/codex/refresh', { method: 'POST' });
-    const data = await res.json();
-    if (data.error) {
-      el('codexStatusHint').textContent = data.error;
-      return;
-    }
-    if (data.codex_status) renderCodexStatus(data.codex_status);
-  } catch (e) {
-    el('codexStatusHint').textContent = 'Codex status could not be fetched right now.';
   } finally {
     btn.disabled = false;
     btn.textContent = oldText;

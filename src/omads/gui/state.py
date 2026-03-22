@@ -180,35 +180,26 @@ _GUI_STATUS_DEFAULTS: dict[str, Any] = {
         "source": "",
         "error": "",
     },
-    "codex_status": {
-        "text": "",
-        "last_checked": 0,
-        "source": "",
-        "error": "",
-    },
 }
 
 
 def _load_gui_status() -> dict[str, Any]:
-    """Lädt den letzten bekannten Claude-/Codex-Status."""
+    """Lädt den letzten bekannten GUI-Limitstatus."""
     status = {
         "claude_limit": dict(_GUI_STATUS_DEFAULTS["claude_limit"]),
-        "codex_status": dict(_GUI_STATUS_DEFAULTS["codex_status"]),
     }
     if _GUI_STATUS_PATH.exists():
         try:
             saved = json.loads(_read_json_text(_GUI_STATUS_PATH))
             if isinstance(saved.get("claude_limit"), dict):
                 status["claude_limit"].update(saved["claude_limit"])
-            if isinstance(saved.get("codex_status"), dict):
-                status["codex_status"].update(saved["codex_status"])
         except (json.JSONDecodeError, OSError):
             pass
     return status
 
 
 def _save_gui_status() -> None:
-    """Speichert den letzten bekannten Claude-/Codex-Status."""
+    """Speichert den letzten bekannten GUI-Limitstatus."""
     _write_text_file(_GUI_STATUS_PATH, json.dumps(_gui_status, indent=2, ensure_ascii=False))
 
 
@@ -366,7 +357,6 @@ def _get_gui_status_snapshot() -> dict[str, Any]:
     with _gui_status_lock:
         return {
             "claude_limit": dict(_gui_status["claude_limit"]),
-            "codex_status": dict(_gui_status["codex_status"]),
         }
 
 
@@ -374,7 +364,6 @@ def _sync_gui_status_from_disk_locked() -> None:
     """Zieht den letzten Stand aus der Datei nach, um Teil-Updates nicht zu überschreiben."""
     latest = _load_gui_status()
     _gui_status["claude_limit"].update(latest["claude_limit"])
-    _gui_status["codex_status"].update(latest["codex_status"])
 
 
 def _update_claude_limit_status(rl_info: dict[str, Any], source: str) -> dict[str, Any]:
@@ -393,19 +382,6 @@ def _update_claude_limit_status(rl_info: dict[str, Any], source: str) -> dict[st
         limit["error"] = ""
         _save_gui_status()
         return dict(limit)
-
-
-def _set_codex_status(text: str, source: str, error: str = "") -> dict[str, Any]:
-    """Speichert den letzten echten Codex-/status-Text."""
-    with _gui_status_lock:
-        _sync_gui_status_from_disk_locked()
-        codex_status = _gui_status["codex_status"]
-        codex_status["text"] = text.strip()
-        codex_status["last_checked"] = int(time.time())
-        codex_status["source"] = source
-        codex_status["error"] = error
-        _save_gui_status()
-        return dict(codex_status)
 
 
 def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
@@ -455,53 +431,6 @@ def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
     if not rate_limit_info:
         raise RuntimeError("Claude did not return any limit data")
     return _update_claude_limit_status(rate_limit_info, source="manual_refresh")
-
-
-def _probe_codex_status(target_repo: str) -> dict[str, Any]:
-    """Fragt Codex über /status ab und speichert die Antwort."""
-    cmd = [
-        "codex",
-        "exec",
-        "/status",
-        "--json",
-        "-s",
-        "read-only",
-        "-C",
-        str(target_repo),
-        "--skip-git-repo-check",
-    ]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=target_repo,
-        env=_build_cli_env(),
-        timeout=30,
-    )
-
-    texts: list[str] = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if event.get("type") == "item.completed":
-            item = event.get("item", {})
-            text = item.get("text", "")
-            if text:
-                texts.append(text.strip())
-
-    status_text = "\n\n".join(t for t in texts if t).strip()
-    if not status_text:
-        stderr = (result.stderr or "").strip()
-        if result.returncode != 0:
-            raise RuntimeError(stderr or "Codex status could not be fetched")
-        status_text = "Codex did not return any status text."
-
-    return _set_codex_status(status_text, source="manual_refresh")
 
 _CHAT_SESSIONS_PATH = Path.home() / ".config" / "omads" / "chat_sessions.json"
 

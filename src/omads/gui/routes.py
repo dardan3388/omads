@@ -24,7 +24,6 @@ from .state import (
     _get_settings_snapshot,
     _load_projects,
     _probe_claude_limit_status,
-    _probe_codex_status,
     _read_history,
     _read_log,
     _save_projects,
@@ -213,7 +212,7 @@ async def browse_directory(path: str = "~"):
 
 @router.get("/api/runtime-status")
 async def get_runtime_status():
-    """Gibt den letzten bekannten Claude-/Codex-Status zurück."""
+    """Gibt den letzten bekannten GUI-Limitstatus zurück."""
     return _get_gui_status_snapshot()
 
 
@@ -231,22 +230,6 @@ async def refresh_claude_runtime_status():
         return {"error": str(exc)}
     await runtime.broadcast({"type": "claude_limit_update", "limit": limit})
     return {"ok": True, "limit": limit}
-
-
-@router.post("/api/runtime-status/codex/refresh")
-async def refresh_codex_runtime_status():
-    """Fragt Codex /status ab und liefert den letzten Text zurück."""
-    with runtime._process_lock:
-        busy = runtime._active_process and runtime._active_process.poll() is None
-    if busy:
-        return {"error": "Please wait until the current task finishes"}
-    target_repo = _get_setting("target_repo", str(Path(".").resolve()))
-    try:
-        codex_status = await asyncio.to_thread(_probe_codex_status, target_repo)
-    except Exception as exc:
-        return {"error": str(exc)}
-    await runtime.broadcast({"type": "codex_status_update", "codex_status": codex_status})
-    return {"ok": True, "codex_status": codex_status}
 
 
 # ─── Projekt-Management Endpoints ─────────────────────────────────
