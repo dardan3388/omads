@@ -198,8 +198,31 @@ pip install -e .
 
 ### 6. Start OMADS
 
+The easiest local start on Linux or macOS is:
+
 ```bash
+./start-omads.sh
+```
+
+This helper script creates `.venv` if needed, installs OMADS into it, and launches the GUI.
+
+Standard Python developer start:
+
+```bash
+source .venv/bin/activate
 omads gui
+```
+
+No shell activation:
+
+```bash
+.venv/bin/omads gui
+```
+
+Module form:
+
+```bash
+.venv/bin/python -m omads gui
 ```
 
 The GUI opens automatically at **http://localhost:8080**.
@@ -207,8 +230,25 @@ The GUI opens automatically at **http://localhost:8080**.
 You can also start it on a custom port:
 
 ```bash
+./start-omads.sh --port 9090
+```
+
+Or with the installed CLI:
+
+```bash
 omads gui --port 9090
 ```
+
+### Common Start Mistakes
+
+- `omads: command not found`
+  You are either outside the repository, the local `.venv` is not activated, or OMADS was not installed into that environment yet. Use `./start-omads.sh` or `.venv/bin/omads gui`.
+
+- `python: command not found`
+  On many Linux systems the command is `python3`, not `python`.
+
+- `>>>`
+  That means you are inside the Python interpreter. Exit it with `exit()` or `Ctrl+D`, then run the OMADS command in the normal shell.
 
 ---
 

@@ -19,8 +19,8 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Next
 
-- [ ] Setup script / Docker
-  Simplify onboarding through `install.sh`, a `Dockerfile`, or both.
+- [ ] Docker / cross-platform one-command setup
+  `start-omads.sh` now covers Linux/macOS local startup, but Windows-friendly setup and containerized onboarding are still open.
 
 - [ ] Diff viewer
   Improve code inspection directly in the GUI.

@@ -6,12 +6,18 @@ The format is loosely based on Keep a Changelog.
 
 ## Unreleased
 
+### Added
+
+- Added `start-omads.sh` as a one-command local launcher for Linux/macOS.
+- Added `python -m omads` support through `src/omads/__main__.py`.
+
 ### Changed
 
 - Replaced the custom `PROJEKTPROTOKOLL.md` project diary with standard English documentation.
 - Added `docs/architecture.md` as the durable reference for backend structure and module boundaries.
 - Standardized the main repository documentation in English for broader external use.
 - Standardized the GUI labels, onboarding copy, review flow messages, and API-facing project errors in English.
+- Clarified the README start flow with explicit quick-start and troubleshooting guidance.
 
 ## 2026-03-22
 
