@@ -1,26 +1,74 @@
 # OMADS — Orchestrated Multi-Agent Development System
 
-OMADS is a web GUI that orchestrates two AI agents:
+OMADS is a local web workspace for people who want to build with one coding agent and immediately cross-check the result with another one.
 
-- **Claude Code CLI** or **Codex CLI** as the selectable primary builder for chat, coding, and debugging
-- an automatic breaker step after builder-created code changes
+- Choose **Claude Code** or **Codex** as the primary builder
+- Let OMADS run an automatic **builder -> breaker** loop after code changes
+- Trigger a separate **manual three-step review** when you want a deliberate deep check
+- Keep chat activity, review output, and the live log visible after reloads through one shared timeline
 
-The default OMADS flow is:
+No API keys are required. OMADS works with the CLIs you already use, such as Claude Code and Codex, and reuses their existing subscriptions.
 
-1. You chat with the selected primary builder
-2. The builder works on the task
-3. If code changed, the breaker checks the result
-4. Findings go back to the active builder for a follow-up fix decision
+![Port](https://img.shields.io/badge/Port-8080-blue) ![Python](https://img.shields.io/badge/Python-3.11+-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-The **Review** button is a separate manual feature for users who want to inspect an existing local project or intentionally trigger a full review outside the normal builder flow.
+![OMADS overview](docs/assets/omads-overview.png)
 
-No API keys are required. Both CLIs use existing subscriptions such as Claude Pro/Max/Team and ChatGPT Plus/Pro.
+## Why OMADS
 
-![OMADS GUI](https://img.shields.io/badge/Port-8080-blue) ![Python](https://img.shields.io/badge/Python-3.11+-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
+Most local AI coding workflows break down in one of two ways:
 
----
+- you only get one agent's opinion on a change
+- you lose important runtime context once the terminal scrolls away or the UI reloads
 
-## Project Navigation
+OMADS is built to solve both.
+
+The normal coding loop is:
+
+1. Pick your primary builder
+2. Send a coding task in the chat
+3. Let the builder work in the repository
+4. If files changed, let the breaker challenge the result
+5. Send the findings back to the builder for the final decision
+
+The **Review** button is intentionally separate. It exists for manual inspections of an existing local project, a specific path, or a deliberate full-project review outside the normal coding loop.
+
+## Screenshots
+
+| Overview | Manual review pipeline |
+| --- | --- |
+| ![OMADS overview](docs/assets/omads-overview.png) | ![Review settings](docs/assets/omads-review-settings.png) |
+
+| Manual review dialog | Built-in diff viewer |
+| --- | --- |
+| ![Manual review](docs/assets/omads-manual-review.png) | ![Diff viewer](docs/assets/omads-diff-viewer.png) |
+
+## What You Can Do With OMADS
+
+- Switch the primary builder between Claude Code and Codex
+- Run the automatic breaker loop after builder-created code changes
+- Configure the manual review pipeline as `Claude -> Codex -> Claude` or `Codex -> Claude -> Codex`
+- Review the whole project, only the last task, or a custom file/folder selection
+- Add custom free-text review instructions instead of relying only on fixed presets
+- Inspect the current Git working tree through the built-in diff viewer
+- Keep live activity visible in both the chat surface and the live log after reloads
+- Work across multiple local projects from one GUI
+
+## Quick Start
+
+```bash
+git clone https://github.com/<your-username>/omads.git
+cd omads
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+./start-omads.sh
+```
+
+Then open `http://localhost:8080`.
+
+If you want the full install guide for Windows, macOS, Linux, Docker, and headless starts, keep reading below.
+
+## Repository Guide
 
 If multiple agents or developers work on the same repository state, these are the main entry points:
 
@@ -347,8 +395,8 @@ FastAPI Backend
 
 1. You send a task in the chat
 2. The selected primary builder works on it with live streaming
-3. If the selected builder changes files, OMADS can start the current automatic breaker step
-4. Today that means `Codex` reviews Claude-built changes, while `Claude Review` checks Codex-built changes
+3. If the selected builder changes files, OMADS can start the automatic breaker step
+4. The breaker is the other agent, so Claude-built changes go to Codex and Codex-built changes go to Claude Review
 5. If the breaker reports real findings, the active builder gets them back for a follow-up fix decision
 6. You see the full process in real time
 
@@ -396,6 +444,22 @@ The review dialog also supports:
 - Settings for models, effort, permissions, and Codex config
 - Session memory for continuing work
 - Live logs of CLI events
+
+## Example Prompts
+
+These are the kinds of tasks OMADS is designed to handle well:
+
+```text
+Trace the checkout websocket flow, fix any reconnect-state issues, and keep the existing review loop intact.
+```
+
+```text
+Split the billing logic into smaller modules, keep the current API behavior stable, and add regression tests for the changed paths.
+```
+
+```text
+Review only src/omads/gui/runtime.py and src/omads/gui/websocket.py. Focus on race conditions, reload safety, and whether findings are routed back to the active builder correctly.
+```
 
 ---
 

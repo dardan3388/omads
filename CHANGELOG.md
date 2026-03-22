@@ -8,6 +8,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Added
 
+- Added a public-ready README gallery with real OMADS screenshots under `docs/assets/`.
 - Added a persistent primary-builder setting so normal chat tasks can be routed to either Claude Code or Codex from the GUI until the user changes the selection.
 - Added a dedicated Review settings tab so users can choose Reviewer 1 and Reviewer 2 for the manual review button while step 3 automatically returns to Reviewer 1.
 - Added custom free-text focus instructions to the manual review dialog.
@@ -27,6 +28,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Changed
 
+- Reworked the README so the repository is easier to understand for future public GitHub readers, with a clearer product pitch, faster quick-start path, and example OMADS workflows.
 - Normal chat tasks now follow the persistent GUI builder selection instead of being hardwired to Claude Code.
 - Automatic post-change review now runs after builder-created code changes for both builder paths instead of disappearing when Codex is selected as the builder.
 - Manual review is no longer hardcoded to `Claude Code -> Codex -> Claude Code`; it now follows the configured reviewer order and routes apply-fixes back to Reviewer 1.
