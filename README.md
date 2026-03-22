@@ -1,72 +1,90 @@
 # OMADS — Orchestrated Multi-Agent Development System
 
-OMADS ist eine Web-GUI, die zwei KI-Agenten orchestriert:
+OMADS is a web GUI that orchestrates two AI agents:
 
-- **Claude Code CLI** — Builder-Agent (Chat, Code-Generierung, Debugging)
-- **Codex CLI** — Auto-Reviewer (prüft automatisch nach jeder Code-Änderung)
+- **Claude Code CLI** — builder agent for chat, coding, and debugging
+- **Codex CLI** — auto-reviewer that checks code after changes
 
-Keine API-Keys nötig — beide CLIs laufen über bestehende Abos (Claude Pro/Max/Team + ChatGPT Plus/Pro).
+No API keys are required. Both CLIs use existing subscriptions such as Claude Pro/Max/Team and ChatGPT Plus/Pro.
 
 ![OMADS GUI](https://img.shields.io/badge/Port-8080-blue) ![Python](https://img.shields.io/badge/Python-3.11+-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
 
-## Projekt-Navigation
+## Project Navigation
 
-Wenn mehrere Agenten oder Entwickler am selben Stand arbeiten, sind diese Dateien die Einstiegspunkte:
+If multiple agents or developers work on the same repository state, these are the main entry points:
 
-- `BACKLOG.md` - zentrale Quelle fuer offene Aufgaben und Prioritaeten
-- `PROJEKTPROTOKOLL.md` - historische Dokumentation bereits umgesetzter Arbeit
-- `AGENTS.md` - verbindliche Arbeitsregeln fuer alle Coding-Agenten
-- `PROJECT_RULES.md` - repo-spezifische Zusatzregeln
+- `README.md` — onboarding, installation, and product overview
+- `BACKLOG.md` — active priorities and next tasks
+- `CHANGELOG.md` — notable shipped changes
+- `docs/architecture.md` — current architecture and module boundaries
+- `AGENTS.md` — binding workflow rules for coding agents
+- `PROJECT_RULES.md` — repository-specific collaboration rules
+
+---
+
+## Backend Structure
+
+The old GUI backend monolith has been split into focused modules:
+
+- `src/omads/gui/server.py` — stable compatibility facade
+- `src/omads/gui/app.py` — FastAPI app, middleware, and router wiring
+- `src/omads/gui/routes.py` — REST endpoints
+- `src/omads/gui/websocket.py` — WebSocket endpoint and GUI command handling
+- `src/omads/gui/state.py` — persistent settings, project registry, GUI status, logs, chat sessions, project memory
+- `src/omads/gui/runtime.py` — runtime state, broadcasts, and Claude/Codex task runners
+- `src/omads/gui/launcher.py` — local startup via Uvicorn and browser opening
+
+Functional changes should usually happen in the appropriate module instead of the facade in `server.py`.
 
 ---
 
 ## Tests
 
-Die erste Smoke-Testbasis fuer Backend und Projektverwaltung wird mit `pytest` ausgefuehrt:
+Run the smoke-test suite with `pytest`:
 
 ```bash
 pip install -e ".[dev]"
 pytest
 ```
 
-Die aktuellen Smoke-Tests decken Server-Start, Security-Header, Settings-/Projekt-Validierung, Log-Filterung, Chat-Session-Persistenz und zentrale Fehlerpfade fuer Claude-Task/Review ab.
+The current tests cover server startup, security headers, settings and project validation, log filtering, chat-session persistence, and core Claude/review failure paths.
 
 ---
 
-## Voraussetzungen
+## Requirements
 
-| Was | Mindestversion | Wozu |
-|-----|---------------|------|
-| **Python** | 3.11+ | OMADS Backend |
-| **Node.js** | 18+ (Claude Code), 22+ (Codex) | Für die CLI-Tools |
-| **npm** | (kommt mit Node.js) | Installation der CLIs |
-| **Claude Code CLI** | aktuell | Builder-Agent |
-| **Codex CLI** | aktuell | Auto-Reviewer (optional) |
+| Tool | Minimum version | Purpose |
+|------|-----------------|---------|
+| **Python** | 3.11+ | OMADS backend |
+| **Node.js** | 18+ for Claude Code, 22+ for Codex | CLI tools |
+| **npm** | bundled with Node.js | CLI installation |
+| **Claude Code CLI** | current | Builder agent |
+| **Codex CLI** | current | Auto-reviewer (optional) |
 
-### Abo-Voraussetzungen
+### Subscription Requirements
 
-OMADS nutzt **keine API-Keys**. Stattdessen authentifizieren sich beide CLIs über dein bestehendes Abo:
+OMADS does **not** rely on API keys. Both CLIs authenticate through your existing subscriptions:
 
-- **Claude Code CLI** → [Claude Pro, Max oder Team](https://claude.ai) Abo
-- **Codex CLI** → [ChatGPT Plus oder Pro](https://chatgpt.com) Abo
+- **Claude Code CLI** → [Claude Pro, Max, or Team](https://claude.ai)
+- **Codex CLI** → [ChatGPT Plus or Pro](https://chatgpt.com)
 
 ---
 
 ## Installation
 
-### 1. Python installieren
+### 1. Install Python
 
 <details>
 <summary><strong>Windows</strong></summary>
 
-Lade Python 3.11+ von [python.org](https://www.python.org/downloads/) herunter.
+Download Python 3.11+ from [python.org](https://www.python.org/downloads/).
 
-**Wichtig:** Beim Installer "Add Python to PATH" anhaken.
+Make sure to enable **Add Python to PATH** during installation.
 
 ```powershell
-python --version   # Sollte 3.11+ zeigen
+python --version   # Should show 3.11+
 ```
 </details>
 
@@ -74,10 +92,7 @@ python --version   # Sollte 3.11+ zeigen
 <summary><strong>macOS</strong></summary>
 
 ```bash
-# Mit Homebrew (empfohlen)
 brew install python@3.12
-
-# Oder von python.org herunterladen
 ```
 </details>
 
@@ -96,15 +111,15 @@ sudo pacman -S python
 ```
 </details>
 
-### 2. Node.js installieren
+### 2. Install Node.js
 
 <details>
 <summary><strong>Windows</strong></summary>
 
-Lade Node.js 22+ (LTS) von [nodejs.org](https://nodejs.org/) herunter und installiere es.
+Download Node.js 22+ (LTS) from [nodejs.org](https://nodejs.org/).
 
 ```powershell
-node --version   # Sollte v22+ zeigen
+node --version   # Should show v22+
 npm --version
 ```
 </details>
@@ -114,7 +129,6 @@ npm --version
 
 ```bash
 brew install node@22
-# oder von nodejs.org herunterladen
 ```
 </details>
 
@@ -126,7 +140,7 @@ brew install node@22
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
 
-# Oder via nvm (empfohlen für alle Distros)
+# Or via nvm
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.bashrc
 nvm install 22
@@ -134,65 +148,63 @@ nvm use 22
 ```
 </details>
 
-### 3. Claude Code CLI installieren
+### 3. Install Claude Code CLI
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
-**Erstmalige Anmeldung** — einmal im Terminal starten:
+For first-time login, run:
 
 ```bash
 claude
 ```
 
-Es öffnet sich ein Browser-Fenster zur Anmeldung mit deinem Claude-Abo. Nach erfolgreicher Anmeldung kannst du das Terminal wieder schließen.
+This opens a browser window for authentication.
 
-### 4. Codex CLI installieren (optional)
+### 4. Install Codex CLI (optional)
 
 ```bash
 npm install -g @openai/codex
 ```
 
-**Erstmalige Anmeldung:**
+For first-time login, run:
 
 ```bash
 codex
 ```
 
-Melde dich mit deinem ChatGPT-Abo an. Codex wird als Auto-Reviewer verwendet — wenn es nicht installiert ist, funktioniert OMADS trotzdem, nur ohne automatisches Code-Review.
+If Codex is not installed, OMADS still works, but automatic review is skipped.
 
-### 5. OMADS klonen und einrichten
+### 5. Clone and set up OMADS
 
 ```bash
-# Repository klonen
-git clone https://github.com/DEIN-USERNAME/omads.git
+git clone https://github.com/<your-username>/omads.git
 cd omads
 
-# Virtual Environment erstellen
 python3 -m venv .venv
 
-# Virtual Environment aktivieren
-# Linux / macOS:
+# Linux / macOS
 source .venv/bin/activate
-# Windows (PowerShell):
+
+# Windows PowerShell
 .venv\Scripts\Activate.ps1
-# Windows (CMD):
+
+# Windows CMD
 .venv\Scripts\activate.bat
 
-# OMADS installieren
 pip install -e .
 ```
 
-### 6. OMADS starten
+### 6. Start OMADS
 
 ```bash
 omads gui
 ```
 
-Die GUI öffnet sich automatisch im Browser unter **http://localhost:8080**.
+The GUI opens automatically at **http://localhost:8080**.
 
-Alternativ mit benutzerdefiniertem Port:
+You can also start it on a custom port:
 
 ```bash
 omads gui --port 9090
@@ -200,99 +212,94 @@ omads gui --port 9090
 
 ---
 
-## Erster Start — Was passiert
+## First Launch
 
-Beim ersten Öffnen der GUI prüft OMADS automatisch, ob Claude Code CLI und Codex CLI verfügbar sind:
+When the GUI opens for the first time, OMADS checks whether Claude Code CLI and Codex CLI are available:
 
-- **Alles grün** → Du kannst direkt loslegen
-- **CLI fehlt** → Das Onboarding-Banner zeigt dir genau, was zu tun ist
-- **Nicht authentifiziert** → Starte die CLI einmal manuell im Terminal zur Anmeldung
+- **Everything green** → start working immediately
+- **CLI missing** → the onboarding banner explains what to install
+- **Not authenticated** → open the CLI once in a terminal and complete login
 
-### Projekt registrieren
+### Register a Project
 
-1. Klicke auf **"+ Neu"** in der Sidebar
-2. Wähle das Verzeichnis deines Projekts
-3. Fertig — du kannst jetzt mit Claude Code chatten
+1. Click **+ New** in the sidebar
+2. Choose your project directory
+3. Start chatting with Claude Code
 
 ---
 
-## So funktioniert OMADS
+## How OMADS Works
 
-```
+```text
 Browser (localhost:8080)
     ↕ WebSocket + REST
 FastAPI Backend
-    ├── Claude Code CLI (Builder — schreibt Code)
-    └── Codex CLI (Reviewer — prüft Code, read-only)
+    ├── Claude Code CLI (builder, writes code)
+    └── Codex CLI (reviewer, read-only)
 ```
 
-1. Du schreibst eine Aufgabe im Chat
-2. **Claude Code** arbeitet die Aufgabe ab (live gestreamt)
-3. Nach Code-Änderungen startet **Codex** automatisch ein Review
-4. Bei Problemen fixt Claude Code die Findings automatisch
-5. Du siehst alles in Echtzeit — Token-Verbrauch, Tool-Aufrufe, Reviews
+1. You send a task in the chat
+2. **Claude Code** works on it with live streaming
+3. After code changes, **Codex** starts an automatic review
+4. If Codex finds issues, Claude can fix them
+5. You see the full process in real time
 
 ### Features
 
-- Chat mit Claude Code (Live-Streaming)
-- Automatisches Code-Review durch Codex nach jeder Änderung
-- 3-Schritte Code-Review (Claude → Codex → Synthese)
-- Echtzeit Token-Tracking (Input/Output/Cache/Kosten)
-- Rate-Limit-Status mit Reset-Countdown
-- Projekt-Verwaltung (mehrere Repos gleichzeitig)
-- Einstellungen (Modell, Effort, Permissions, Codex-Config)
-- Session-Memory (Claude erinnert sich an vorherige Gespräche)
-- Live-Log (alle CLI-Events in Echtzeit)
+- Chat with Claude Code
+- Automatic Codex review after code changes
+- Three-step review flow (Claude → Codex → synthesis)
+- Real-time token and activity tracking
+- Claude rate-limit status with reset countdown
+- Multi-project management
+- Settings for models, effort, permissions, and Codex config
+- Session memory for continuing work
+- Live logs of CLI events
 
 ---
 
-## Konfiguration
+## Configuration
 
-Alle Einstellungen sind über die GUI steuerbar (Zahnrad-Icon). Persistent gespeichert in `~/.config/omads/`.
+All settings are controlled through the GUI and stored in `~/.config/omads/`.
 
-| Einstellung | Standard | Beschreibung |
-|------------|----------|-------------|
-| Claude Modell | sonnet | Claude-Modell (sonnet, opus, haiku) |
-| Effort | high | Denktiefe (low, medium, high, max) |
-| Max Turns | 25 | Arbeitschritte pro Aufgabe |
-| Permission Mode | default | Berechtigungsmodus für Claude CLI |
-| Codex Modell | (Standard) | gpt-5.4, o4-mini, gpt-4.1, etc. |
-| Codex Reasoning | high | Reasoning-Level für Reviews |
-| Auto-Review | aktiviert | Codex prüft nach jeder Änderung |
-| Timeout | 120s | Max. Wartezeit für Codex-Reviews |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Claude model | `sonnet` | Claude model such as `sonnet`, `opus`, or `haiku` |
+| Effort | `high` | Claude reasoning depth |
+| Max turns | `25` | Working steps per task |
+| Permission mode | `default` | Permission mode for Claude CLI |
+| Codex model | default | Model override for Codex |
+| Codex reasoning | `high` | Review reasoning level |
+| Auto review | enabled | Run Codex after code changes |
 
 ---
 
-## Fehlerbehebung
+## Troubleshooting
 
-### "Claude CLI nicht gefunden"
+### "Claude CLI not found"
 
 ```bash
-# Prüfe ob claude im PATH ist
 which claude        # Linux/macOS
 where claude        # Windows
 
-# Falls nicht: neu installieren
 npm install -g @anthropic-ai/claude-code
 ```
 
-### "Codex CLI nicht installiert"
+### "Codex CLI not installed"
 
-OMADS funktioniert auch ohne Codex — Auto-Review wird dann übersprungen. Zum Installieren:
+OMADS still works without Codex, but auto-review is skipped.
 
 ```bash
 npm install -g @openai/codex
 ```
 
-### Port 8080 belegt
+### Port 8080 already in use
 
 ```bash
 omads gui --port 9090
 ```
 
-### Virtual Environment vergessen
-
-Wenn `omads` nicht gefunden wird:
+### Virtual environment not activated
 
 ```bash
 source .venv/bin/activate    # Linux/macOS
@@ -303,13 +310,13 @@ source .venv/bin/activate    # Linux/macOS
 
 ## Tech Stack
 
-- **Python 3.11+** mit FastAPI + Uvicorn + WebSockets
-- **Claude Code CLI** (`claude -p`, stream-json)
-- **Codex CLI** (`codex exec`, --json, read-only)
-- **Frontend:** Vanilla HTML/CSS/JS (kein Framework, keine Build-Tools)
+- **Python 3.11+** with FastAPI, Uvicorn, and WebSockets
+- **Claude Code CLI** (`claude -p`, `stream-json`)
+- **Codex CLI** (`codex exec`, `--json`, read-only)
+- **Frontend:** vanilla HTML/CSS/JS without a build step
 
 ---
 
-## Lizenz
+## License
 
 MIT

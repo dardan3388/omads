@@ -1,124 +1,131 @@
-# OMADS — Web-GUI für Claude Code + Codex Auto-Review
+# OMADS — Web GUI for Claude Code + Codex Auto-Review
 
-## Projekt-Überblick
+## Project Overview
 
-OMADS ist eine Web-GUI (Port 8080), die zwei KI-Agenten orchestriert:
-- **Claude Code CLI** — Builder-Agent (Chat + Code-Generierung)
-- **Codex CLI** — Auto-Reviewer (read-only, prüft nach jeder Code-Änderung)
+OMADS is a web GUI on port `8080` that orchestrates two AI agents:
 
-Keine API-Keys nötig — beide laufen über bestehende Abos (Claude Pro + ChatGPT Plus).
+- **Claude Code CLI** — builder agent for chat and code changes
+- **Codex CLI** — read-only auto-reviewer after code changes
 
-## Berechtigungen
+No API keys are required. Both CLIs run on top of existing subscriptions.
 
-Claude hat volle Berechtigungen in diesem Projekt:
-- Dateien erstellen, bearbeiten und löschen ohne Rückfrage
-- Dependencies installieren ohne Rückfrage
-- Shell-Befehle ausführen ohne Rückfrage
-- Eigenständig Entscheidungen treffen und umsetzen
-- Nur bei echten Blockaden den Nutzer fragen
+## Permissions
 
-## Architektur
+Claude has full working permissions in this repository:
 
-```
+- Create, edit, and delete files without asking first
+- Install dependencies without asking first
+- Run shell commands without asking first
+- Make and implement reasonable decisions independently
+- Ask the user only when there is a real blocker or a risky product decision
+
+## Architecture
+
+```text
 Browser (localhost:8080)
     ↕ WebSocket + REST
-FastAPI Backend (server.py)
-    ├── Claude CLI (subprocess, stream-json)
-    └── Codex CLI (subprocess, --json, read-only)
+FastAPI app
+    ├── routes.py
+    ├── websocket.py
+    ├── runtime.py
+    └── state.py
 ```
 
-- **server.py** — Gesamte Backend-Logik (FastAPI + WebSocket)
-- **frontend.html** — Single-Page-App (vanilla HTML/CSS/JS, kein Framework)
+- `src/omads/gui/server.py` — stable compatibility facade for the traditional import path
+- `src/omads/gui/app.py` — FastAPI app, middleware, and router assembly
+- `src/omads/gui/routes.py` — REST endpoints
+- `src/omads/gui/websocket.py` — WebSocket endpoint and GUI command handling
+- `src/omads/gui/runtime.py` — broadcast helpers and Claude/Codex task runners
+- `src/omads/gui/state.py` — persistent settings, project registry, GUI status, logs, sessions, memory
+- `src/omads/gui/launcher.py` — local `uvicorn` startup and browser opening
+- `src/omads/gui/frontend.html` — single-page UI without a frontend framework
+
+For a fuller explanation, see `docs/architecture.md`.
 
 ## Tech Stack
 
-- **Sprache:** Python 3.11+
+- **Language:** Python 3.11+
 - **Web:** FastAPI + Uvicorn + WebSockets
-- **CLI:** Click (für `omads gui` Startbefehl)
-- **Builder:** Claude CLI (`claude -p`, stream-json)
-- **Reviewer:** Codex CLI (`codex exec`, --json, read-only)
+- **CLI:** Click for `omads gui`
+- **Builder:** Claude CLI (`claude -p`, `stream-json`)
+- **Reviewer:** Codex CLI (`codex exec`, `--json`, read-only)
 
-## Dateistruktur
+## Repository Layout
 
-```
+```text
 two agents/
-├── CLAUDE.md                     ← Diese Datei
-├── PROJEKTPROTOKOLL.md           ← Entwicklungshistorie
-├── pyproject.toml                ← Python-Projekt (omads v0.2)
-├── .venv/                        ← Virtual Environment
+├── AGENTS.md
+├── BACKLOG.md
+├── CHANGELOG.md
+├── CLAUDE.md
+├── README.md
+├── PROJECT_RULES.md
+├── docs/
+│   └── architecture.md
 ├── src/omads/
-│   ├── __init__.py
-│   ├── cli/
-│   │   ├── __init__.py
-│   │   └── main.py               ← CLI-Einstiegspunkt (omads gui)
+│   ├── cli/main.py
 │   ├── gui/
-│   │   ├── __init__.py
-│   │   ├── server.py             ← FastAPI Backend (WebSocket, REST, Agent-Steuerung)
-│   │   └── frontend.html         ← Web-Frontend (SPA)
+│   │   ├── app.py
+│   │   ├── launcher.py
+│   │   ├── routes.py
+│   │   ├── runtime.py
+│   │   ├── server.py
+│   │   ├── state.py
+│   │   ├── websocket.py
+│   │   └── frontend.html
 │   ├── dna/
-│   │   ├── __init__.py
-│   │   └── cold_start.py         ← Betriebsphasen (Status-Anzeige)
 │   └── utils/
-│       ├── __init__.py
-│       └── paths.py              ← Pfad-Utilities (Projekt-Root, Data-Dir)
-├── dna/
-│   └── cold_start_state.json     ← Aktuelle Betriebsphase
 ├── data/
-│   └── ledger/task_history.jsonl  ← Task-Historie (read-only Anzeige)
-└── _legacy/                      ← Archivierter Pipeline-Code (nicht aktiv)
+├── dna/
+├── tests/
+└── _legacy/
 ```
 
-## Nutzung
+## Usage
 
 ```bash
-# Setup
 cd "two agents"
 source .venv/bin/activate
 
-# GUI starten (öffnet Browser)
 omads gui
-# oder: omads gui --port 9090
+# or: omads gui --port 9090
 
-# Direkt per Uvicorn
 uvicorn omads.gui.server:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-## GUI-Features
+## GUI Features
 
-- Chat mit Claude Code (Live-Streaming via WebSocket)
-- Codex Auto-Review nach jeder Code-Änderung
-- Echtzeit-Token-Tracking (Input/Output/Cache/Kosten)
-- Rate-Limit-Status + Reset-Countdown (aus Claude CLI stream-json)
-- Projekt-Verwaltung (mehrere Repos)
-- Einstellungen (Model, Effort, Permissions, Codex-Config)
-- Task-Historie und Session-Management
-- Live-Log (alle CLI-Events)
+- Chat with Claude Code via live WebSocket streaming
+- Automatic Codex review after code changes
+- Real-time token tracking and activity streaming
+- Claude rate-limit status and reset countdown
+- Multi-project management
+- Persistent settings and chat sessions
+- Project history, logs, and memory summaries
 
-## Konfiguration
+## Persistent Data
 
-Persistent in `~/.config/omads/`:
-- `gui_settings.json` — AI-Modell, Effort, Permissions, Codex-Config
-- `projects.json` — Registrierte Projekte
-- `usage.json` — Nutzungsstatistiken
-- `chat_sessions.json` — Claude CLI Session-IDs
-- `history/` — Projekt-spezifische Task-Historie
-- `memory/` — Projekt-spezifische Kontext-Summaries
+Stored in `~/.config/omads/`:
 
-## Wichtige Regeln
+- `gui_settings.json` — model, effort, permissions, Codex config
+- `projects.json` — registered projects
+- `chat_sessions.json` — Claude session IDs
+- `history/` — project-specific task history and logs
+- `memory/` — project-specific context summaries
 
-- Strikt an die GUI-Architektur halten (server.py + frontend.html)
-- Konservativ entscheiden, einfachste Lösung wählen
-- Nach JEDER Änderung PROJEKTPROTOKOLL.md aktualisieren
-- Nach JEDER Implementierung selbst testen
-- OMADS Server nach JEDER Änderung neu starten
+## Important Rules
+
+- Stay within the active GUI architecture.
+- Prefer the simplest correct solution.
+- After each meaningful change, update the relevant standard docs:
+- `BACKLOG.md` for open work
+- `CHANGELOG.md` for notable shipped changes
+- `docs/architecture.md` for durable structural changes
+- Do not bring back `PROJEKTPROTOKOLL.md`.
+- Test your implementation after each meaningful change.
 
 ## Legacy
 
-Der Ordner `_legacy/` enthält die ursprüngliche OMADS-Pipeline-Architektur
-(Director, Builder, Breaker, Judge, Ledger, etc.). Diese Module sind archiviert
-und werden von der aktiven GUI nicht verwendet.
-
----
-
-> **Hinweis:** Die GUI (server.py + frontend.html) ist die Source of Truth.
-> Alles andere dient nur der Status-Anzeige oder ist archiviert.
+The `_legacy/` directory contains the earlier OMADS pipeline architecture
+(director, builder, breaker, judge, ledger, and related modules). Those files
+are archived and are not the active source of truth for the GUI.

@@ -1,53 +1,57 @@
 # AGENTS.md
 
-Zentrale Regeln fuer alle Coding-Agenten in diesem Repository. Diese Datei ist verbindlich fuer Claude Code, Codex und weitere Agenten.
+Central rules for all coding agents working in this repository. This file is binding for Claude Code, Codex, and any other agent.
 
-## Grundprinzip
+## Core Principle
 
-- Git ist die einzige Quelle der Wahrheit fuer Aenderungen.
-- Alle Agenten arbeiten auf demselben Projektstand.
-- Bestehende oder parallele Aenderungen duerfen nicht unbewusst ueberschrieben werden.
-- Vor jeder Arbeit muss der aktuelle Projektstand geprueft werden.
+- Git is the single source of truth for changes.
+- All agents work on the same project state.
+- Existing or parallel changes must never be overwritten accidentally.
+- The current project state must be checked before starting work.
 
-## Pflicht bei jedem Start
+## Required Startup Checklist
 
-Vor jeder inhaltlichen Arbeit immer in dieser Reihenfolge:
+Before any substantive work, always do the following in this order:
 
-1. `AGENTS.md` lesen.
-2. `PROJECT_RULES.md` lesen, falls vorhanden.
-3. `BACKLOG.md` lesen, um die aktive Warteliste und Prioritaeten zu sehen.
-4. `git status` pruefen.
-5. `git log --oneline --decorate -5` pruefen, um die letzten Aenderungen zu verstehen.
-6. Vor Dateiaenderungen zusaetzlich `git diff` pruefen.
+1. Read `AGENTS.md`.
+2. Read `PROJECT_RULES.md` if it exists.
+3. Read `BACKLOG.md` to understand active priorities.
+4. Check `git status`.
+5. Check `git log --oneline --decorate -5` to understand recent changes.
+6. Check `git diff` before editing files.
 
-## Git-Setup
+If the task touches architecture, backend flow, or module boundaries, also read `docs/architecture.md`.
 
-- Repository muss initialisiert sein.
-- Standard-Branch ist `main`.
-- Wenn noch kein Remote verbunden ist, soll ein privates GitHub-Repository erstellt und als Remote verbunden werden.
-- Niemals sensible Daten committen.
+If you need recent shipped context, use `CHANGELOG.md` and Git history instead of inventing an internal project diary.
 
-## Pflicht fuer parallele Agentenarbeit
+## Git Setup
 
-- Gehe immer davon aus, dass andere Agenten gleichzeitig im selben Repo arbeiten.
-- Revertiere oder ueberschreibe keine fremden Aenderungen ohne ausdrueckliche Freigabe.
-- Vor Aenderungen aktiv Git verwenden:
+- The repository must be initialized.
+- The default branch is `main`.
+- If no remote is configured yet, create a private GitHub repository and connect it.
+- Never commit sensitive data.
+
+## Parallel Agent Workflow
+
+- Always assume that other agents may be working in the same repository at the same time.
+- Never revert or overwrite someone else's changes without explicit approval.
+- Use Git actively before editing:
 - `git status`
 - `git diff`
 - `git log`
 
-## Sync-Regel
+## Sync Rule
 
-- Bei sinnvollen Zwischenstaenden aktiv fragen: `Soll ich den aktuellen Stand synchronisieren?`
-- Immer auf die Antwort des Nutzers warten.
-- Wenn der Nutzer `sync jetzt` sagt, exakt diesen Ablauf ausfuehren:
+- At meaningful checkpoints, ask: `Should I sync the current state?`
+- Always wait for the user's answer.
+- If the user says `sync now`, run exactly this flow:
 - `git add .`
-- `git commit -m "<klare, sinnvolle Beschreibung>"`
+- `git commit -m "<clear, meaningful description>"`
 - `git push`
 
-## .gitignore / Sicherheit
+## .gitignore / Security
 
-Folgende Muster muessen vorhanden bleiben oder ergaenzt werden:
+The following patterns must exist or be kept in `.gitignore`:
 
 - Python: `__pycache__/`, `*.pyc`, `venv/`, `.env`
 - Node: `node_modules/`
@@ -55,22 +59,30 @@ Folgende Muster muessen vorhanden bleiben oder ergaenzt werden:
 - Logs: `*.log`
 - Secrets: `.env*`, `secrets.*`
 
-Niemals committen:
+Never commit:
 
-- Passwoerter
-- API Keys
-- sonstige sensible Daten
+- Passwords
+- API keys
+- Any other sensitive data
 
-## Arbeitsstil
+## Documentation Rules
 
-- Kleine, gezielte Aenderungen statt grossflaechiger Ueberschreibungen.
-- Vor dem Editieren den aktuellen Diff-Kontext verstehen.
-- Nur Dateien anfassen, die fuer den aktuellen Auftrag noetig sind.
-- Unklare Konflikte zuerst sichtbar machen statt raten.
-- `BACKLOG.md` ist die zentrale Quelle fuer offene Arbeit. `PROJEKTPROTOKOLL.md` dient nur der Historie.
+- `BACKLOG.md` is the single source of truth for open work.
+- `CHANGELOG.md` records notable shipped changes.
+- `docs/architecture.md` explains the current structure and technical rationale.
+- Do not reintroduce `PROJEKTPROTOKOLL.md` or any hidden project diary.
+- Git explains who changed what and when; docs explain why and how the system is meant to work.
 
-## Ziel
+## Working Style
 
-- Minimaler Aufwand fuer den Nutzer.
-- Einheitlicher Stand fuer alle Agenten.
-- Nachvollziehbare, sichere und saubere Git-Historie.
+- Prefer small, targeted changes over broad rewrites.
+- Understand the current diff before editing.
+- Touch only files required for the current task.
+- Surface unclear conflicts instead of guessing.
+- Keep project-facing documentation in English unless the user explicitly requests otherwise.
+
+## Goal
+
+- Minimum effort for the user
+- One consistent state for all agents
+- Clean, secure, and understandable history

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omads.gui import server
+from omads.gui import runtime, server, state
 
 
 class DummyProcess:
@@ -38,23 +38,23 @@ def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     outside_dir = tmp_path / "outside"
     outside_dir.mkdir()
 
-    monkeypatch.setattr(server.Path, "home", classmethod(lambda cls: home_dir))
-    monkeypatch.setattr(server, "_CONFIG_PATH", home_dir / ".config" / "omads" / "gui_settings.json")
-    monkeypatch.setattr(server, "_GUI_STATUS_PATH", home_dir / ".config" / "omads" / "gui_status.json")
-    monkeypatch.setattr(server, "_PROJECTS_PATH", home_dir / ".config" / "omads" / "projects.json")
-    monkeypatch.setattr(server, "_HISTORY_DIR", home_dir / ".config" / "omads" / "history")
-    monkeypatch.setattr(server, "_CHAT_SESSIONS_PATH", home_dir / ".config" / "omads" / "chat_sessions.json")
-    monkeypatch.setattr(server, "_MEMORY_DIR", home_dir / ".config" / "omads" / "memory")
-    monkeypatch.setattr(server, "_settings", copy.deepcopy(server._DEFAULT_SETTINGS))
-    monkeypatch.setattr(server, "_gui_status", copy.deepcopy(server._GUI_STATUS_DEFAULTS))
-    monkeypatch.setattr(server, "_chat_sessions", {})
-    monkeypatch.setattr(server, "_connections", [])
-    monkeypatch.setattr(server, "_active_process", None)
-    monkeypatch.setattr(server, "_task_cancelled", False)
-    monkeypatch.setattr(server, "_last_files_changed", [])
-    monkeypatch.setattr(server, "_pending_review_fixes", {})
+    monkeypatch.setattr(state.Path, "home", classmethod(lambda cls: home_dir))
+    monkeypatch.setattr(state, "_CONFIG_PATH", home_dir / ".config" / "omads" / "gui_settings.json")
+    monkeypatch.setattr(state, "_GUI_STATUS_PATH", home_dir / ".config" / "omads" / "gui_status.json")
+    monkeypatch.setattr(state, "_PROJECTS_PATH", home_dir / ".config" / "omads" / "projects.json")
+    monkeypatch.setattr(state, "_HISTORY_DIR", home_dir / ".config" / "omads" / "history")
+    monkeypatch.setattr(state, "_CHAT_SESSIONS_PATH", home_dir / ".config" / "omads" / "chat_sessions.json")
+    monkeypatch.setattr(state, "_MEMORY_DIR", home_dir / ".config" / "omads" / "memory")
+    monkeypatch.setattr(state, "_settings", copy.deepcopy(state._DEFAULT_SETTINGS))
+    monkeypatch.setattr(state, "_gui_status", copy.deepcopy(state._GUI_STATUS_DEFAULTS))
+    monkeypatch.setattr(state, "_chat_sessions", {})
+    monkeypatch.setattr(runtime, "_connections", [])
+    monkeypatch.setattr(runtime, "_active_process", None)
+    monkeypatch.setattr(runtime, "_task_cancelled", False)
+    monkeypatch.setattr(runtime, "_last_files_changed", [])
+    monkeypatch.setattr(runtime, "_pending_review_fixes", {})
 
-    server._settings["target_repo"] = str(repo_dir.resolve())
+    state._settings["target_repo"] = str(repo_dir.resolve())
 
     return {
         "home_dir": home_dir,
@@ -106,14 +106,14 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     assert settings["codex_reasoning"] == "high"
     assert settings["codex_fast"] is True
     assert "unknown_field" not in settings
-    assert json.loads(server._CONFIG_PATH.read_text())["codex_fast"] is True
+    assert json.loads(state._CONFIG_PATH.read_text())["codex_fast"] is True
 
     valid_repo = isolated_server["home_dir"] / "other-repo"
     valid_repo.mkdir()
     response = client.post("/api/settings", json={"target_repo": str(valid_repo)})
     assert response.status_code == 200
     assert client.get("/api/settings").json()["target_repo"] == str(valid_repo.resolve())
-    assert json.loads(server._CONFIG_PATH.read_text())["target_repo"] == str(valid_repo.resolve())
+    assert json.loads(state._CONFIG_PATH.read_text())["target_repo"] == str(valid_repo.resolve())
 
 
 def test_project_endpoints_enforce_home_boundary_and_missing_paths(
@@ -144,8 +144,8 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
     assert len(projects) == 1
     assert projects[0]["id"] == project_id
     assert client.get("/api/settings").json()["target_repo"] == str(project_repo.resolve())
-    assert json.loads(server._PROJECTS_PATH.read_text())[0]["id"] == project_id
-    assert json.loads(server._CONFIG_PATH.read_text())["target_repo"] == str(project_repo.resolve())
+    assert json.loads(state._PROJECTS_PATH.read_text())[0]["id"] == project_id
+    assert json.loads(state._CONFIG_PATH.read_text())["target_repo"] == str(project_repo.resolve())
 
     project_repo.rmdir()
     response = client.post("/api/projects/switch", json={"id": project_id})
@@ -159,20 +159,20 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
 
 def test_chat_session_persistence_roundtrip(isolated_server):
     repo_key = str(isolated_server["repo_dir"].resolve())
-    server._set_chat_session(repo_key, "session-123")
+    state._set_chat_session(repo_key, "session-123")
 
-    assert server._get_chat_session(repo_key) == "session-123"
-    assert json.loads(server._CHAT_SESSIONS_PATH.read_text()) == {repo_key: "session-123"}
-    assert server._load_chat_sessions() == {repo_key: "session-123"}
+    assert state._get_chat_session(repo_key) == "session-123"
+    assert json.loads(state._CHAT_SESSIONS_PATH.read_text()) == {repo_key: "session-123"}
+    assert state._load_chat_sessions() == {repo_key: "session-123"}
 
 
 def test_append_log_filters_unknown_types_and_reads_valid_entries(isolated_server):
     project_id = "proj123"
 
-    server._append_log(project_id, {"type": "stream_text", "agent": "Claude", "text": "Hallo"})
-    server._append_log(project_id, {"type": "unknown_type", "text": "skip me"})
+    state._append_log(project_id, {"type": "stream_text", "agent": "Claude", "text": "Hallo"})
+    state._append_log(project_id, {"type": "unknown_type", "text": "skip me"})
 
-    entries = server._read_log(project_id)
+    entries = state._read_log(project_id)
 
     assert len(entries) == 1
     assert entries[0]["type"] == "stream_text"
@@ -183,12 +183,12 @@ def test_append_log_filters_unknown_types_and_reads_valid_entries(isolated_serve
 def test_claude_task_failure_emits_task_error_and_unlock(isolated_server, monkeypatch: pytest.MonkeyPatch):
     messages: list[dict] = []
 
-    monkeypatch.setattr(server.subprocess, "Popen", lambda *args, **kwargs: DummyProcess(returncode=23))
-    monkeypatch.setattr(server, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
-    monkeypatch.setattr(server, "_build_cli_env", lambda: {})
-    monkeypatch.setattr(server, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: DummyProcess(returncode=23))
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
 
-    server._run_claude_session_thread(None, "Bitte pruefen")
+    runtime._run_claude_session_thread(None, "Bitte pruefen")
 
     assert any(msg["type"] == "task_error" and "Exit-Code 23" in msg["text"] for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
@@ -198,12 +198,12 @@ def test_claude_task_failure_emits_task_error_and_unlock(isolated_server, monkey
 def test_review_step_one_failure_emits_task_error_and_unlock(isolated_server, monkeypatch: pytest.MonkeyPatch):
     messages: list[dict] = []
 
-    monkeypatch.setattr(server.subprocess, "Popen", lambda *args, **kwargs: DummyProcess(returncode=7))
-    monkeypatch.setattr(server, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
-    monkeypatch.setattr(server, "_build_cli_env", lambda: {})
-    monkeypatch.setattr(server, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: DummyProcess(returncode=7))
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
 
-    server._run_review_thread(None, "project", "all", "")
+    runtime._run_review_thread(None, "project", "all", "")
 
     assert any(msg["type"] == "task_error" and "Exit-Code 7" in msg["text"] for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
