@@ -980,3 +980,34 @@ Der naechste Kernpunkt fuer das Multi-Agent-Setup wurde umgesetzt: gemeinsam gen
 Verifikation:
 - `pytest` erfolgreich: 5 Tests gruen
 - Syntax-Check erfolgreich: `python -m py_compile` ueber das Projekt-Python
+
+---
+
+### Graceful Error Recovery vervollstaendigt (2026-03-22)
+
+Der naechste Backlog-Punkt wurde abgeschlossen: die wichtigsten Fehlerpfade fuehren jetzt nicht mehr stillschweigend zu einem scheinbar erfolgreichen Abschluss.
+
+- **Claude-Task-Fehler sichtbar gemacht**: Ein nicht erfolgreich beendeter Claude-Prozess liefert jetzt einen klaren `task_error` mit Exit-Code statt nur einem irrefuehrenden "Fertig".
+- **Review-Schritt-Fehler abgefangen**: Wenn Claude im Review-Schritt 1 oder in der Synthese scheitert, wird der Review sauber abgebrochen und sichtbar als Fehler gemeldet.
+- **Fix-Lauf abgesichert**: Ein fehlgeschlagener automatischer Claude-Fix-Lauf meldet jetzt einen echten Fehler statt faelschlich "Fixes angewendet".
+- **UI entsperrt bei Verbindungsabbruch**: Wenn die WebSocket-Verbindung waehrend eines laufenden Tasks wegbricht, entsperrt sich die UI und zeigt eine klare Reconnect-Meldung.
+- **Tests erweitert**: Fehlerpfade fuer Claude-Task und Review-Schritt 1 sind jetzt in der Smoke-Testbasis enthalten.
+
+Verifikation:
+- `pytest` erfolgreich: 7 Tests gruen
+- Syntax-Check erfolgreich: `python -m py_compile` ueber das Projekt-Python
+
+---
+
+### Pydantic-Request-Modelle (2026-03-22)
+
+Die REST-Endpunkte arbeiten jetzt nicht mehr mit rohen Request-Dicts, sondern mit klaren Pydantic-Request-Modellen. Die Umstellung wurde bewusst kompatibel gehalten, damit die bestehende GUI nicht bricht.
+
+- **Pydantic fuer Settings/Projekte**: `update_settings`, `create_project` und `switch_project` nutzen jetzt Request-Modelle statt `dict`.
+- **Extra-Felder werden ignoriert**: Unerwartete Keys werden weiter weich behandelt, statt die GUI hart scheitern zu lassen.
+- **Bestehendes API-Verhalten bleibt stabil**: Fehlende Projektdaten liefern weiterhin die bisherige fachliche Fehlermeldung statt einer unerwarteten Umstellung aller Flows.
+- **Tests erweitert**: Smoke-Tests decken jetzt auch das Ignorieren unbekannter Request-Felder und den weiterhin stabilen Projekt-Create-Fehlerpfad ab.
+
+Verifikation:
+- `pytest` erfolgreich: 7 Tests gruen
+- Syntax-Check erfolgreich: `python -m py_compile` ueber das Projekt-Python

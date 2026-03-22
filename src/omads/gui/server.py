@@ -15,6 +15,7 @@ from typing import Any, Callable
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, ConfigDict
 
 from omads.utils.paths import get_data_dir, get_dna_dir
 
@@ -82,6 +83,22 @@ def _read_json_text(path: Path, *, encoding: str = "utf-8") -> str:
     with _get_file_lock(path):
         return path.read_text(encoding=encoding)
 
+
+def _build_process_failure_text(
+    context: str,
+    returncode: int,
+    *,
+    result_text: str = "",
+    output_lines: list[str] | None = None,
+) -> str:
+    """Erzeugt eine nutzerlesbare Fehlermeldung für fehlgeschlagene CLI-Prozesse."""
+    detail = (result_text or "\n".join((output_lines or [])[-3:])).strip()
+    text = f"{context} fehlgeschlagen (Exit-Code {returncode})."
+    if detail:
+        compact = " ".join(detail.split())[:280]
+        text += f" Letzte Ausgabe: {compact}"
+    return text
+
 # ─── Config-Datei (persistent) ────────────────────────────────────
 
 _CONFIG_PATH = Path.home() / ".config" / "omads" / "gui_settings.json"
@@ -100,6 +117,31 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "codex_fast": False,  # service_tier: fast vs default
     "auto_review": True,  # Codex reviewt automatisch nach Code-Änderungen
 }
+
+
+class _RequestModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+
+class UpdateSettingsRequest(_RequestModel):
+    target_repo: str | None = None
+    claude_model: str | None = None
+    claude_permission_mode: str | None = None
+    claude_max_turns: int | None = None
+    claude_effort: str | None = None
+    codex_model: str | None = None
+    codex_reasoning: str | None = None
+    codex_fast: bool | None = None
+    auto_review: bool | None = None
+
+
+class CreateProjectRequest(_RequestModel):
+    name: str = ""
+    path: str = ""
+
+
+class SwitchProjectRequest(_RequestModel):
+    id: str = ""
 
 
 def _load_config() -> dict[str, Any]:
@@ -564,10 +606,12 @@ _ALLOWED_SETTINGS = {
 }
 
 @app.post("/api/settings")
-async def update_settings(data: dict):
+async def update_settings(data: UpdateSettingsRequest):
+    payload = data.model_dump(exclude_none=True)
+
     def apply_updates(settings: dict[str, Any]) -> None:
         # Security: Nur bekannte Keys mit korrekten Typen akzeptieren
-        for key, value in data.items():
+        for key, value in payload.items():
             if key not in _ALLOWED_SETTINGS:
                 continue
             expected_type = _ALLOWED_SETTINGS[key]
@@ -676,13 +720,13 @@ async def list_projects():
 
 
 @app.post("/api/projects")
-async def create_project(data: dict):
+async def create_project(data: CreateProjectRequest):
     """Erstellt ein neues Projekt."""
     from datetime import datetime
     import hashlib
 
-    name = data.get("name", "").strip()
-    path = data.get("path", "").strip()
+    name = data.name.strip()
+    path = data.path.strip()
     if not name or not path:
         return {"error": "Name und Pfad sind Pflichtfelder"}
 
@@ -718,11 +762,11 @@ async def create_project(data: dict):
 
 
 @app.post("/api/projects/switch")
-async def switch_project(data: dict):
+async def switch_project(data: SwitchProjectRequest):
     """Wechselt zum angegebenen Projekt."""
     from datetime import datetime
 
-    project_id = data.get("id", "")
+    project_id = data.id
     projects = _load_projects()
 
     for p in projects:
@@ -1269,6 +1313,25 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         elapsed = round(_time.time() - start_time)
         success = process.returncode == 0 and not _task_cancelled
 
+        if not _task_cancelled and process.returncode != 0:
+            result_text = final_result if final_result else "\n".join(output_lines)
+            send({
+                "type": "task_error",
+                "text": _build_process_failure_text(
+                    "Claude Code Task",
+                    process.returncode,
+                    result_text=result_text,
+                    output_lines=output_lines,
+                ),
+            })
+            if proj_id:
+                _append_history(proj_id, {
+                    "type": "task_error",
+                    "text": f"Claude Task Exit-Code {process.returncode}",
+                    "duration_s": elapsed,
+                })
+            return
+
         # Session-ID für Folge-Nachrichten speichern (Gesprächsgedächtnis)
         if captured_session_id and success:
             _set_chat_session(repo_key, captured_session_id)
@@ -1399,10 +1462,19 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                 with _process_lock:
                     _active_process = None
 
-                if fix_session_id and fix_process.returncode == 0:
-                    _set_chat_session(repo_key, fix_session_id)
-
-                send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes angewendet"})
+                if fix_process.returncode != 0 and not _task_cancelled:
+                    send({
+                        "type": "task_error",
+                        "text": _build_process_failure_text(
+                            "Claude Code Fix-Lauf",
+                            fix_process.returncode,
+                            output_lines=fix_output_lines,
+                        ),
+                    })
+                else:
+                    if fix_session_id and fix_process.returncode == 0:
+                        _set_chat_session(repo_key, fix_session_id)
+                    send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes angewendet"})
 
     except FileNotFoundError:
         send({"type": "chat_response", "agent": "System",
@@ -1570,6 +1642,17 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         with _process_lock:
             _active_process = None
         claude_review = "\n".join(claude_output)
+
+        if process.returncode != 0 and not _task_cancelled:
+            send({
+                "type": "task_error",
+                "text": _build_process_failure_text(
+                    "Review Schritt 1 (Claude Code)",
+                    process.returncode,
+                    output_lines=claude_output,
+                ),
+            })
+            return
 
         if captured_session_id and process.returncode == 0:
             _set_chat_session(repo_key, captured_session_id)
@@ -1769,6 +1852,17 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
             synth_process.wait()
         with _process_lock:
             _active_process = None
+
+        if synth_process.returncode != 0 and not _task_cancelled:
+            send({
+                "type": "task_error",
+                "text": _build_process_failure_text(
+                    "Review Schritt 3 (Synthese)",
+                    synth_process.returncode,
+                    output_lines=synthesis_output,
+                ),
+            })
+            return
 
         if synth_session_id and synth_process.returncode == 0:
             _set_chat_session(repo_key, synth_session_id)

@@ -13,6 +13,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from omads.gui import server
 
 
+class DummyProcess:
+    def __init__(self, lines: list[str] | None = None, returncode: int = 0):
+        self.stdout = iter(lines or [])
+        self.returncode = returncode
+        self.killed = False
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+
+    def poll(self):
+        return None if not self.killed else self.returncode
+
+
 @pytest.fixture()
 def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     home_dir = tmp_path / "home"
@@ -76,6 +92,7 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
             "claude_max_turns": 999,
             "codex_reasoning": "invalid",
             "codex_fast": True,
+            "unknown_field": "ignored",
         },
     )
 
@@ -88,6 +105,7 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     assert settings["claude_max_turns"] == 100
     assert settings["codex_reasoning"] == "high"
     assert settings["codex_fast"] is True
+    assert "unknown_field" not in settings
     assert json.loads(server._CONFIG_PATH.read_text())["codex_fast"] is True
 
     valid_repo = isolated_server["home_dir"] / "other-repo"
@@ -134,6 +152,10 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
     assert response.status_code == 200
     assert "Verzeichnis existiert nicht mehr" in response.json()["error"]
 
+    response = client.post("/api/projects", json={})
+    assert response.status_code == 200
+    assert response.json()["error"] == "Name und Pfad sind Pflichtfelder"
+
 
 def test_chat_session_persistence_roundtrip(isolated_server):
     repo_key = str(isolated_server["repo_dir"].resolve())
@@ -156,3 +178,33 @@ def test_append_log_filters_unknown_types_and_reads_valid_entries(isolated_serve
     assert entries[0]["type"] == "stream_text"
     assert entries[0]["text"] == "Hallo"
     assert "timestamp" in entries[0]
+
+
+def test_claude_task_failure_emits_task_error_and_unlock(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *args, **kwargs: DummyProcess(returncode=23))
+    monkeypatch.setattr(server, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(server, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(server, "_save_project_memory", lambda *args, **kwargs: None)
+
+    server._run_claude_session_thread(None, "Bitte pruefen")
+
+    assert any(msg["type"] == "task_error" and "Exit-Code 23" in msg["text"] for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+    assert not any(msg["type"] == "agent_status" and "Fertig" in msg.get("status", "") for msg in messages)
+
+
+def test_review_step_one_failure_emits_task_error_and_unlock(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *args, **kwargs: DummyProcess(returncode=7))
+    monkeypatch.setattr(server, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(server, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(server, "_load_project_memory", lambda *args, **kwargs: "")
+
+    server._run_review_thread(None, "project", "all", "")
+
+    assert any(msg["type"] == "task_error" and "Exit-Code 7" in msg["text"] for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+    assert not any(msg["type"] == "agent_status" and "Schritt 1/3 fertig" in msg.get("status", "") for msg in messages)

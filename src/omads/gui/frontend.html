@@ -817,6 +817,10 @@ function connect() {
   ws.onclose = () => {
     el('connBadge').textContent = 'Getrennt';
     el('connBadge').classList.remove('on');
+    if (busy) {
+      addSystem('Verbindung zum Server verloren. Die UI wurde entsperrt, ein Reconnect läuft automatisch.');
+      unlock();
+    }
     setTimeout(connect, _reconnectDelay);
     _reconnectDelay = Math.min(_reconnectDelay * 2, 30000);  // Exponential Backoff, max 30s
   };

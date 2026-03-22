@@ -31,7 +31,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Die aktuellen Smoke-Tests decken Server-Start, Security-Header, Settings-/Projekt-Validierung, Log-Filterung und Chat-Session-Persistenz ab.
+Die aktuellen Smoke-Tests decken Server-Start, Security-Header, Settings-/Projekt-Validierung, Log-Filterung, Chat-Session-Persistenz und zentrale Fehlerpfade fuer Claude-Task/Review ab.
 
 ---
 

@@ -14,19 +14,13 @@ Diese Datei ist die einzige Quelle der Wahrheit fuer offene Arbeit, Prioritaeten
 
 ## Jetzt
 
-- [ ] Graceful Error Recovery vervollstaendigen
-  Die Basis ist vorhanden, aber restliche Fehlerpfade sollen konsistent sichtbare Fehlermeldungen und saubere UI-Entsperrung liefern.
-
-- [ ] Pydantic-Models einfuehren
-  Request-Validation fuer REST-Endpoints von rohen Dicts auf klare Modelle umstellen.
-
 - [ ] `server.py` in Module splitten
   Monolith nach gesicherter Testbasis in Bereiche wie config, projects, agents, websocket und rest aufteilen.
 
 ## Danach
 
 - [ ] Testabdeckung ausbauen
-  Die ersten Smoke-Tests stehen. Als Naechstes koennen WebSocket-, Auto-Review-, Shared-State-Fehler- und UI-Fehlerpfade abgesichert werden.
+  Die ersten Smoke-Tests stehen. Als Naechstes koennen Auto-Review-, WebSocket- und weitere UI-Fehlerpfade noch tiefer abgesichert werden.
 
 - [ ] Setup-Script / Docker
   Onboarding vereinfachen ueber `install.sh`, `Dockerfile` oder beides.
