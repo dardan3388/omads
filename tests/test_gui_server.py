@@ -151,6 +151,8 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
         json={
             "target_repo": str(outside_dir),
             "builder_agent": "invalid",
+            "review_first_reviewer": "claude",
+            "review_second_reviewer": "claude",
             "codex_reasoning": "invalid",
             "codex_fast": True,
             "unknown_field": "ignored",
@@ -164,6 +166,8 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     settings = client.get("/api/settings").json()
     assert settings["target_repo"] == str(repo_dir.resolve())
     assert settings["builder_agent"] == "claude"
+    assert settings["review_first_reviewer"] == "claude"
+    assert settings["review_second_reviewer"] == "codex"
     assert settings["codex_reasoning"] == "high"
     assert settings["codex_fast"] is True
     assert "unknown_field" not in settings
@@ -179,6 +183,15 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     response = client.post("/api/settings", json={"builder_agent": "codex"})
     assert response.status_code == 200
     assert client.get("/api/settings").json()["builder_agent"] == "codex"
+
+    response = client.post(
+        "/api/settings",
+        json={"review_first_reviewer": "codex", "review_second_reviewer": "codex"},
+    )
+    assert response.status_code == 200
+    settings = client.get("/api/settings").json()
+    assert settings["review_first_reviewer"] == "codex"
+    assert settings["review_second_reviewer"] == "claude"
 
 
 def test_project_endpoints_enforce_home_boundary_and_missing_paths(
@@ -352,6 +365,31 @@ def test_websocket_apply_fixes_and_set_repo_errors(client: TestClient, isolated_
         message = ws_client.receive_json()
         assert message["type"] == "error"
         assert "Not a directory" in message["text"]
+
+
+def test_websocket_apply_fixes_uses_selected_first_reviewer(
+    client: TestClient,
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    started_threads: list[NoopThread] = []
+    runtime._pending_review_fixes[str(isolated_server["repo_dir"].resolve())] = "## Final fix plan\n- Do the thing"
+
+    def build_thread(*args, **kwargs):
+        thread = NoopThread(*args, **kwargs)
+        started_threads.append(thread)
+        return thread
+
+    monkeypatch.setattr(websocket.threading, "Thread", build_thread)
+    state._update_settings(lambda settings: settings.update({"review_first_reviewer": "codex"}))
+
+    with client.websocket_connect("/ws") as ws_client:
+        ws_client.send_json({"type": "apply_fixes"})
+
+    assert len(started_threads) == 1
+    assert started_threads[0].started is True
+    assert started_threads[0].target is runtime._run_codex_session_thread
+    assert "Apply the following fixes from the review now" in started_threads[0].args[1]
 
 
 def test_websocket_rejects_new_work_while_task_is_running(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -609,6 +647,75 @@ def test_review_thread_emits_fix_suggestion_flow_without_live_clis(
     assert any(msg["type"] == "review_fixes_available" for msg in messages)
     assert any(msg["type"] == "agent_status" and msg.get("status") == "Step 3/3 done" for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_review_thread_supports_reversed_pipeline_and_custom_focus(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    codex_processes: list[DummyProcess] = []
+    claude_commands: list[list[str]] = []
+    processes = [
+        DummyProcess(lines=[
+            json.dumps({
+                "type": "item.completed",
+                "item": {"text": "## Findings\n- [HIGH] api.py: missing lock"},
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "review-session-claude",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "Claude second review output"}]},
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "type": "item.completed",
+                "item": {"text": "## Final fix plan\n- api.py:10: add a lock\nFIXES_NEEDED: true"},
+            }) + "\n"
+        ]),
+    ]
+
+    def popen(*args, **kwargs):
+        process = processes.pop(0)
+        command = list(args[0])
+        if command[0] == "codex":
+            codex_processes.append(process)
+        else:
+            claude_commands.append(command)
+        return process
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+    state._update_settings(
+        lambda settings: settings.update(
+            {
+                "review_first_reviewer": "codex",
+                "review_second_reviewer": "claude",
+            }
+        )
+    )
+
+    runtime._run_review_thread(
+        None,
+        "custom",
+        "custom",
+        "src/api.py",
+        "Race conditions in the websocket flow",
+    )
+
+    assert state._get_chat_session(repo_key) == "review-session-claude"
+    assert runtime._pending_review_fixes[repo_key].startswith("## Final fix plan")
+    assert any("Flow: Codex -> Claude Code -> Codex" in msg.get("text", "") for msg in messages if msg["type"] == "stream_text")
+    assert any(msg["type"] == "review_fixes_available" for msg in messages)
+    assert "Race conditions in the websocket flow" in codex_processes[0].stdin.buffer
+    assert claude_commands and claude_commands[0][0] == "claude"
 
 
 def test_claude_task_runs_fix_pass_after_auto_review_findings(

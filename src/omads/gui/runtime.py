@@ -772,16 +772,473 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
         send({"type": "unlock"})
 
 
-def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str) -> None:
-    """Run the fixed three-step manual review flow with transparent progress.
+def _review_display_name(agent: str) -> str:
+    """Return one human-readable agent name for pipeline descriptions."""
+    return "Codex" if agent == "codex" else "Claude Code"
 
-    Step 1: Claude Code reviews and streams the result.
-    Step 2: Codex reviews and streams the result.
-    Step 3: Claude Code synthesizes both reviews and can propose fixes.
+
+def _review_runtime_label(agent: str, *, synthesis: bool = False) -> str:
+    """Return one runtime label for streamed review status updates."""
+    if agent == "codex":
+        return "Codex" if synthesis else "Codex Review"
+    return "Claude Code" if synthesis else "Claude Review"
+
+
+def _review_focus_description(focus: str, custom_focus: str) -> str:
+    """Return one readable review focus description."""
+    focus_map = {
+        "all": "Security, bugs, error handling, performance",
+        "security": "Security issues (injection, XSS, secrets, auth)",
+        "bugs": "Logic bugs, race conditions, edge cases",
+        "performance": "Performance issues, memory leaks, inefficient algorithms",
+    }
+    if focus == "custom" and custom_focus.strip():
+        return custom_focus.strip()
+    return focus_map.get(focus, focus_map["all"])
+
+
+def _run_claude_manual_review_step(
+    *,
+    target_repo: str,
+    model: str,
+    effort: str,
+    focus_desc: str,
+    file_hint: str,
+    agent_label: str,
+    repo_key: str,
+    send: callable,
+    prior_session_id: str | None = None,
+    rate_limit_source: str = "review_stream",
+) -> tuple[str, str | None]:
+    """Run one Claude-based manual review step and return text plus session ID."""
+    project_memory = _load_project_memory(target_repo)
+    review_context = (
+        "You are performing a code review inside OMADS. "
+        "Read and analyze the code, but do NOT edit anything. "
+        "Respond in English.\n\n"
+    )
+    if project_memory:
+        review_context += f"Project context:\n{project_memory}\n\n"
+
+    review_prompt = (
+        f"Perform a thorough code review. Focus: {focus_desc}.{file_hint}\n\n"
+        "Respond with a structured analysis:\n"
+        "## Summary\n## Findings (sorted by severity: CRITICAL > HIGH > MEDIUM)\n"
+        "## Positive notes\n\nRespond in English."
+    )
+
+    cmd = [
+        "claude",
+        "-p",
+        review_prompt,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        model,
+        "--effort",
+        effort,
+        "--append-system-prompt",
+        review_context,
+    ]
+    if prior_session_id:
+        cmd.extend(["--resume", prior_session_id])
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        cwd=target_repo,
+        env=_build_cli_env(),
+    )
+    with _process_lock:
+        global _active_process
+        _active_process = process
+
+    output_lines: list[str] = []
+    captured_session_id: str | None = None
+    final_result = ""
+
+    for line in process.stdout:
+        if _task_cancelled:
+            process.kill()
+            process.wait()
+            with _process_lock:
+                _active_process = None
+            return "", captured_session_id
+        parsed_session_id, parsed_result = _forward_claude_stream_line(
+            line,
+            agent_label=agent_label,
+            send=send,
+            text_buffer=output_lines,
+            rate_limit_source=rate_limit_source,
+        )
+        if parsed_session_id and not captured_session_id:
+            captured_session_id = parsed_session_id
+        if parsed_result:
+            final_result = parsed_result
+
+    try:
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    finally:
+        with _process_lock:
+            _active_process = None
+
+    review_text = final_result if final_result else "\n".join(output_lines).strip()
+    if process.returncode != 0 and not _task_cancelled:
+        raise RuntimeError(
+            _build_process_failure_text(
+                agent_label,
+                process.returncode,
+                result_text=review_text,
+                output_lines=output_lines,
+            )
+        )
+    if captured_session_id and process.returncode == 0:
+        _set_chat_session(repo_key, captured_session_id)
+    return review_text, captured_session_id
+
+
+def _run_codex_manual_review_step(
+    *,
+    target_repo: str,
+    focus_desc: str,
+    review_files: list[str],
+    agent_label: str,
+    step_name: str,
+    send: callable,
+) -> str:
+    """Run one Codex-based manual review step and return its text."""
+    settings_snapshot = _get_settings_snapshot()
+    codex_model = settings_snapshot.get("codex_model", "")
+    codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
+    codex_fast = settings_snapshot.get("codex_fast", False)
+
+    review_prompt = (
+        "You are a code reviewer. Perform a thorough review.\n"
+        f"Focus: {focus_desc}\n"
+    )
+    if review_files:
+        review_prompt += f"Files: {', '.join(f.rsplit('/', 1)[-1] for f in review_files[:15])}\n"
+    review_prompt += (
+        "\nRespond with:\n## Files reviewed\n## Findings\n"
+        "- [CRITICAL/HIGH/MEDIUM] file:line: description\n## Positive notes\n\n"
+        "Respond in English."
+    )
+
+    cmd = ["codex", "exec", "-s", "read-only", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+    if codex_model:
+        cmd.extend(["-m", codex_model])
+    if codex_reasoning:
+        cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
+    if codex_fast:
+        cmd.extend(["-c", 'service_tier="fast"'])
+    cmd.append("-")
+
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        cwd=str(target_repo),
+        env=_build_cli_env(),
+    )
+    with _process_lock:
+        global _active_process
+        _active_process = process
+
+    process.stdin.write(review_prompt)
+    process.stdin.close()
+
+    import select
+
+    output_lines: list[str] = []
+    inactivity_limit = 900
+    last_output_time = time.time()
+    while True:
+        if _task_cancelled:
+            process.kill()
+            process.wait()
+            with _process_lock:
+                _active_process = None
+            return ""
+        if time.time() - last_output_time > inactivity_limit:
+            process.kill()
+            process.wait()
+            raise RuntimeError(f"{step_name} stopped after 15 minutes without output.")
+        ready, _, _ = select.select([process.stdout], [], [], 5.0)
+        if ready:
+            line = process.stdout.readline()
+            if not line:
+                break
+            last_output_time = time.time()
+            _forward_codex_stream_line(
+                line,
+                agent_label=agent_label,
+                send=send,
+                text_buffer=output_lines,
+            )
+
+    process.wait(timeout=10)
+    with _process_lock:
+        _active_process = None
+
+    review_text = "\n".join(output_lines).strip()
+    if process.returncode != 0 and not _task_cancelled:
+        raise RuntimeError(
+            _build_process_failure_text(
+                step_name,
+                process.returncode,
+                result_text=review_text,
+                output_lines=output_lines,
+            )
+        )
+    return review_text
+
+
+def _run_claude_manual_synthesis_step(
+    *,
+    target_repo: str,
+    model: str,
+    effort: str,
+    repo_key: str,
+    send: callable,
+    prior_session_id: str | None,
+    first_label: str,
+    second_label: str,
+    first_review: str,
+    second_review: str,
+) -> tuple[str, bool, str | None]:
+    """Run one Claude synthesis step for manual review."""
+    synthesis_prompt = (
+        f"You were Reviewer 1 ({first_label}) in this manual review flow. "
+        f"Reviewer 2 ({second_label}) independently reviewed the same scope. "
+        "Compare both reviews and produce a final report.\n\n"
+        f"=== REVIEWER 1 ({first_label}) ===\n{first_review[:6000]}\n\n"
+        f"=== REVIEWER 2 ({second_label}) ===\n{second_review[:6000]}\n\n"
+        "Task:\n"
+        "1. What did both reviews find (overlap)?\n"
+        f"2. What did only {second_label} find that {first_label} missed?\n"
+        f"3. What did only {first_label} find?\n"
+        "4. Build a prioritized list of all REAL findings that should be fixed.\n"
+        "   Ignore false positives and overly minor style remarks.\n\n"
+        "Respond with:\n"
+        "## Overlap (found by both)\n"
+        f"## Found only by {second_label}\n"
+        f"## Found only by {first_label}\n"
+        "## Final fix plan\n"
+        "For each fix: file, line, and exactly what should be changed.\n\n"
+        "IMPORTANT: Do NOT make any changes, only analyze. Respond in English.\n\n"
+        "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:\n"
+        "FIXES_NEEDED: true\n"
+        "or\n"
+        "FIXES_NEEDED: false\n"
+        "Nothing else on that line. true = there are real fixes needed. false = everything is fine or only style remarks remain."
+    )
+    synthesis_context = (
+        "You are the final reviewer in OMADS. "
+        "Compare both reviews honestly, keep only real findings, and prepare a user-facing fix plan. "
+        "Do NOT make code changes.\n"
+    )
+
+    cmd = [
+        "claude",
+        "-p",
+        synthesis_prompt,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        model,
+        "--effort",
+        effort,
+        "--append-system-prompt",
+        synthesis_context,
+    ]
+    if prior_session_id:
+        cmd.extend(["--resume", prior_session_id])
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        cwd=target_repo,
+        env=_build_cli_env(),
+    )
+    with _process_lock:
+        global _active_process
+        _active_process = process
+
+    output_lines: list[str] = []
+    captured_session_id: str | None = None
+    final_result = ""
+    for line in process.stdout:
+        if _task_cancelled:
+            process.kill()
+            process.wait()
+            with _process_lock:
+                _active_process = None
+            return "", False, captured_session_id
+        parsed_session_id, parsed_result = _forward_claude_stream_line(
+            line,
+            agent_label="Claude Code",
+            send=send,
+            text_buffer=output_lines,
+            rate_limit_source="synthesis_stream",
+        )
+        if parsed_session_id and not captured_session_id:
+            captured_session_id = parsed_session_id
+        if parsed_result:
+            final_result = parsed_result
+
+    try:
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    finally:
+        with _process_lock:
+            _active_process = None
+
+    synthesis_text = final_result if final_result else "\n".join(output_lines).strip()
+    if process.returncode != 0 and not _task_cancelled:
+        raise RuntimeError(
+            _build_process_failure_text(
+                "Review step 3 (synthesis)",
+                process.returncode,
+                result_text=synthesis_text,
+                output_lines=output_lines,
+            )
+        )
+    if captured_session_id and process.returncode == 0:
+        _set_chat_session(repo_key, captured_session_id)
+    cleaned_text, has_fixes = strip_fixes_needed_marker(synthesis_text)
+    return cleaned_text, has_fixes, captured_session_id
+
+
+def _run_codex_manual_synthesis_step(
+    *,
+    target_repo: str,
+    first_label: str,
+    second_label: str,
+    first_review: str,
+    second_review: str,
+    send: callable,
+) -> tuple[str, bool]:
+    """Run one Codex synthesis step for manual review."""
+    settings_snapshot = _get_settings_snapshot()
+    codex_model = settings_snapshot.get("codex_model", "")
+    codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
+    codex_fast = settings_snapshot.get("codex_fast", False)
+
+    synthesis_prompt = (
+        f"You were Reviewer 1 ({first_label}) in this manual review flow. "
+        f"Reviewer 2 ({second_label}) independently reviewed the same scope. "
+        "Compare both reviews and produce a final report.\n\n"
+        f"=== REVIEWER 1 ({first_label}) ===\n{first_review[:6000]}\n\n"
+        f"=== REVIEWER 2 ({second_label}) ===\n{second_review[:6000]}\n\n"
+        "Respond with:\n"
+        "## Overlap (found by both)\n"
+        f"## Found only by {second_label}\n"
+        f"## Found only by {first_label}\n"
+        "## Final fix plan\n"
+        "For each fix: file, line, and exactly what should be changed.\n\n"
+        "IMPORTANT: Do NOT make code changes. Respond in English.\n\n"
+        "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:\n"
+        "FIXES_NEEDED: true\n"
+        "or\n"
+        "FIXES_NEEDED: false"
+    )
+
+    cmd = ["codex", "exec", "-s", "read-only", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+    if codex_model:
+        cmd.extend(["-m", codex_model])
+    if codex_reasoning:
+        cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
+    if codex_fast:
+        cmd.extend(["-c", 'service_tier="fast"'])
+    cmd.append("-")
+
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        cwd=str(target_repo),
+        env=_build_cli_env(),
+    )
+    with _process_lock:
+        global _active_process
+        _active_process = process
+
+    process.stdin.write(synthesis_prompt)
+    process.stdin.close()
+
+    import select
+
+    output_lines: list[str] = []
+    inactivity_limit = 900
+    last_output_time = time.time()
+    while True:
+        if _task_cancelled:
+            process.kill()
+            process.wait()
+            with _process_lock:
+                _active_process = None
+            return "", False
+        if time.time() - last_output_time > inactivity_limit:
+            process.kill()
+            process.wait()
+            raise RuntimeError("Review step 3 (synthesis) stopped after 15 minutes without output.")
+        ready, _, _ = select.select([process.stdout], [], [], 5.0)
+        if ready:
+            line = process.stdout.readline()
+            if not line:
+                break
+            last_output_time = time.time()
+            _forward_codex_stream_line(
+                line,
+                agent_label="Codex",
+                send=send,
+                text_buffer=output_lines,
+            )
+
+    process.wait(timeout=10)
+    with _process_lock:
+        _active_process = None
+
+    synthesis_text = "\n".join(output_lines).strip()
+    if process.returncode != 0 and not _task_cancelled:
+        raise RuntimeError(
+            _build_process_failure_text(
+                "Review step 3 (synthesis)",
+                process.returncode,
+                result_text=synthesis_text,
+                output_lines=output_lines,
+            )
+        )
+    cleaned_text, has_fixes = strip_fixes_needed_marker(synthesis_text)
+    return cleaned_text, has_fixes
+
+
+def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str, custom_focus: str = "") -> None:
+    """Run the configurable three-step manual review flow with transparent progress.
+
+    Step 1: Reviewer 1 inspects the selected scope.
+    Step 2: Reviewer 2 independently reviews the same scope.
+    Step 3: Reviewer 1 returns for synthesis and the final fix plan.
 
     scope: 'project' | 'last_task' | 'custom'
-    focus: 'all' | 'security' | 'bugs' | 'performance'
+    focus: 'all' | 'security' | 'bugs' | 'performance' | 'custom'
     custom_scope: path(s) when scope='custom'
+    custom_focus: free-text focus when focus='custom'
     """
     import time as _time
 
@@ -792,6 +1249,16 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
     settings_snapshot = _get_settings_snapshot()
     target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
     model = settings_snapshot.get("claude_model", "sonnet")
+    effort = settings_snapshot.get("claude_effort", "high")
+    review_first = settings_snapshot.get("review_first_reviewer", "claude")
+    review_second = settings_snapshot.get("review_second_reviewer", "codex")
+    if review_first not in ("claude", "codex"):
+        review_first = "claude"
+    if review_second not in ("claude", "codex"):
+        review_second = "codex"
+    if review_second == review_first:
+        review_second = "codex" if review_first == "claude" else "claude"
+    pipeline_desc = f"{_review_display_name(review_first)} -> {_review_display_name(review_second)} -> {_review_display_name(review_first)}"
 
     # Freeze the project ID at task start
     _frozen_proj_id = _get_active_project_id()
@@ -810,287 +1277,149 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str)
         review_files = []
         scope_desc = "Whole project"
 
-    # Focus description
-    focus_map = {
-        "all": "Security, bugs, error handling, performance",
-        "security": "Security issues (injection, XSS, secrets, auth)",
-        "bugs": "Logic bugs, race conditions, edge cases",
-        "performance": "Performance issues, memory leaks, inefficient algorithms",
-    }
-    focus_desc = focus_map.get(focus, focus_map["all"])
+    focus_desc = _review_focus_description(focus, custom_focus)
 
     file_hint = ""
     if review_files:
         file_hint = f"\n\nPay special attention to these files:\n" + "\n".join(f"- {f}" for f in review_files[:30])
 
-    env = _build_cli_env()
+    repo_key = str(Path(target_repo).resolve())
+    first_step_label = _review_runtime_label(review_first)
+    second_step_label = _review_runtime_label(review_second)
+    synthesis_label = _review_runtime_label(review_first, synthesis=True)
 
-    send({"type": "stream_text", "agent": "Review",
-          "text": f"**Review started**\nScope: {scope_desc}\nFocus: {focus_desc}\n\n"
-                  "Current fixed flow: Step 1 (Claude Code) -> Step 2 (Codex) -> Step 3 (Claude Code synthesis + fix suggestions)"})
+    send({
+        "type": "stream_text",
+        "agent": "Review",
+        "text": (
+            f"**Review started**\n"
+            f"Scope: {scope_desc}\n"
+            f"Focus: {focus_desc}\n"
+            f"Flow: {pipeline_desc}"
+        ),
+    })
 
     try:
-        # ── STEP 1: Claude Code review ────────────────────────────
-        send({"type": "agent_status", "agent": "Claude Code", "status": "Step 1/3 - review in progress..."})
+        # ── STEP 1: Reviewer 1 ────────────────────────────────────
+        send({"type": "agent_status", "agent": first_step_label, "status": "Step 1/3 - review in progress..."})
 
-        project_memory = _load_project_memory(target_repo)
-        claude_context = (
-            "You are performing a code review (NO changes!). "
-            "Read and analyze the code, but do NOT edit anything.\n\n"
-        )
-        if project_memory:
-            claude_context += f"Project context:\n{project_memory}\n\n"
-
-        review_prompt = (
-            f"Perform a thorough code review. Focus: {focus_desc}.{file_hint}\n\n"
-            "Respond with a structured analysis:\n"
-            "## Summary\n## Findings (sorted by severity: CRITICAL > HIGH > MEDIUM)\n"
-            "## Positive notes\n\nRespond in English."
-        )
-
-        cmd = ["claude", "-p", review_prompt, "--output-format", "stream-json",
-               "--verbose", "--model", model,
-               "--append-system-prompt", claude_context]
-
-        repo_key = str(Path(target_repo).resolve())
-        session_id = _get_chat_session(repo_key)
-        if session_id:
-            cmd.extend(["--resume", session_id])
-
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, cwd=target_repo, env=env,
-        )
-        with _process_lock:
-            _active_process = process
-
-        claude_output = []
-        captured_session_id = None
-
-        for line in process.stdout:
-            if _task_cancelled:
-                process.kill()
-                return
-            parsed_session_id, _ = _forward_claude_stream_line(
-                line,
-                agent_label="Claude Code",
-                send=send,
-                text_buffer=claude_output,
-                rate_limit_source="review_stream",
-            )
-            if parsed_session_id and not captured_session_id:
-                captured_session_id = parsed_session_id
-
+        first_session_id = _get_chat_session(repo_key)
         try:
-            process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        with _process_lock:
-            _active_process = None
-        claude_review = "\n".join(claude_output)
-
-        if process.returncode != 0 and not _task_cancelled:
-            send({
-                "type": "task_error",
-                "text": _build_process_failure_text(
-                    "Review step 1 (Claude Code)",
-                    process.returncode,
-                    output_lines=claude_output,
-                ),
-            })
-            return
-
-        if captured_session_id and process.returncode == 0:
-            _set_chat_session(repo_key, captured_session_id)
-
-        send({"type": "agent_status", "agent": "Claude Code", "status": "Step 1/3 done"})
-
-        if _task_cancelled:
-            return
-
-        # ── STEP 2: Codex review ──────────────────────────────────
-        send({"type": "agent_status", "agent": "Codex Review", "status": "Step 2/3 - review in progress..."})
-
-        codex_prompt = (
-            "You are a code reviewer. Perform a thorough review.\n"
-            f"Focus: {focus_desc}\n"
-        )
-        if review_files:
-            codex_prompt += f"Files: {', '.join(f.rsplit('/', 1)[-1] for f in review_files[:15])}\n"
-        codex_prompt += (
-            "\nRespond with:\n## Files reviewed\n## Findings\n"
-            "- [CRITICAL/HIGH/MEDIUM] file:line: description\n## Positive notes\n\n"
-            "Respond in English."
-        )
-
-        codex_model = settings_snapshot.get("codex_model", "")
-        codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
-        codex_fast = settings_snapshot.get("codex_fast", False)
-        codex_review = ""
-
-        try:
-            codex_cmd = ["codex", "exec", "-s", "read-only", "--ephemeral",
-                         "--skip-git-repo-check", "--json", "-C", str(target_repo)]
-            if codex_model:
-                codex_cmd.extend(["-m", codex_model])
-            if codex_reasoning:
-                codex_cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
-            if codex_fast:
-                codex_cmd.extend(["-c", 'service_tier="fast"'])
-            codex_cmd.append("-")
-
-            codex_process = subprocess.Popen(
-                codex_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, cwd=str(target_repo), env=_build_cli_env(),
-            )
-            codex_process.stdin.write(codex_prompt)
-            codex_process.stdin.close()
-
-            import select
-            codex_lines = []
-            _INACTIVITY_LIMIT = 900  # Kill after 15 minutes without output
-            last_output_time = time.time()
-            while True:
-                if _task_cancelled:
-                    codex_process.kill()
-                    codex_process.wait()
-                    return
-                if time.time() - last_output_time > _INACTIVITY_LIMIT:
-                    codex_process.kill()
-                    codex_process.wait()
-                    send({"type": "agent_status", "agent": "Codex Review", "status": "Inactivity - Codex cancelled (15 min without output)"})
-                    codex_review = "\n".join(codex_lines) if codex_lines else "(Codex inactive)"
-                    break
-                ready, _, _ = select.select([codex_process.stdout], [], [], 5.0)
-                if ready:
-                    line = codex_process.stdout.readline()
-                    if not line:  # EOF - Codex is finished
-                        codex_process.wait(timeout=10)
-                        codex_review = "\n".join(codex_lines)
-                        send({"type": "agent_status", "agent": "Codex Review", "status": "Step 2/3 done"})
-                        break
-                    last_output_time = time.time()
-                    _forward_codex_stream_line(
-                        line,
-                        agent_label="Codex Review",
-                        send=send,
-                        text_buffer=codex_lines,
-                    )
-
+            if review_first == "claude":
+                first_review, first_session_id = _run_claude_manual_review_step(
+                    target_repo=target_repo,
+                    model=model,
+                    effort=effort,
+                    focus_desc=focus_desc,
+                    file_hint=file_hint,
+                    agent_label=first_step_label,
+                    repo_key=repo_key,
+                    send=send,
+                    prior_session_id=first_session_id,
+                    rate_limit_source="review_stream",
+                )
+            else:
+                first_review = _run_codex_manual_review_step(
+                    target_repo=target_repo,
+                    focus_desc=focus_desc,
+                    review_files=review_files,
+                    agent_label=first_step_label,
+                    step_name="Review step 1 (Codex)",
+                    send=send,
+                )
         except FileNotFoundError:
-            send({"type": "agent_status", "agent": "Codex Review",
-                  "status": "Codex CLI not installed - skipped"})
-            codex_review = "(Codex unavailable)"
-        except Exception as e:
-            try:
-                codex_process.kill()
-                codex_process.wait()
-            except Exception:
-                pass
-            send({"type": "agent_status", "agent": "Codex Review", "status": f"Error: {str(e)[:100]}"})
-            codex_review = f"(Codex error: {str(e)[:200]})"
+            send({"type": "task_error", "text": f"{first_step_label} is not installed, so step 1 could not start."})
+            return
+        except RuntimeError as exc:
+            send({"type": "task_error", "text": str(exc)})
+            return
+
+        send({"type": "agent_status", "agent": first_step_label, "status": "Step 1/3 done"})
 
         if _task_cancelled:
             return
 
-        # ── STEP 3: Claude Code synthesis ─────────────────────────
-        send({"type": "agent_status", "agent": "Claude Code",
-              "status": "Step 3/3 - synthesis: comparing both reviews..."})
-        send({"type": "stream_text", "agent": "Review",
-              "text": "---\n**Step 3: Claude Code is now analyzing the Codex review and preparing the final report...**"})
-
-        synthesis_prompt = (
-            "You just performed a code review (step 1). "
-            "Now Codex has independently reviewed the same project (step 2). "
-            "Compare both reviews and produce a final report.\n\n"
-            f"=== YOUR REVIEW (Claude Code) ===\n{claude_review[:6000]}\n\n"
-            f"=== CODEX REVIEW ===\n{codex_review[:6000]}\n\n"
-            "Task:\n"
-            "1. What did both reviews find (overlap)?\n"
-            "2. What did only Codex find that you missed?\n"
-            "3. What did only you find?\n"
-            "4. Build a prioritized list of all REAL findings that should be fixed.\n"
-            "   Ignore false positives and overly minor style remarks.\n\n"
-            "Respond with:\n"
-            "## Overlap (found by both)\n"
-            "## Found only by Codex\n"
-            "## Found only by Claude Code\n"
-            "## Final fix plan\n"
-            "For each fix: file, line, and exactly what should be changed.\n\n"
-            "IMPORTANT: Do NOT make any changes, only analyze. Respond in English.\n\n"
-            "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:\n"
-            "FIXES_NEEDED: true\n"
-            "or\n"
-            "FIXES_NEEDED: false\n"
-            "Nothing else on that line. true = there are real fixes needed. false = everything is fine or only style remarks remain."
-        )
-
-        synthesis_context = (
-            "You are comparing your own review with Codex's review. "
-            "Be honest: if Codex found something important that you missed, say so. "
-            "At the end, the user should decide whether the fixes should be applied. "
-            "Do NOT make code changes.\n"
-        )
-
-        synth_cmd = ["claude", "-p", synthesis_prompt, "--output-format", "stream-json",
-                     "--verbose", "--model", model,
-                     "--append-system-prompt", synthesis_context]
-
-        if captured_session_id:
-            synth_cmd.extend(["--resume", captured_session_id])
-
-        synth_process = subprocess.Popen(
-            synth_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            text=True, cwd=target_repo, env=env,
-        )
-        with _process_lock:
-            _active_process = synth_process
-
-        synthesis_output = []
-        synth_session_id = None
-
-        for line in synth_process.stdout:
-            if _task_cancelled:
-                synth_process.kill()
-                return
-            parsed_session_id, _ = _forward_claude_stream_line(
-                line,
-                agent_label="Claude Code",
-                send=send,
-                text_buffer=synthesis_output,
-                rate_limit_source="synthesis_stream",
-            )
-            if parsed_session_id and not synth_session_id:
-                synth_session_id = parsed_session_id
-
+        # ── STEP 2: Reviewer 2 ────────────────────────────────────
+        send({"type": "agent_status", "agent": second_step_label, "status": "Step 2/3 - review in progress..."})
+        second_review = ""
         try:
-            synth_process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            synth_process.kill()
-            synth_process.wait()
-        with _process_lock:
-            _active_process = None
+            if review_second == "claude":
+                second_review, _ = _run_claude_manual_review_step(
+                    target_repo=target_repo,
+                    model=model,
+                    effort=effort,
+                    focus_desc=focus_desc,
+                    file_hint=file_hint,
+                    agent_label=second_step_label,
+                    repo_key=repo_key,
+                    send=send,
+                    prior_session_id=_get_chat_session(repo_key),
+                    rate_limit_source="review_stream",
+                )
+            else:
+                second_review = _run_codex_manual_review_step(
+                    target_repo=target_repo,
+                    focus_desc=focus_desc,
+                    review_files=review_files,
+                    agent_label=second_step_label,
+                    step_name="Review step 2 (Codex)",
+                    send=send,
+                )
+            send({"type": "agent_status", "agent": second_step_label, "status": "Step 2/3 done"})
+        except FileNotFoundError:
+            send({"type": "agent_status", "agent": second_step_label, "status": f"{second_step_label} is not installed - synthesis will continue without step 2 output"})
+            second_review = f"({second_step_label} unavailable)"
+        except RuntimeError as exc:
+            send({"type": "agent_status", "agent": second_step_label, "status": f"Step 2 incomplete - continuing with limited data"})
+            second_review = f"({second_step_label} incomplete: {str(exc)[:220]})"
 
-        if synth_process.returncode != 0 and not _task_cancelled:
-            send({
-                "type": "task_error",
-                "text": _build_process_failure_text(
-                    "Review step 3 (synthesis)",
-                    synth_process.returncode,
-                    output_lines=synthesis_output,
-                ),
-            })
+        if _task_cancelled:
             return
 
-        if synth_session_id and synth_process.returncode == 0:
-            _set_chat_session(repo_key, synth_session_id)
+        # ── STEP 3: Reviewer 1 synthesis ──────────────────────────
+        send({"type": "agent_status", "agent": synthesis_label, "status": "Step 3/3 - synthesis: comparing both reviews..."})
+        send({
+            "type": "stream_text",
+            "agent": "Review",
+            "text": f"---\n**Step 3:** {_review_display_name(review_first)} is comparing both reviews and preparing the final report...",
+        })
 
-        synthesis_text, has_fixes = strip_fixes_needed_marker("\n".join(synthesis_output))
+        try:
+            if review_first == "claude":
+                synthesis_text, has_fixes, _ = _run_claude_manual_synthesis_step(
+                    target_repo=target_repo,
+                    model=model,
+                    effort=effort,
+                    repo_key=repo_key,
+                    send=send,
+                    prior_session_id=first_session_id,
+                    first_label=_review_display_name(review_first),
+                    second_label=_review_display_name(review_second),
+                    first_review=first_review,
+                    second_review=second_review,
+                )
+            else:
+                synthesis_text, has_fixes = _run_codex_manual_synthesis_step(
+                    target_repo=target_repo,
+                    first_label=_review_display_name(review_first),
+                    second_label=_review_display_name(review_second),
+                    first_review=first_review,
+                    second_review=second_review,
+                    send=send,
+                )
+        except FileNotFoundError:
+            send({"type": "task_error", "text": f"{synthesis_label} is not installed, so step 3 could not start."})
+            return
+        except RuntimeError as exc:
+            send({"type": "task_error", "text": str(exc)})
+            return
 
-        send({"type": "agent_status", "agent": "Claude Code", "status": "Step 3/3 done"})
-        send({"type": "stream_text", "agent": "Review",
-              "text": "---\n**Review completed** - Current fixed flow: Claude Code review -> Codex review -> Claude Code synthesis"})
+        send({"type": "agent_status", "agent": synthesis_label, "status": "Step 3/3 done"})
+        send({
+            "type": "stream_text",
+            "agent": "Review",
+            "text": f"---\n**Review completed** - Final flow: {pipeline_desc}",
+        })
 
         if has_fixes:
             # Store fix suggestions for the later apply step (per project)

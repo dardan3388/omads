@@ -9,6 +9,8 @@ The format is loosely based on Keep a Changelog.
 ### Added
 
 - Added a persistent primary-builder setting so normal chat tasks can be routed to either Claude Code or Codex from the GUI until the user changes the selection.
+- Added a dedicated Review settings tab so users can choose Reviewer 1 and Reviewer 2 for the manual review button while step 3 automatically returns to Reviewer 1.
+- Added custom free-text focus instructions to the manual review dialog.
 - Added `start-omads.sh` as a one-command local launcher for Linux/macOS.
 - Added `start-omads.ps1` as a Windows-friendly one-command launcher.
 - Added `python -m omads` support through `src/omads/__main__.py`.
@@ -26,6 +28,7 @@ The format is loosely based on Keep a Changelog.
 
 - Normal chat tasks now follow the persistent GUI builder selection instead of being hardwired to Claude Code.
 - Automatic post-change review now runs after builder-created code changes for both builder paths instead of disappearing when Codex is selected as the builder.
+- Manual review is no longer hardcoded to `Claude Code -> Codex -> Claude Code`; it now follows the configured reviewer order and routes apply-fixes back to Reviewer 1.
 - Replaced the custom `PROJEKTPROTOKOLL.md` project diary with standard English documentation.
 - Added `docs/architecture.md` as the durable reference for backend structure and module boundaries.
 - Standardized the main repository documentation in English for broader external use.

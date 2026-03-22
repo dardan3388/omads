@@ -49,6 +49,8 @@ async def get_settings():
 _ALLOWED_SETTINGS = {
     "target_repo": str,
     "builder_agent": str,
+    "review_first_reviewer": str,
+    "review_second_reviewer": str,
     "claude_model": str,
     "claude_permission_mode": str,
     "claude_effort": str,
@@ -83,6 +85,14 @@ async def update_settings(data: UpdateSettingsRequest):
 
         if settings.get("builder_agent") not in ("claude", "codex"):
             settings["builder_agent"] = "claude"
+        if settings.get("review_first_reviewer") not in ("claude", "codex"):
+            settings["review_first_reviewer"] = "claude"
+        if settings.get("review_second_reviewer") not in ("claude", "codex"):
+            settings["review_second_reviewer"] = "codex"
+        if settings.get("review_second_reviewer") == settings.get("review_first_reviewer"):
+            settings["review_second_reviewer"] = (
+                "codex" if settings.get("review_first_reviewer") == "claude" else "claude"
+            )
         if settings.get("claude_effort") not in ("low", "medium", "high", "max"):
             settings["claude_effort"] = "high"
         if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):

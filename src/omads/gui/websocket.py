@@ -74,7 +74,7 @@ async def websocket_endpoint(ws: WebSocket):
                 thread.start()
 
             elif msg_type == "review":
-                # Review mode: Claude + Codex manual review flow
+                # Manual review mode: configurable reviewer order
                 with runtime._process_lock:
                     busy = runtime._active_process and runtime._active_process.poll() is None
                 if busy:
@@ -82,12 +82,13 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 review_scope = data.get("scope", "project")  # project | last_task | custom
-                review_focus = data.get("focus", "all")      # all | security | bugs | performance
+                review_focus = data.get("focus", "all")      # all | security | bugs | performance | custom
                 custom_scope = data.get("custom_scope", "")
+                custom_focus = data.get("custom_focus", "")
 
                 thread = threading.Thread(
                     target=runtime._run_review_thread,
-                    args=(ws, review_scope, review_focus, custom_scope),
+                    args=(ws, review_scope, review_focus, custom_scope, custom_focus),
                     daemon=True,
                 )
                 thread.start()
@@ -110,8 +111,11 @@ async def websocket_endpoint(ws: WebSocket):
                     + repo_fixes[:8000] + "\n\n"
                     "Rules: Apply ONLY the changes described in the fix plan. No scope creep."
                 )
+                review_fix_runner = runtime._run_claude_session_thread
+                if state._get_setting("review_first_reviewer", "claude") == "codex":
+                    review_fix_runner = runtime._run_codex_session_thread
                 thread = threading.Thread(
-                    target=runtime._run_claude_session_thread,
+                    target=review_fix_runner,
                     args=(ws, fix_prompt),
                     daemon=True,
                 )

@@ -21,7 +21,7 @@ OMADS is a local web GUI that orchestrates:
 
 - **Claude Code CLI** or **Codex CLI** as the user-selected primary builder
 - an automatic breaker step after builder-created code changes
-- a separate fixed manual review pipeline that currently runs `Claude Code -> Codex -> Claude Code`
+- a separate configurable manual review pipeline where Reviewer 1 runs step 1 and step 3, while Reviewer 2 runs step 2
 
 The browser interacts with the backend over REST and WebSocket. The backend starts CLI subprocesses, streams progress back to the UI, persists project-specific state, and records logs/history.
 
@@ -148,9 +148,9 @@ Flow:
 
 1. The browser sends a `review` message.
 2. `runtime.py` runs a three-step review:
-- Claude review
-- Codex review
-- Claude synthesis of both results
+- Reviewer 1 review
+- Reviewer 2 cross-check review
+- Reviewer 1 synthesis of both results and the optional fix plan
 3. If real fixes are identified, the review result is cached so the UI can offer an apply-fixes action.
 
 ## Persistence

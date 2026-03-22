@@ -15,9 +15,4 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 ## Now
 
 - No active backlog items right now.
-- The previously scheduled setup, GUI, docs, stream-parsing, and browser E2E tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.
-
-## Later
-
-- [ ] Configurable review pipeline order
-  Make the review flow configurable so users can choose who reviews first, who reviews second, and who performs the final synthesis/fix decision step instead of hardcoding Claude -> Codex -> Claude.
+- The previously scheduled setup, GUI, docs, browser E2E, and configurable review-pipeline tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.

@@ -225,7 +225,7 @@
     display: flex; flex-direction: column; gap: 6px;
   }
 
-  /* Nachrichten */
+  /* Messages */
   .msg { padding: 6px 0; font-size: 14px; line-height: 1.6; }
   .msg-user {
     padding: 10px 16px; background: var(--bg3); border-radius: 10px;
@@ -275,7 +275,7 @@
   }
   .onboard-banner .dismiss-btn:hover { border-color: var(--text); color: var(--text); }
 
-  /* Agent-Nachrichten (Text) */
+  /* Agent messages (text) */
   .msg-agent {
     padding: 2px 0; word-wrap: break-word;
   }
@@ -434,10 +434,14 @@
   .review-dialog h3 { margin: 0 0 16px 0; color: var(--text); font-size: 16px; }
   .review-group { margin-bottom: 14px; }
   .review-group label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-  .review-group select, .review-group input {
+  .review-group select, .review-group input, .review-group textarea {
     width: 100%; background: var(--bg); border: 1px solid var(--border);
     color: var(--text); padding: 8px 10px; border-radius: 6px;
     font-family: inherit; font-size: 13px;
+  }
+  .review-group textarea {
+    resize: vertical;
+    min-height: 96px;
   }
   .review-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
   .review-actions button {
@@ -658,7 +662,7 @@
         <textarea class="chat-input" id="input" rows="1"
           placeholder="Describe what you need..."
           onkeydown="onKey(event)"></textarea>
-        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Run the current review pipeline (Claude Code -> Codex -> Claude Code)">Review</button>
+        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Start the configured manual review pipeline">Review</button>
         <button class="btn-send" id="btnSend" onclick="send()">Send</button>
         <button class="btn-stop" id="btnStop" onclick="stop()" style="display:none">Stop</button>
       </div>
@@ -727,12 +731,17 @@
     </div>
     <div class="review-group">
       <label>Focus</label>
-      <select id="reviewFocus">
+      <select id="reviewFocus" onchange="toggleCustomFocus()">
         <option value="all">Everything (security, bugs, performance)</option>
         <option value="security">Security</option>
         <option value="bugs">Bugs &amp; logic</option>
         <option value="performance">Performance</option>
+        <option value="custom">Custom instructions</option>
       </select>
+    </div>
+    <div class="review-group" id="customFocusGroup" style="display:none">
+      <label>Custom review instructions</label>
+      <textarea id="reviewCustomFocus" placeholder="Example: Focus on race conditions in the websocket flow and whether the review-fix handoff can lose context."></textarea>
     </div>
     <div class="review-actions">
       <button class="btn-cancel" onclick="closeReviewDialog()">Cancel</button>
@@ -749,6 +758,7 @@
     <div class="tabs">
       <button class="tab active" onclick="switchTab('tabProject')">Project</button>
       <button class="tab" onclick="switchTab('tabInterface')">Interface</button>
+      <button class="tab" onclick="switchTab('tabReview')">Review</button>
       <button class="tab" onclick="switchTab('tabClaude')">Claude Code</button>
       <button class="tab" onclick="switchTab('tabCodex')">Codex</button>
     </div>
@@ -809,6 +819,35 @@
       </div>
     </div>
 
+    <!-- Tab: Review -->
+    <div class="tab-content" id="tabReview">
+      <div class="section-title">Manual Review Pipeline</div>
+      <div class="form-group">
+        <label>Reviewer 1</label>
+        <select id="sReviewFirst" onchange="syncReviewReviewerOptions('first')">
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex</option>
+        </select>
+        <div class="hint">The first reviewer inspects the selected scope and also performs the final synthesis in step 3.</div>
+      </div>
+      <div class="form-group">
+        <label>Reviewer 2</label>
+        <select id="sReviewSecond" onchange="syncReviewReviewerOptions('second')">
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex</option>
+        </select>
+        <div class="hint">Reviewer 2 must be the other agent so the manual review stays cross-checked.</div>
+      </div>
+      <div class="form-group">
+        <label>Step 3</label>
+        <input type="text" id="sReviewThird" value="Matches Reviewer 1 automatically" readonly>
+        <div class="hint">The final synthesis and optional fix plan always go back to Reviewer 1.</div>
+      </div>
+      <div class="hint" style="margin-top:12px;color:var(--text-dim);font-size:12px">
+        The <strong>Review</strong> button is a separate manual feature. It does not replace the normal builder → breaker loop used during coding tasks.
+      </div>
+    </div>
+
     <!-- Tab: Claude Code -->
     <div class="tab-content" id="tabClaude">
       <div class="section-title">Model</div>
@@ -855,7 +894,7 @@
           <span style="display:inline-block;padding:4px 12px;border-radius:4px;font-size:13px;font-weight:bold;background:#1a2e1a;color:#74d4a5;border:1px solid #74d4a5;">Codex CLI</span>
           <span style="color:var(--text-dim);font-size:12px;">Builder and reviewer, depending on the active flow</span>
         </div>
-        <div class="hint">Codex can act as the selected primary builder, as the automatic breaker after Claude-built code changes, and as step 2 in the current manual review pipeline.</div>
+        <div class="hint">Codex can act as the selected primary builder, as the automatic breaker after Claude-built code changes, and as either manual reviewer depending on the review settings.</div>
       </div>
 
       <div class="section-title">Model</div>
@@ -890,7 +929,7 @@
         <strong>The selected primary builder</strong> handles normal chat tasks and coding work.<br>
         <strong>Automatic post-change review</strong> currently runs after builder-created code changes and returns findings to the active builder for a follow-up fix decision.<br>
         <strong>Today</strong> this uses Codex after Claude-built changes and Claude Review after Codex-built changes.<br>
-        <strong>The Review button</strong> always starts the current three-step review pipeline: Claude Code -> Codex -> Claude Code.<br>
+        <strong>The Review button</strong> runs the manual three-step pipeline configured in the Review settings tab.<br>
         <span style="color:var(--text-dim);">This tab shows the Codex-specific settings used in the current OMADS flow.</span>
       </div>
     </div>
@@ -929,6 +968,8 @@ let ws = null, busy = false, fpPath = '~';
 let _logFilter = 'all';  // 'all', 'claude', 'codex'
 let _uiTheme = 'dark';
 let _builderAgent = 'claude';
+let _reviewFirstReviewer = 'claude';
+let _reviewSecondReviewer = 'codex';
 
 // ─── WebSocket ─────────────────────────
 let _reconnectDelay = 2000;
@@ -1038,7 +1079,7 @@ function handle(msg) {
       break;
 
     case 'review_fixes_available':
-      // Button "Fixes anwenden?" anzeigen
+      // Show the "Apply fixes?" prompt
       const fixDiv = document.createElement('div');
       fixDiv.className = 'msg msg-system';
       fixDiv.innerHTML = `
@@ -1062,6 +1103,8 @@ function handle(msg) {
 // ─── Review Dialog ─────────────────────
 function openReviewDialog() {
   el('reviewModal').classList.add('open');
+  toggleCustomScope();
+  toggleCustomFocus();
 }
 function closeReviewDialog() {
   el('reviewModal').classList.remove('open');
@@ -1070,16 +1113,31 @@ function toggleCustomScope() {
   const show = el('reviewScope').value === 'custom';
   el('customScopeGroup').style.display = show ? 'block' : 'none';
 }
+function toggleCustomFocus() {
+  const show = el('reviewFocus').value === 'custom';
+  el('customFocusGroup').style.display = show ? 'block' : 'none';
+}
 function startReview() {
   if (!ws) return;
   const scope = el('reviewScope').value;
   const focus = el('reviewFocus').value;
   const customScope = el('reviewCustomScope') ? el('reviewCustomScope').value : '';
+  const customFocus = el('reviewCustomFocus') ? el('reviewCustomFocus').value.trim() : '';
+  if (focus === 'custom' && !customFocus) {
+    alert('Please describe what the manual review should focus on.');
+    return;
+  }
 
   closeReviewDialog();
 
-  // Review-Start im Chat anzeigen
-  const focusMap = { all: 'Everything', security: 'Security', bugs: 'Bugs', performance: 'Performance' };
+  // Show review start in the chat
+  const focusMap = {
+    all: 'Everything',
+    security: 'Security',
+    bugs: 'Bugs & logic',
+    performance: 'Performance',
+    custom: customFocus || 'Custom instructions',
+  };
   const scopeMap = { project: 'Whole project', last_task: 'Last task', custom: customScope || 'Custom selection' };
   const d = document.createElement('div');
   d.className = 'msg msg-user';
@@ -1087,11 +1145,11 @@ function startReview() {
   el('stream').appendChild(d);
   scrollDown();
 
-  ws.send(JSON.stringify({ type: 'review', scope, focus, custom_scope: customScope }));
+  ws.send(JSON.stringify({ type: 'review', scope, focus, custom_scope: customScope, custom_focus: customFocus }));
   lock();
 }
 
-// ─── Fixes anwenden ────────────────────
+// ─── Apply Fixes ───────────────────────
 function applyFixes() {
   if (!ws) return;
   const d = document.createElement('div');
@@ -1103,14 +1161,14 @@ function applyFixes() {
   lock();
 }
 
-// ─── Nachricht senden ──────────────────
+// ─── Send Message ──────────────────────
 function send() {
   if (busy) return;  // Do not send while a task is running
   const inp = el('input');
   const text = inp.value.trim();
   if (!text || !ws) return;
 
-  // User-Nachricht anzeigen
+  // Show the user message
   const d = document.createElement('div');
   d.className = 'msg msg-user';
   d.innerHTML = formatMsg(text);
@@ -1154,7 +1212,7 @@ function unlock() {
 
 // ─── Stream-Elemente ───────────────────
 function addAgent(agent, text) {
-  if (!text || !text.trim()) return;  // Leere Nachrichten ignorieren
+  if (!text || !text.trim()) return;  // Ignore empty messages
   const s = el('stream');
   const d = document.createElement('div');
   d.className = 'msg msg-agent';
@@ -1341,11 +1399,11 @@ function resultAction(action, param) {
     el('input').style.height = 'auto';
     el('input').style.height = Math.min(el('input').scrollHeight, 120) + 'px';
   } else if (action === 'approve') {
-    // Freigeben — als Chat-Nachricht senden
+    // Approve and send it through the chat channel
     if (ws) ws.send(JSON.stringify({ type: 'escalation_response', task_id: param, action: 'approve' }));
     addSystem('Approved — changes will be accepted.');
   } else if (action === 'reject_escalation') {
-    // Ablehnen — als Chat-Nachricht senden
+    // Reject and send it through the chat channel
     if (ws) ws.send(JSON.stringify({ type: 'escalation_response', task_id: param, action: 'reject' }));
     addSystem('Rejected — changes will be discarded.');
   }
@@ -1358,7 +1416,7 @@ function switchTab(tabId) {
   el(tabId).classList.add('active');
   // Aktiven Tab-Button markieren
   const tabs = document.querySelectorAll('.tab');
-  const map = { tabProject: 0, tabInterface: 1, tabClaude: 2, tabCodex: 3 };
+  const map = { tabProject: 0, tabInterface: 1, tabReview: 2, tabClaude: 3, tabCodex: 4 };
   if (map[tabId] !== undefined) tabs[map[tabId]].classList.add('active');
 }
 
@@ -1377,6 +1435,40 @@ function applyBuilderAgent(builderAgent) {
   if (badge) badge.textContent = `Builder: ${_builderAgent === 'codex' ? 'Codex' : 'Claude'}`;
   const select = el('sBuilder');
   if (select) select.value = _builderAgent;
+}
+
+function reviewerLabel(agent) {
+  return agent === 'codex' ? 'Codex' : 'Claude Code';
+}
+
+function applyReviewPipeline(firstReviewer, secondReviewer) {
+  _reviewFirstReviewer = firstReviewer === 'codex' ? 'codex' : 'claude';
+  _reviewSecondReviewer = secondReviewer === 'claude' || secondReviewer === 'codex'
+    ? secondReviewer
+    : (_reviewFirstReviewer === 'claude' ? 'codex' : 'claude');
+  if (_reviewSecondReviewer === _reviewFirstReviewer) {
+    _reviewSecondReviewer = _reviewFirstReviewer === 'claude' ? 'codex' : 'claude';
+  }
+  if (el('sReviewFirst')) el('sReviewFirst').value = _reviewFirstReviewer;
+  if (el('sReviewSecond')) el('sReviewSecond').value = _reviewSecondReviewer;
+  if (el('sReviewThird')) el('sReviewThird').value = `${reviewerLabel(_reviewFirstReviewer)} (same as Reviewer 1)`;
+  const reviewBtn = el('btnReview');
+  if (reviewBtn) {
+    reviewBtn.title = `Start the configured manual review pipeline (${reviewerLabel(_reviewFirstReviewer)} -> ${reviewerLabel(_reviewSecondReviewer)} -> ${reviewerLabel(_reviewFirstReviewer)})`;
+  }
+}
+
+function syncReviewReviewerOptions(changed) {
+  const first = el('sReviewFirst').value;
+  const second = el('sReviewSecond').value;
+  if (first === second) {
+    if (changed === 'first') {
+      el('sReviewSecond').value = first === 'claude' ? 'codex' : 'claude';
+    } else {
+      el('sReviewFirst').value = second === 'claude' ? 'codex' : 'claude';
+    }
+  }
+  applyReviewPipeline(el('sReviewFirst').value, el('sReviewSecond').value);
 }
 
 function applyAutoReviewEnabled(enabled) {
@@ -1456,6 +1548,8 @@ async function loadSettings() {
     _savedSettings = s;
     el('sRepo').value = s.target_repo || '';
     el('sBuilder').value = s.builder_agent || 'claude';
+    el('sReviewFirst').value = s.review_first_reviewer || 'claude';
+    el('sReviewSecond').value = s.review_second_reviewer || 'codex';
     el('sPerms').value = s.claude_permission_mode || 'default';
     el('sClaude').value = s.claude_model || 'sonnet';
     el('sClaudeEffort').value = s.claude_effort || 'high';
@@ -1466,6 +1560,7 @@ async function loadSettings() {
     el('sTheme').value = s.ui_theme || 'dark';
     applyTheme(s.ui_theme || 'dark');
     applyBuilderAgent(s.builder_agent || 'claude');
+    applyReviewPipeline(s.review_first_reviewer || 'claude', s.review_second_reviewer || 'codex');
     applyAutoReviewEnabled(s.auto_review !== false);
     el('repoBadge').textContent = shortPath(s.target_repo || 'No project');
   } catch (e) {}
@@ -1476,6 +1571,8 @@ async function saveSettings() {
   const data = {
     target_repo: el('sRepo').value,
     builder_agent: el('sBuilder').value,
+    review_first_reviewer: el('sReviewFirst').value,
+    review_second_reviewer: el('sReviewSecond').value,
     claude_permission_mode: el('sPerms').value,
     claude_model: el('sClaude').value,
     claude_effort: el('sClaudeEffort').value,
@@ -1489,6 +1586,7 @@ async function saveSettings() {
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
   applyTheme(data.ui_theme);
   applyBuilderAgent(data.builder_agent);
+  applyReviewPipeline(data.review_first_reviewer, data.review_second_reviewer);
   applyAutoReviewEnabled(data.auto_review);
   el('repoBadge').textContent = shortPath(data.target_repo);
   closeSettings();
@@ -1617,7 +1715,7 @@ function switchLogTab(tab) {
   if (tab === 'all') el('logTabAll').classList.add('active');
   else if (tab === 'claude') el('logTabClaude').classList.add('active');
   else el('logTabCodex').classList.add('active');
-  // Filter anwenden
+  // Apply the active filter
   const lines = el('livelogContent').querySelectorAll('.log-line');
   lines.forEach(l => {
     if (tab === 'all') { l.style.display = ''; return; }
@@ -1888,7 +1986,7 @@ async function createProject() {
   el('stream').innerHTML = '<div class="msg-system">New project: ' + esc(name) + '. What should I build?</div>';
 }
 
-// ─── Historie im Chat-Stream ─────────────
+// ─── History In The Chat Stream ─────────
 async function loadHistoryIntoChat(projectId, projectName) {
   const s = el('stream');
 
@@ -1926,7 +2024,7 @@ async function loadHistoryIntoChat(projectId, projectName) {
       }
 
       if (e.type === 'user_input') {
-        // User-Nachricht wie im Chat
+        // Render the stored user message the same way as in the live chat
         const d = document.createElement('div');
         d.className = 'msg msg-user';
         d.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(e.text)}`;

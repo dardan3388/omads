@@ -65,7 +65,7 @@ For the browser-based E2E suite, install Chromium once:
 python -m playwright install chromium
 ```
 
-The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, diff and OpenAPI routes, WebSocket guardrails, log filtering, chat-session persistence, builder selection, mocked Codex auto-review outcomes, mocked Claude/Codex review-fix handoff paths, and real browser E2E flows for theme switching, builder switching, the diff viewer, and the WebSocket chat UI without requiring live Claude/Codex quota.
+The current tests cover server startup, security headers, settings and project validation, runtime status refresh, health/status/ledger endpoints, diff and OpenAPI routes, WebSocket guardrails, log filtering, chat-session persistence, builder selection, configurable review routing, mocked Claude/Codex review-fix handoff paths, and real browser E2E flows for theme switching, builder switching, the diff viewer, and the WebSocket chat UI without requiring live Claude/Codex quota.
 
 ---
 
@@ -360,18 +360,32 @@ It is an additional manual feature for cases like:
 - you want to trigger a deliberate full-project review
 - you want to inspect the last task or a custom file/folder scope on demand
 
-Today this manual review flow is fixed to:
+The manual review flow is configurable in the GUI:
 
-1. Claude Code review
-2. Codex review
-3. Claude Code synthesis and optional fix suggestions
+1. Reviewer 1 performs the first review pass
+2. Reviewer 2 performs the cross-checking second review pass
+3. Reviewer 1 returns for the final synthesis and optional fix suggestions
+
+You can switch between:
+
+- `Claude Code -> Codex -> Claude Code`
+- `Codex -> Claude Code -> Codex`
+
+The review dialog also supports:
+
+- whole-project review
+- last-task review
+- custom file/folder selection
+- predefined focus presets
+- custom free-text review instructions
 
 ### Features
 
 - Switch the primary builder between Claude Code and Codex
 - Chat with the selected builder
 - Automatic breaker step after code changes
-- Manual three-step review flow (Claude → Codex → Claude synthesis)
+- Configurable manual three-step review flow with two reviewer orders
+- Custom free-text focus for manual review requests
 - Live activity streaming from the active CLI tools
 - Multi-project management
 - Built-in diff viewer for the current Git working tree
@@ -390,6 +404,8 @@ All settings are controlled through the GUI and stored in `~/.config/omads/`.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Primary builder | `claude` | Persistent builder selection for normal chat tasks |
+| Reviewer 1 | `claude` | First manual reviewer and final synthesis agent |
+| Reviewer 2 | `codex` | Second manual reviewer; always the other agent |
 | Claude model | `sonnet` | Claude model such as `sonnet`, `opus`, or `haiku` |
 | Effort | `high` | Claude reasoning depth |
 | Permission mode | `default` | Permission mode for Claude CLI |
