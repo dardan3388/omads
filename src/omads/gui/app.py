@@ -1,4 +1,4 @@
-"""FastAPI-App und Middleware für die OMADS GUI."""
+"""FastAPI app and middleware for the OMADS GUI."""
 
 from __future__ import annotations
 

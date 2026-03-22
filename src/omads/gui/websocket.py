@@ -1,4 +1,4 @@
-"""WebSocket-Routen der OMADS GUI."""
+"""WebSocket routes for the OMADS GUI."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ router = APIRouter()
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     
-    # Security: Origin-Check — nur lokale Verbindungen erlauben (dynamischer Port)
+    # Security: allow only local origins (dynamic port)
     origin = ws.headers.get("origin", "")
     server_port = ws.scope.get("server", ("", 8080))[1]
     allowed_origins = set()
@@ -34,7 +34,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     _MAX_MESSAGE_LENGTH = 50000
     _last_message_time = 0.0
-    _MIN_MESSAGE_INTERVAL = 1.0  # Sekunden zwischen Nachrichten
+    _MIN_MESSAGE_INTERVAL = 1.0  # Seconds between messages
 
     try:
         while True:
@@ -46,26 +46,26 @@ async def websocket_endpoint(ws: WebSocket):
                 if not user_text:
                     continue
 
-                # Security: Nachrichtenlänge begrenzen
+                # Security: limit message length
                 if len(user_text) > _MAX_MESSAGE_LENGTH:
                     await ws.send_json({"type": "error", "text": f"Message too long (max {_MAX_MESSAGE_LENGTH} characters)"})
                     continue
 
-                # Security: Rate-Limiting — max 1 Nachricht pro Sekunde
+                # Security: rate limiting — max 1 message per second
                 now = time.time()
                 if now - _last_message_time < _MIN_MESSAGE_INTERVAL:
                     await ws.send_json({"type": "error", "text": "Too fast — please wait a moment"})
                     continue
                 _last_message_time = now
 
-                # Security: Nur einen Task gleichzeitig erlauben
+                # Security: allow only one task at a time
                 with runtime._process_lock:
                     busy = runtime._active_process and runtime._active_process.poll() is None
                 if busy:
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
-                # Normale Chat-Tasks gehen immer an den aktuell gewählten Builder
+                # Normal chat tasks always go to the currently selected builder
                 thread = threading.Thread(
                     target=runtime._run_builder_session_thread,
                     args=(ws, user_text),
@@ -74,7 +74,7 @@ async def websocket_endpoint(ws: WebSocket):
                 thread.start()
 
             elif msg_type == "review":
-                # Review-Modus: Claude + Codex parallel
+                # Review mode: Claude + Codex manual review flow
                 with runtime._process_lock:
                     busy = runtime._active_process and runtime._active_process.poll() is None
                 if busy:
@@ -82,7 +82,7 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 review_scope = data.get("scope", "project")  # project | last_task | custom
-                review_focus = data.get("focus", "all")       # all | security | bugs | performance
+                review_focus = data.get("focus", "all")      # all | security | bugs | performance
                 custom_scope = data.get("custom_scope", "")
 
                 thread = threading.Thread(
@@ -93,7 +93,7 @@ async def websocket_endpoint(ws: WebSocket):
                 thread.start()
 
             elif msg_type == "apply_fixes":
-                # Fixes aus Review anwenden
+                # Apply fixes from the stored review result
                 with runtime._process_lock:
                     busy = runtime._active_process and runtime._active_process.poll() is None
                 if busy:
@@ -118,7 +118,7 @@ async def websocket_endpoint(ws: WebSocket):
                 thread.start()
 
             elif msg_type == "stop":
-                # Session abbrechen
+                # Stop the current session
                 with runtime._process_lock:
                     runtime._task_cancelled = True
                     if runtime._active_process and runtime._active_process.poll() is None:

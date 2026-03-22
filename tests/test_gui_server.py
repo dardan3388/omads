@@ -198,7 +198,7 @@ def test_project_endpoints_enforce_home_boundary_and_missing_paths(
 
     response = client.post(
         "/api/projects",
-        json={"name": "Projekt A", "path": str(project_repo)},
+        json={"name": "Project A", "path": str(project_repo)},
     )
     assert response.status_code == 200
     payload = response.json()

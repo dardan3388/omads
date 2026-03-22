@@ -1,4 +1,4 @@
-"""Kompatibilitäts-Fassade für die modulare OMADS-GUI."""
+"""Compatibility facade for the modular OMADS GUI."""
 
 from __future__ import annotations
 

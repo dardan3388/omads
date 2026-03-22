@@ -1,4 +1,4 @@
-"""Gemeinsame Persistenz-, Status- und Projekt-Helfer fuer die OMADS GUI."""
+"""Shared persistence, status, and project helpers for the OMADS GUI."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _file_locks: dict[Path, threading.Lock] = {}
 
 
 def _get_file_lock(path: Path) -> threading.Lock:
-    """Gibt einen stabilen Lock pro Datei zurück."""
+    """Return one stable lock per file."""
     normalized = path.expanduser().resolve(strict=False)
     with _file_locks_guard:
         lock = _file_locks.get(normalized)
@@ -29,7 +29,7 @@ def _get_file_lock(path: Path) -> threading.Lock:
 
 
 def _write_text_file(path: Path, content: str, *, encoding: str = "utf-8") -> None:
-    """Schreibt eine Datei atomar unter einem per-Datei-Lock."""
+    """Write one file atomically under a per-file lock."""
     path = path.expanduser().resolve(strict=False)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f"{path.name}.tmp")
@@ -39,7 +39,7 @@ def _write_text_file(path: Path, content: str, *, encoding: str = "utf-8") -> No
 
 
 def _append_jsonl_line(path: Path, entry: dict[str, Any]) -> None:
-    """Hängt genau eine JSONL-Zeile thread-sicher an."""
+    """Append exactly one JSONL line in a thread-safe way."""
     path = path.expanduser().resolve(strict=False)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _get_file_lock(path):
@@ -48,7 +48,7 @@ def _append_jsonl_line(path: Path, entry: dict[str, Any]) -> None:
 
 
 def _read_json_text(path: Path, *, encoding: str = "utf-8") -> str:
-    """Liest eine Datei unter demselben per-Datei-Lock wie die Schreibpfade."""
+    """Read one file under the same per-file lock used by write paths."""
     path = path.expanduser().resolve(strict=False)
     with _get_file_lock(path):
         return path.read_text(encoding=encoding)
@@ -61,7 +61,7 @@ def _build_process_failure_text(
     result_text: str = "",
     output_lines: list[str] | None = None,
 ) -> str:
-    """Erzeugt eine nutzerlesbare Fehlermeldung für fehlgeschlagene CLI-Prozesse."""
+    """Build a user-readable error message for failed CLI processes."""
     detail = (result_text or "\n".join((output_lines or [])[-3:])).strip()
     text = f"{context} failed (exit code {returncode})."
     if detail:
@@ -69,7 +69,7 @@ def _build_process_failure_text(
         text += f" Last output: {compact}"
     return text
 
-# ─── Config-Datei (persistent) ────────────────────────────────────
+# ─── Config file (persistent) ─────────────────────────────────────
 
 _CONFIG_PATH = Path.home() / ".config" / "omads" / "gui_settings.json"
 _GUI_STATUS_PATH = Path.home() / ".config" / "omads" / "gui_status.json"
@@ -86,8 +86,8 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "claude_model": "sonnet",
     "claude_permission_mode": "default",  # default, auto, plan, bypassPermissions
     "claude_effort": "high",  # low, medium, high, max
-    # Codex CLI Auto-Review
-    "codex_model": "",  # Leer = Codex-Default (gpt-5.4)
+    # Codex CLI automatic review
+    "codex_model": "",  # Empty = Codex default (gpt-5.4)
     "codex_reasoning": "high",  # low, medium, high, xhigh
     "codex_fast": False,  # service_tier: fast vs default
     "auto_review": True,  # Run the current automatic breaker step after builder code changes
@@ -122,7 +122,7 @@ class SwitchProjectRequest(_RequestModel):
 
 
 def _load_config() -> dict[str, Any]:
-    """Lädt Settings aus ~/.config/omads/gui_settings.json."""
+    """Load settings from ~/.config/omads/gui_settings.json."""
     settings = dict(_DEFAULT_SETTINGS)
     if _CONFIG_PATH.exists():
         try:
@@ -134,29 +134,29 @@ def _load_config() -> dict[str, Any]:
 
 
 def _save_config(settings: dict[str, Any]) -> None:
-    """Speichert Settings persistent."""
+    """Persist settings."""
     _write_text_file(_CONFIG_PATH, json.dumps(settings, indent=2, ensure_ascii=False))
 
 
-# Globaler State — wird beim Start aus Config geladen
+# Global state loaded from config at startup
 _settings_lock = threading.RLock()
 _settings: dict[str, Any] = _load_config()
 
 
 def _get_settings_snapshot() -> dict[str, Any]:
-    """Liefert eine konsistente Kopie der aktuellen Einstellungen."""
+    """Return a consistent copy of the current settings."""
     with _settings_lock:
         return dict(_settings)
 
 
 def _get_setting(key: str, default: Any = None) -> Any:
-    """Liest genau einen Setting-Wert unter Lock."""
+    """Read exactly one setting value under lock."""
     with _settings_lock:
         return _settings.get(key, default)
 
 
 def _update_settings(update_fn: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
-    """Aktualisiert Settings atomar, persistiert sie und liefert einen Snapshot zurück."""
+    """Update settings atomically, persist them, and return a snapshot."""
     with _settings_lock:
         mutable = dict(_settings)
         update_fn(mutable)
@@ -182,7 +182,7 @@ _GUI_STATUS_DEFAULTS: dict[str, Any] = {
 
 
 def _load_gui_status() -> dict[str, Any]:
-    """Lädt den letzten bekannten GUI-Limitstatus."""
+    """Load the last known GUI limit status."""
     status = {
         "claude_limit": dict(_GUI_STATUS_DEFAULTS["claude_limit"]),
     }
@@ -197,7 +197,7 @@ def _load_gui_status() -> dict[str, Any]:
 
 
 def _save_gui_status() -> None:
-    """Speichert den letzten bekannten GUI-Limitstatus."""
+    """Persist the last known GUI limit status."""
     _write_text_file(_GUI_STATUS_PATH, json.dumps(_gui_status, indent=2, ensure_ascii=False))
 
 
@@ -212,20 +212,20 @@ _CLI_ENV_ALLOWLIST = {
 
 
 def _build_cli_env() -> dict[str, str]:
-    """Gibt eine schlanke, sichere ENV für Claude/Codex zurück."""
+    """Return a minimal, safe environment for Claude/Codex."""
     return {
         k: v for k, v in os.environ.items()
         if k in _CLI_ENV_ALLOWLIST and k != "CLAUDECODE"
     }
 
-# ─── Projekt-Registry (persistent) ────────────────────────────────
+# ─── Project registry (persistent) ────────────────────────────────
 
 _PROJECTS_PATH = Path.home() / ".config" / "omads" / "projects.json"
 _HISTORY_DIR = Path.home() / ".config" / "omads" / "history"
 
 
 def _load_projects() -> list[dict]:
-    """Lädt die Projekt-Registry."""
+    """Load the project registry."""
     if _PROJECTS_PATH.exists():
         try:
             return json.loads(_read_json_text(_PROJECTS_PATH))
@@ -235,7 +235,7 @@ def _load_projects() -> list[dict]:
 
 
 def _save_projects(projects: list[dict]) -> None:
-    """Speichert die Projekt-Registry."""
+    """Save the project registry."""
     _write_text_file(_PROJECTS_PATH, json.dumps(projects, indent=2, ensure_ascii=False))
 
 
@@ -243,28 +243,28 @@ _SAFE_PROJECT_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _validate_project_id(project_id: str) -> str:
-    """Validiert project_id gegen Path-Traversal (nur alphanumerisch, -, _)."""
+    """Validate project_id against path traversal (alphanumeric, -, _ only)."""
     if not project_id or not _SAFE_PROJECT_ID.match(project_id):
         raise ValueError(f"Invalid project ID: {project_id!r}")
     return project_id
 
 
 def _get_project_history_path(project_id: str) -> Path:
-    """Pfad zur Historie-Datei eines Projekts."""
+    """Return the path to one project's history file."""
     _validate_project_id(project_id)
     _HISTORY_DIR.mkdir(parents=True, exist_ok=True)
     return _HISTORY_DIR / f"{project_id}.jsonl"
 
 
 def _get_project_log_path(project_id: str) -> Path:
-    """Pfad zur Log-Datei eines Projekts."""
+    """Return the path to one project's log file."""
     _validate_project_id(project_id)
     _HISTORY_DIR.mkdir(parents=True, exist_ok=True)
     return _HISTORY_DIR / f"{project_id}_log.jsonl"
 
 
 def _append_history(project_id: str, entry: dict) -> None:
-    """Fügt einen Eintrag zur Projekt-Historie hinzu."""
+    """Append one entry to the project history."""
     from datetime import datetime
     entry["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     path = _get_project_history_path(project_id)
@@ -272,7 +272,7 @@ def _append_history(project_id: str, entry: dict) -> None:
 
 
 def _append_log(project_id: str, entry: dict) -> None:
-    """Fügt einen Log-Eintrag zur Projekt-Log-Datei hinzu."""
+    """Append one entry to the project log file."""
     from datetime import datetime
     _LOG_TYPES = {"task_start", "stream_text", "stream_tool", "agent_status",
                   "agent_activity", "task_complete", "task_stopped", "task_error",
@@ -285,7 +285,7 @@ def _append_log(project_id: str, entry: dict) -> None:
 
 
 def _read_history(project_id: str) -> list[dict]:
-    """Liest die letzten 200 Historie-Einträge eines Projekts (tail-read)."""
+    """Read the last 200 history entries for one project (tail read)."""
     from collections import deque
     path = _get_project_history_path(project_id)
     entries = []
@@ -307,7 +307,7 @@ def _read_history(project_id: str) -> list[dict]:
 
 
 def _read_log(project_id: str) -> list[dict]:
-    """Liest die letzten 500 Log-Einträge eines Projekts (tail-read)."""
+    """Read the last 500 log entries for one project (tail read)."""
     from collections import deque
     path = _get_project_log_path(project_id)
     entries = []
@@ -329,7 +329,7 @@ def _read_log(project_id: str) -> list[dict]:
 
 
 def _find_project_by_path(path: str) -> dict | None:
-    """Findet ein Projekt anhand seines Pfads."""
+    """Find one project by its path."""
     resolved = str(Path(path).resolve())
     for p in _load_projects():
         if p.get("path") == resolved:
@@ -338,7 +338,7 @@ def _find_project_by_path(path: str) -> dict | None:
 
 
 def _get_active_project_id() -> str | None:
-    """Gibt die ID des aktiven Projekts zurück."""
+    """Return the active project ID."""
     target = _get_setting("target_repo", "")
     if not target:
         return None
@@ -351,7 +351,7 @@ _gui_status: dict[str, Any] = _load_gui_status()
 
 
 def _get_gui_status_snapshot() -> dict[str, Any]:
-    """Gibt den zuletzt bekannten GUI-Status zurück."""
+    """Return the last known GUI status."""
     with _gui_status_lock:
         return {
             "claude_limit": dict(_gui_status["claude_limit"]),
@@ -359,13 +359,13 @@ def _get_gui_status_snapshot() -> dict[str, Any]:
 
 
 def _sync_gui_status_from_disk_locked() -> None:
-    """Zieht den letzten Stand aus der Datei nach, um Teil-Updates nicht zu überschreiben."""
+    """Refresh from disk to avoid overwriting partial updates."""
     latest = _load_gui_status()
     _gui_status["claude_limit"].update(latest["claude_limit"])
 
 
 def _update_claude_limit_status(rl_info: dict[str, Any], source: str) -> dict[str, Any]:
-    """Speichert echte Claude-Limitdaten aus einem rate_limit_event."""
+    """Store real Claude limit data from one rate_limit_event."""
     with _gui_status_lock:
         _sync_gui_status_from_disk_locked()
         limit = _gui_status["claude_limit"]
@@ -383,12 +383,12 @@ def _update_claude_limit_status(rl_info: dict[str, Any], source: str) -> dict[st
 
 
 def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
-    """Fragt Claude minimal ab, um echte Limitdaten zu erhalten."""
+    """Query Claude minimally to retrieve real limit data."""
     model = _get_setting("claude_model", "sonnet")
     cmd = [
         "claude",
         "-p",
-        "Antworte exakt mit OK.",
+        "Reply with exactly OK.",
         "--output-format",
         "stream-json",
         "--verbose",
@@ -446,24 +446,24 @@ _chat_sessions: dict[str, str] = _load_chat_sessions()
 
 
 def _get_chat_session(repo_key: str) -> str | None:
-    """Liest eine gespeicherte Claude-Session konsistent unter Lock."""
+    """Read one stored Claude session consistently under lock."""
     with _chat_sessions_lock:
         return _chat_sessions.get(repo_key)
 
 
 def _set_chat_session(repo_key: str, session_id: str) -> None:
-    """Aktualisiert eine Claude-Session atomar und persistiert sie."""
+    """Update one Claude session atomically and persist it."""
     with _chat_sessions_lock:
         _chat_sessions[repo_key] = session_id
         _save_chat_sessions(dict(_chat_sessions))
 
 
-# ─── Projekt-Memory (persistenter Kontext über Sessions hinweg) ───
+# ─── Project memory (persistent context across sessions) ──────────
 _MEMORY_DIR = Path.home() / ".config" / "omads" / "memory"
 
 
 def _get_memory_path(repo_path: str) -> Path:
-    """Gibt den Memory-Dateipfad für ein bestimmtes Repo zurück."""
+    """Return the memory file path for one repository."""
     import hashlib
     resolved = str(Path(repo_path).resolve())
     short_hash = hashlib.sha256(resolved.encode()).hexdigest()[:12]
@@ -472,10 +472,10 @@ def _get_memory_path(repo_path: str) -> Path:
 
 
 def _load_project_memory(repo_path: str) -> str:
-    """Lädt den persistenten Projektkontext (Memory + CLAUDE.md)."""
+    """Load persistent project context (memory + CLAUDE.md)."""
     parts: list[str] = []
 
-    # 1. CLAUDE.md des Zielprojekts lesen (wie Claude Code es tut)
+    # 1. Read the target project's CLAUDE.md (the way Claude Code does)
     claude_md = Path(repo_path) / "CLAUDE.md"
     if claude_md.exists():
         try:
@@ -484,7 +484,7 @@ def _load_project_memory(repo_path: str) -> str:
         except OSError:
             pass
 
-    # 2. Gespeicherte Projekt-Zusammenfassung laden
+    # 2. Load the stored project summary
     mem_path = _get_memory_path(repo_path)
     if mem_path.exists():
         try:
@@ -497,9 +497,9 @@ def _load_project_memory(repo_path: str) -> str:
 
 
 def _save_project_memory(repo_path: str, summary: str) -> None:
-    """Speichert eine Projekt-Zusammenfassung für die nächste Session."""
+    """Save one project summary for the next session."""
     mem_path = _get_memory_path(repo_path)
-    # Zusammenfassung mit Zeitstempel
+    # Prefix the summary with a timestamp
     from datetime import datetime, timezone
     header = f"Last updated: {datetime.now(timezone.utc).isoformat()}\n\n"
     _write_text_file(mem_path, header + summary[:6000], encoding="utf-8")

@@ -96,7 +96,7 @@
   /* ─── Main ─── */
   .main { flex: 1; display: flex; overflow: hidden; }
 
-  /* ─── Projekt-Sidebar ─── */
+  /* ─── Project sidebar ─── */
   .sidebar {
     width: 260px; min-width: 260px; background: var(--bg2);
     border-right: 1px solid var(--border); display: flex;
@@ -374,7 +374,7 @@
     background: #451a03; color: #fcd34d; border: 1px solid #92400e;
   }
 
-  /* Altes Banner für History-Einträge (Kompatibilität) */
+  /* Legacy banner for history entries (compatibility) */
   .result-banner {
     margin: 10px 0; padding: 10px 16px; border-radius: 8px;
     font-size: 13px; font-weight: bold;
@@ -635,9 +635,9 @@
   </div>
 </div>
 
-<!-- Main mit Sidebar -->
+<!-- Main layout with sidebar -->
 <div class="main">
-  <!-- Projekt-Sidebar -->
+  <!-- Project sidebar -->
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <span class="sidebar-title">Projects</span>
@@ -681,7 +681,7 @@
   </div>
 </div>
 
-<!-- Neues Projekt Modal -->
+<!-- New project modal -->
 <div class="modal-overlay" id="newProjectModal">
   <div class="modal" style="width:500px;">
     <h2>New Project</h2>
@@ -753,7 +753,7 @@
       <button class="tab" onclick="switchTab('tabCodex')">Codex</button>
     </div>
 
-    <!-- Tab: Projekt -->
+    <!-- Tab: Project -->
     <div class="tab-content active" id="tabProject">
       <div class="form-group">
         <label>Primary builder</label>
@@ -936,11 +936,11 @@ function connect() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${protocol}://${location.host}/ws`);
   ws.onopen = () => {
-    _reconnectDelay = 2000;  // Reset bei erfolgreicher Verbindung
+    _reconnectDelay = 2000;  // Reset after a successful connection
     el('connBadge').textContent = 'Connected';
     el('connBadge').classList.add('on');
     loadSettings();
-    loadProjects();  // Historie nach Reconnect/Neustart neu laden
+    loadProjects();  // Reload history after reconnect/restart
   };
   ws.onclose = () => {
     el('connBadge').textContent = 'Disconnected';
@@ -963,7 +963,7 @@ function handle(msg) {
 
   switch (msg.type) {
 
-    // ─ Chat-Antwort (einfache Fragen) ─
+    // ─ Chat response (simple questions) ─
     case 'chat_response':
       addAgent(msg.agent || 'OMADS', msg.text);
       unlock();
@@ -1105,7 +1105,7 @@ function applyFixes() {
 
 // ─── Nachricht senden ──────────────────
 function send() {
-  if (busy) return;  // Kein Senden während laufendem Task
+  if (busy) return;  // Do not send while a task is running
   const inp = el('input');
   const text = inp.value.trim();
   if (!text || !ws) return;
@@ -1165,7 +1165,7 @@ function addAgent(agent, text) {
 }
 
 function addToolBlock(agent, tool, desc, detail) {
-  // Leere Tool-Blöcke ignorieren
+  // Ignore empty tool blocks
   if (!tool && !desc) return;
 
   const s = el('stream');
@@ -1257,7 +1257,7 @@ function buildResultCard(msg) {
     details.push({ text: ci, color: '#f59e0b' });
   }
 
-  // Detail-ID für Toggle
+  // Detail ID for the toggle
   const detailId = 'rc-detail-' + Math.random().toString(36).slice(2, 8);
 
   let html = `
@@ -1335,7 +1335,7 @@ function resultAction(action, param) {
     el('input').value = '';
     el('input').focus();
   } else if (action === 'revise') {
-    // Task-Text ins Eingabefeld laden
+    // Load the task text back into the input field
     el('input').value = param || '';
     el('input').focus();
     el('input').style.height = 'auto';
@@ -1559,10 +1559,10 @@ function fmtTimestamp(unixTs) {
 function el(id) { return document.getElementById(id); }
 let _scrollRAF = 0;
 function scrollDown() {
-  if (_scrollRAF) return;  // Bereits geplant — kein doppelter Reflow
+  if (_scrollRAF) return;  // Already scheduled; avoid a duplicate reflow
   _scrollRAF = requestAnimationFrame(() => {
     const s = el('stream');
-    // DOM-Limit: max 500 Chat-Elemente, älteste entfernen
+    // DOM limit: max 500 chat items, remove the oldest ones
     while (s.children.length > 500) s.removeChild(s.firstChild);
     s.scrollTop = s.scrollHeight;
     _scrollRAF = 0;
@@ -1570,9 +1570,9 @@ function scrollDown() {
 }
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 function formatMsg(text) {
-  // Einfaches Markdown-Rendering: Code-Blöcke, Inline-Code, Fett, Kursiv, Listen, Links, Zeilenumbrüche
+  // Simple Markdown rendering: code blocks, inline code, bold, italic, lists, links, line breaks
   let html = esc(text);
-  // Code-Blöcke (```...```)
+  // Code blocks (```...```)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:8px 12px;border-radius:6px;overflow-x:auto;margin:6px 0;font-size:13px;border:1px solid var(--border)"><code>$2</code></pre>');
   // Inline-Code (`...`)
   html = html.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:13px">$1</code>');
@@ -1580,7 +1580,7 @@ function formatMsg(text) {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Kursiv (*...*)
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Überschriften (### / ## / #)
+  // Headings (### / ## / #)
   html = html.replace(/^### (.+)$/gm, '<strong style="font-size:14px">$1</strong>');
   html = html.replace(/^## (.+)$/gm, '<strong style="font-size:15px">$1</strong>');
   html = html.replace(/^# (.+)$/gm, '<strong style="font-size:16px">$1</strong>');
@@ -1588,9 +1588,9 @@ function formatMsg(text) {
   html = html.replace(/^[\-\*] (.+)$/gm, '  • $1');
   // Nummerierte Listen (1. item)
   html = html.replace(/^(\d+)\. (.+)$/gm, '  $1. $2');
-  // Zeilenumbrüche
+  // Line breaks
   html = html.replace(/\n/g, '<br>');
-  // Doppelte <br> nach <pre> entfernen
+  // Remove duplicate <br> after <pre>
   html = html.replace(/<\/pre><br>/g, '</pre>');
   html = html.replace(/<br><pre/g, '<pre');
   return html;
@@ -1629,14 +1629,14 @@ function switchLogTab(tab) {
 }
 
 function logEvent(msg) {
-  // Nur relevante Agenten-Events loggen
+  // Log only relevant agent events
   const logTypes = ['task_start', 'stream_text', 'stream_tool', 'agent_status',
     'agent_activity', 'task_complete', 'task_stopped', 'task_error', 'chat_response',
     'stream_thinking', 'stream_result'];
   if (!logTypes.includes(msg.type)) return;
 
   const container = el('livelogContent');
-  // Leere "Warte auf Aktivität" entfernen
+  // Remove the empty "Waiting for activity" state
   const empty = container.querySelector('.livelog-empty');
   if (empty) empty.remove();
 
@@ -1713,19 +1713,19 @@ function logEvent(msg) {
   d.dataset.agent = agentCls;
   d.innerHTML = `<span class="log-time">${dateStr} ${timeStr}</span><span class="log-agent ${agentCls}">${esc(agent)}</span><span class="log-type">[${typeLabel}]</span><span class="log-msg ${msgCls}">${esc(msgText)}</span>`;
 
-  // Filter prüfen
+  // Apply the active filter
   if (_logFilter !== 'all') {
     if (_logFilter === 'claude' && agentCls !== 'claude') d.style.display = 'none';
     else if (_logFilter === 'codex' && agentCls !== 'codex') d.style.display = 'none';
   }
 
   container.appendChild(d);
-  // DOM-Limit: max 1000 Log-Einträge, älteste entfernen
+  // DOM limit: max 1000 log entries, remove the oldest ones
   while (container.children.length > 1000) container.removeChild(container.firstChild);
   container.scrollTop = container.scrollHeight;
 }
 
-// ─── Projekt-Management ─────────────────
+// ─── Project management ─────────────────
 let _projects = [];
 let _activeProjectId = null;
 let _npFpPath = '~';
@@ -1735,7 +1735,7 @@ async function loadProjects() {
     const res = await fetch('/api/projects');
     _projects = await res.json();
     renderProjects();
-    // Aktives Projekt anhand target_repo finden
+    // Find the active project using target_repo
     const settings = await (await fetch('/api/settings')).json();
     const repo = settings.target_repo || '';
     const active = _projects.find(p => p.path === repo);
@@ -1756,7 +1756,7 @@ function renderProjects() {
     list.innerHTML = '<div class="history-empty">No project created yet.<br>Click "+ New" to get started.</div>';
     return;
   }
-  // Sortiere nach last_used (neueste zuerst)
+  // Sort by last_used (newest first)
   const sorted = [..._projects].sort((a, b) => (b.last_used || '').localeCompare(a.last_used || ''));
   list.innerHTML = '';
   for (const p of sorted) {
@@ -1775,7 +1775,7 @@ function renderProjects() {
         <button class="btn-delete-project" data-id="${esc(p.id)}" data-name="${esc(p.name)}" title="Delete project" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
       </div>
     `;
-    // Event-Listener statt Inline-onclick (verhindert XSS über Projektnamen)
+    // Event listener instead of inline onclick to prevent XSS via project names
     const delBtn = d.querySelector('.btn-delete-project');
     if (delBtn) {
       delBtn.addEventListener('click', (e) => {
@@ -1800,10 +1800,10 @@ async function switchProject(projectId) {
       _activeProjectId = projectId;
       el('repoBadge').textContent = shortPath(data.project.path);
       renderProjects();
-      // Chat leeren und Historie ins Chat-Fenster laden
+      // Clear the chat and load project history into the chat panel
       el('stream').innerHTML = '';
       await loadHistoryIntoChat(projectId, data.project.name);
-      // Log-Panel leeren und Log-History des Projekts laden
+      // Clear the log panel and load the project's log history
       await loadProjectLogs(projectId);
     }
   } catch (e) {}
@@ -1858,7 +1858,7 @@ function pickNewProjectFolder() {
   const btn = el('npFolderPicker').querySelector('.btn-pick');
   btn.textContent = '✓ Selected';
   setTimeout(() => { btn.textContent = 'Select'; }, 1200);
-  // Auto-Name aus Ordnername wenn leer
+  // Auto-fill the name from the folder name if the field is empty
   if (!el('npName').value.trim()) {
     const parts = _npFpPath.split('/');
     el('npName').value = parts[parts.length - 1] || '';
@@ -1892,7 +1892,7 @@ async function createProject() {
 async function loadHistoryIntoChat(projectId, projectName) {
   const s = el('stream');
 
-  // Projekt-Header
+  // Project header
   s.innerHTML = `<div class="msg-system">Project: ${esc(projectName)}</div>`;
 
   try {
@@ -1910,13 +1910,13 @@ async function loadHistoryIntoChat(projectId, projectName) {
     divider.textContent = `History (${entries.length} entries)`;
     s.appendChild(divider);
 
-    // Chronologisch (älteste zuerst) — wie ein echter Chat-Verlauf
+    // Chronological order (oldest first), like a real chat history
     let lastDate = '';
     for (const e of entries) {
       const time = e.timestamp || '';
       const dateOnly = time.split(' ')[0] || '';
 
-      // Datums-Trenner wenn neuer Tag
+      // Date divider when a new day starts
       if (dateOnly && dateOnly !== lastDate) {
         const dt = document.createElement('div');
         dt.className = 'msg-timestamp';
@@ -1942,7 +1942,7 @@ async function loadHistoryIntoChat(projectId, projectName) {
         if (e.files_changed) d.innerHTML += `<span style="font-size:11px;opacity:0.7;margin-left:8px;">(${e.files_changed} file${e.files_changed > 1 ? 's' : ''})</span>`;
         s.appendChild(d);
       } else if (e.type === 'claude_response' || e.type === 'builder_response') {
-        // Builder-Antwort (Claude Code / Codex)
+        // Builder response (Claude Code / Codex)
         const da = document.createElement('div');
         da.className = 'msg msg-agent';
         let meta = '';
@@ -1958,7 +1958,7 @@ async function loadHistoryIntoChat(projectId, projectName) {
         dq.className = 'msg msg-user';
         dq.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(e.question)}`;
         s.appendChild(dq);
-        // Antwort
+        // Response
         if (e.answer) {
           const da = document.createElement('div');
           da.className = 'msg msg-agent';
@@ -1968,7 +1968,7 @@ async function loadHistoryIntoChat(projectId, projectName) {
       }
     }
 
-    // Trennlinie: Jetzt
+    // Divider: Now
     const now = document.createElement('div');
     now.className = 'msg-history-divider';
     now.textContent = 'Now';
@@ -2020,7 +2020,7 @@ async function checkHealth() {
 
     const allOk = h.claude?.installed && h.codex?.installed && h.claude?.authenticated !== false;
     if (allOk) {
-      // Alles installiert — kurze Bestätigung, auto-hide nach 5s
+      // Everything installed: show a short confirmation and auto-hide after 5s
       banner.className = 'onboard-banner';
       banner.innerHTML = `<div class="onboard-ok">Claude Code CLI ${h.claude.version ? '(' + esc(h.claude.version) + ')' : ''} + Codex CLI ${h.codex.version ? '(' + esc(h.codex.version) + ')' : ''} — ready.</div>`;
       banner.style.display = '';
@@ -2028,7 +2028,7 @@ async function checkHealth() {
       return;
     }
 
-    // Mindestens ein CLI fehlt — ausführliches Banner
+    // At least one CLI is missing: show the full onboarding banner
     let html = '<h3>Setup required</h3>';
     html += '<div class="cli-status">';
 
@@ -2075,13 +2075,13 @@ async function checkHealth() {
     banner.innerHTML = html;
     banner.style.display = '';
   } catch (e) {
-    // Health-Endpoint nicht erreichbar — ignorieren
+    // Ignore an unreachable health endpoint
   }
 }
 
 // ─── Init ──────────────────────────────
 connect();
-// loadProjects() wird in ws.onopen aufgerufen (nicht doppelt)
+// loadProjects() is called in ws.onopen (do not call it twice)
 checkHealth();
 el('input').focus();
 </script>

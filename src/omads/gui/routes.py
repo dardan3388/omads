@@ -1,4 +1,4 @@
-"""REST-Routen der OMADS GUI."""
+"""REST routes for the OMADS GUI."""
 
 from __future__ import annotations
 
@@ -33,13 +33,13 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 async def index():
-    """Liefert das Frontend."""
+    """Serve the frontend."""
     gui_dir = Path(__file__).parent
     html_path = gui_dir / "frontend.html"
     return HTMLResponse(html_path.read_text())
 
 
-# ─── REST Endpoints ──────────────────────────────────────────────
+# ─── REST endpoints ──────────────────────────────────────────────
 
 @router.get("/api/settings")
 async def get_settings():
@@ -64,19 +64,19 @@ async def update_settings(data: UpdateSettingsRequest):
     payload = data.model_dump(exclude_none=True)
 
     def apply_updates(settings: dict[str, Any]) -> None:
-        # Security: Nur bekannte Keys mit korrekten Typen akzeptieren
+        # Security: accept only known keys with the correct types
         for key, value in payload.items():
             if key not in _ALLOWED_SETTINGS:
                 continue
             expected_type = _ALLOWED_SETTINGS[key]
             if not isinstance(value, expected_type):
                 continue
-            # target_repo braucht Extra-Validierung (is_dir + Home-Check)
+            # target_repo needs extra validation (is_dir + home boundary check)
             if key == "target_repo":
                 resolved = Path(value).resolve()
                 home_dir = Path.home().resolve()
                 if not resolved.is_dir() or (resolved != home_dir and not str(resolved).startswith(str(home_dir) + "/")):
-                    continue  # Ungültigen Pfad still ignorieren
+                    continue  # Silently ignore invalid paths
                 settings[key] = str(resolved)
             else:
                 settings[key] = value
@@ -173,11 +173,11 @@ async def get_repo_diff():
 
 @router.get("/api/browse")
 async def browse_directory(path: str = "~"):
-    """Listet Unterverzeichnisse eines Pfads auf (für den Ordner-Picker)."""
+    """List subdirectories for the folder picker."""
     try:
         target = Path(path).expanduser().resolve()
 
-        # Security: Nur Home-Verzeichnis und Unterverzeichnisse erlauben
+        # Security: allow only the home directory and its descendants
         allowed_base = Path.home().resolve()
         if not (target == allowed_base or str(target).startswith(str(allowed_base) + "/")):
             return {"error": "Access is allowed only inside the home directory", "path": str(target), "dirs": []}
@@ -205,17 +205,17 @@ async def browse_directory(path: str = "~"):
         return {"error": str(e), "path": path, "dirs": []}
 
 
-# ─── Projekt-Management Endpoints ─────────────────────────────────
+# ─── Project management endpoints ─────────────────────────────────
 
 @router.get("/api/projects")
 async def list_projects():
-    """Listet alle registrierten Projekte auf."""
+    """List all registered projects."""
     return _load_projects()
 
 
 @router.post("/api/projects")
 async def create_project(data: CreateProjectRequest):
-    """Erstellt ein neues Projekt."""
+    """Create a new project."""
     from datetime import datetime
     import hashlib
 
@@ -231,7 +231,7 @@ async def create_project(data: CreateProjectRequest):
     if resolved != home_str and not resolved.startswith(home_str + "/"):
         return {"error": "Only directories inside $HOME are allowed"}
 
-    # Prüfe ob Projekt mit diesem Pfad bereits existiert
+    # Check whether a project with this path already exists
     existing = _find_project_by_path(resolved)
     if existing:
         return {"error": f"Project '{existing['name']}' already exists for this path"}
@@ -249,7 +249,7 @@ async def create_project(data: CreateProjectRequest):
     projects.append(project)
     _save_projects(projects)
 
-    # Direkt zu diesem Projekt wechseln
+    # Switch to this project immediately
     _update_settings(lambda settings: settings.__setitem__("target_repo", resolved))
 
     return {"ok": True, "project": project}
@@ -257,7 +257,7 @@ async def create_project(data: CreateProjectRequest):
 
 @router.post("/api/projects/switch")
 async def switch_project(data: SwitchProjectRequest):
-    """Wechselt zum angegebenen Projekt."""
+    """Switch to the requested project."""
     from datetime import datetime
 
     project_id = data.id
@@ -265,7 +265,7 @@ async def switch_project(data: SwitchProjectRequest):
 
     for p in projects:
         if p["id"] == project_id:
-            # Pfad validieren (könnte gelöscht/verschoben worden sein)
+            # Validate the path because the directory may have been moved or deleted
             proj_path = Path(p["path"])
             if not proj_path.is_dir():
                 return {"error": f"Directory no longer exists: {p['path']}"}
@@ -280,7 +280,7 @@ async def switch_project(data: SwitchProjectRequest):
 
 @router.delete("/api/projects/{project_id}")
 async def delete_project(project_id: str):
-    """Entfernt ein Projekt aus der Registry (Dateien bleiben erhalten)."""
+    """Remove a project from the registry while keeping its files."""
     try:
         _validate_project_id(project_id)
     except ValueError:
@@ -293,7 +293,7 @@ async def delete_project(project_id: str):
 
 @router.get("/api/projects/{project_id}/history")
 async def get_project_history(project_id: str):
-    """Gibt die komplette Historie eines Projekts zurück."""
+    """Return the full history for one project."""
     try:
         return _read_history(project_id)
     except ValueError:
@@ -302,7 +302,7 @@ async def get_project_history(project_id: str):
 
 @router.get("/api/projects/{project_id}/logs")
 async def get_project_logs(project_id: str):
-    """Gibt die Log-Einträge eines Projekts zurück."""
+    """Return the log entries for one project."""
     try:
         return _read_log(project_id)
     except ValueError:
@@ -311,12 +311,12 @@ async def get_project_logs(project_id: str):
 
 @router.get("/api/health")
 async def get_health():
-    """Prüft ob Claude Code CLI und Codex CLI verfügbar sind."""
+    """Check whether Claude Code CLI and Codex CLI are available."""
     import shutil
 
     result: dict[str, Any] = {"claude": {"installed": False}, "codex": {"installed": False}}
 
-    # Claude Code CLI prüfen
+    # Check Claude Code CLI
     claude_path = shutil.which("claude")
     if claude_path:
         result["claude"]["installed"] = True
@@ -327,14 +327,14 @@ async def get_health():
             )
             result["claude"]["version"] = ver.stdout.strip() or ver.stderr.strip()
         except Exception:
-            result["claude"]["version"] = "unbekannt"
-        # Auth prüfen: ~/.claude/.credentials.json muss existieren
+            result["claude"]["version"] = "unknown"
+        # Check authentication: ~/.claude/.credentials.json must exist
         creds = Path.home() / ".claude" / ".credentials.json"
         result["claude"]["authenticated"] = creds.exists()
     else:
         result["claude"]["hint"] = "npm install -g @anthropic-ai/claude-code"
 
-    # Codex CLI prüfen
+    # Check Codex CLI
     codex_path = shutil.which("codex")
     if codex_path:
         result["codex"]["installed"] = True
@@ -345,11 +345,11 @@ async def get_health():
             )
             result["codex"]["version"] = ver.stdout.strip() or ver.stderr.strip()
         except Exception:
-            result["codex"]["version"] = "unbekannt"
+            result["codex"]["version"] = "unknown"
     else:
         result["codex"]["hint"] = "npm install -g @openai/codex"
 
-    # Python-Version
+    # Python version
     import sys
     result["python"] = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
@@ -358,15 +358,15 @@ async def get_health():
 
 @router.get("/api/status")
 async def get_status():
-    """Gibt OMADS-Systemstatus zurück."""
+    """Return OMADS system status."""
     from omads.dna.cold_start import get_current_phase
-    phase = "unbekannt"
+    phase = "unknown"
     try:
         phase = get_current_phase(get_dna_dir()).value
     except Exception:
         pass
 
-    # Ledger-Einträge zählen
+    # Count ledger entries
     ledger_count = 0
     ledger_path = get_data_dir() / "ledger" / "task_history.jsonl"
     if ledger_path.exists():
@@ -383,7 +383,7 @@ async def get_status():
 
 @router.get("/api/ledger")
 async def get_ledger():
-    """Gibt die letzten 20 Ledger-Einträge zurück."""
+    """Return the latest 20 ledger entries."""
     from collections import deque
     ledger_path = get_data_dir() / "ledger" / "task_history.jsonl"
     entries = []
