@@ -10,6 +10,7 @@ The format is loosely based on Keep a Changelog.
 
 - Added `start-omads.sh` as a one-command local launcher for Linux/macOS.
 - Added `python -m omads` support through `src/omads/__main__.py`.
+- Added mock-based tests for WebSocket guardrails, Codex auto-review outcomes, review fix suggestions, and Claude/Codex handoff flows without requiring live CLI access.
 
 ### Changed
 

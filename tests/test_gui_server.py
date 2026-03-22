@@ -10,12 +10,49 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omads.gui import runtime, server, state
+from omads.gui import runtime, server, state, websocket
+
+
+class DummyStream:
+    def __init__(self, lines: list[str] | None = None):
+        self._lines = list(lines or [])
+        self._index = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._index >= len(self._lines):
+            raise StopIteration
+        line = self._lines[self._index]
+        self._index += 1
+        return line
+
+    def readline(self):
+        if self._index >= len(self._lines):
+            return ""
+        line = self._lines[self._index]
+        self._index += 1
+        return line
+
+
+class DummyStdin:
+    def __init__(self):
+        self.buffer = ""
+        self.closed = False
+
+    def write(self, text: str):
+        self.buffer += text
+        return len(text)
+
+    def close(self):
+        self.closed = True
 
 
 class DummyProcess:
     def __init__(self, lines: list[str] | None = None, returncode: int = 0):
-        self.stdout = iter(lines or [])
+        self.stdout = DummyStream(lines)
+        self.stdin = DummyStdin()
         self.returncode = returncode
         self.killed = False
 
@@ -27,6 +64,23 @@ class DummyProcess:
 
     def poll(self):
         return None if not self.killed else self.returncode
+
+
+class BusyProcess:
+    def poll(self):
+        return None
+
+
+class NoopThread:
+    def __init__(self, target=None, args=(), daemon=None, kwargs=None):
+        self.target = target
+        self.args = args
+        self.kwargs = kwargs or {}
+        self.daemon = daemon
+        self.started = False
+
+    def start(self):
+        self.started = True
 
 
 @pytest.fixture()
@@ -208,3 +262,214 @@ def test_review_step_one_failure_emits_task_error_and_unlock(isolated_server, mo
     assert any(msg["type"] == "task_error" and "exit code 7" in msg["text"].lower() for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
     assert not any(msg["type"] == "agent_status" and "Step 1/3 done" in msg.get("status", "") for msg in messages)
+
+
+def test_websocket_chat_validates_length_and_rate_limit(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    started_threads: list[NoopThread] = []
+
+    def build_thread(*args, **kwargs):
+        thread = NoopThread(*args, **kwargs)
+        started_threads.append(thread)
+        return thread
+
+    monkeypatch.setattr(websocket.threading, "Thread", build_thread)
+
+    with client.websocket_connect("/ws") as ws_client:
+        ws_client.send_json({"type": "chat", "text": "x" * 50001})
+        message = ws_client.receive_json()
+        assert message["type"] == "error"
+        assert "Message too long" in message["text"]
+
+        ws_client.send_json({"type": "chat", "text": "first"})
+        ws_client.send_json({"type": "chat", "text": "second"})
+        message = ws_client.receive_json()
+        assert message["type"] == "error"
+        assert "Too fast" in message["text"]
+
+    assert len(started_threads) == 1
+    assert started_threads[0].started is True
+    assert started_threads[0].target is runtime._run_claude_session_thread
+    assert started_threads[0].args[1] == "first"
+
+
+def test_websocket_apply_fixes_and_set_repo_errors(client: TestClient, isolated_server):
+    valid_repo = isolated_server["home_dir"] / "project-b"
+    valid_repo.mkdir()
+    missing_dir = isolated_server["home_dir"] / "missing-dir"
+
+    with client.websocket_connect("/ws") as ws_client:
+        ws_client.send_json({"type": "apply_fixes"})
+        message = ws_client.receive_json()
+        assert message["type"] == "error"
+        assert message["text"] == "No review fixes are available"
+
+        ws_client.send_json({"type": "set_repo", "path": str(valid_repo)})
+        message = ws_client.receive_json()
+        assert message == {"type": "system", "text": f"Project: {valid_repo.resolve()}"}
+        assert state._get_setting("target_repo") == str(valid_repo.resolve())
+
+        ws_client.send_json({"type": "set_repo", "path": str(missing_dir)})
+        message = ws_client.receive_json()
+        assert message["type"] == "error"
+        assert "Not a directory" in message["text"]
+
+
+def test_websocket_rejects_new_work_while_task_is_running(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(runtime, "_active_process", BusyProcess())
+
+    with client.websocket_connect("/ws") as ws_client:
+        ws_client.send_json({"type": "review", "scope": "project", "focus": "all"})
+        message = ws_client.receive_json()
+        assert message["type"] == "error"
+        assert "A task is already running" in message["text"]
+
+
+def test_codex_auto_review_returns_none_when_no_issues_found(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    process = DummyProcess(lines=[
+        json.dumps({
+            "type": "item.completed",
+            "item": {"text": "## Files reviewed\n- app.py: Handles requests\n\n## Result\nNo issues found."},
+        }) + "\n"
+    ])
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+    monkeypatch.setattr("threading.Thread", NoopThread)
+
+    result = runtime._run_codex_auto_review(
+        None,
+        str(isolated_server["repo_dir"].resolve()),
+        ["src/app.py"],
+        messages.append,
+    )
+
+    assert result is None
+    assert "Changed files: app.py" in process.stdin.buffer
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "All clear" for msg in messages)
+
+
+def test_codex_auto_review_returns_findings_without_live_codex(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    process = DummyProcess(lines=[
+        json.dumps({
+            "type": "item.completed",
+            "item": {"text": "## Findings\n- [HIGH] app.py: missing validation"},
+        }) + "\n"
+    ])
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+    monkeypatch.setattr("threading.Thread", NoopThread)
+
+    result = runtime._run_codex_auto_review(
+        None,
+        str(isolated_server["repo_dir"].resolve()),
+        ["src/app.py"],
+        messages.append,
+    )
+
+    assert result == "## Findings\n- [HIGH] app.py: missing validation"
+    assert any(msg["type"] == "agent_activity" and msg.get("activity") == "finding" for msg in messages)
+    assert any(
+        msg["type"] == "agent_status" and "Findings detected -> Claude Code is fixing" in msg.get("status", "")
+        for msg in messages
+    )
+
+
+def test_review_thread_emits_fix_suggestion_flow_without_live_clis(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    processes = [
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "review-session-1",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "Claude review output"}]},
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "type": "item.completed",
+                "item": {"text": "## Findings\n- [HIGH] api.py: race condition"},
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "review-session-2",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "## Final fix plan\n- api.py:10: add a lock\nFIXES_NEEDED: true"}]},
+            }) + "\n"
+        ]),
+    ]
+
+    def popen(*args, **kwargs):
+        return processes.pop(0)
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_review_thread(None, "custom", "bugs", "src/api.py")
+
+    assert state._get_chat_session(repo_key) == "review-session-2"
+    assert runtime._pending_review_fixes[repo_key].startswith("## Final fix plan")
+    assert any(msg["type"] == "review_fixes_available" for msg in messages)
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "Step 3/3 done" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_claude_task_runs_fix_pass_after_auto_review_findings(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    processes = [
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "claude-session-1",
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "name": "Write", "input": {"file_path": "src/app.py", "content": "print('hi')"}},
+                        {"type": "text", "text": "Initial implementation done"},
+                    ]
+                },
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "claude-session-2",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "Applied the requested fixes"}]},
+            }) + "\n"
+        ]),
+    ]
+
+    def popen(*args, **kwargs):
+        return processes.pop(0)
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_run_codex_auto_review", lambda ws, target_repo, files_changed, send: "Fix this issue")
+
+    runtime._run_claude_session_thread(None, "Implement a feature")
+
+    assert state._get_chat_session(repo_key) == "claude-session-2"
+    assert runtime._last_files_changed == ["src/app.py"]
+    assert any(
+        msg["type"] == "agent_status" and msg.get("status") == "Fixing Codex findings..."
+        for msg in messages
+    )
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "Fixes applied" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)

@@ -15,7 +15,7 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 ## Now
 
 - [ ] Expand test coverage
-  The modular backend split is covered by smoke tests, but auto-review, WebSocket behavior, and more GUI failure paths still need deeper coverage.
+  WebSocket guardrails, mocked auto-review, and mocked review-fix handoff flows are now covered. Remaining gaps are broader browser-side UI behavior and more end-to-end integration scenarios.
 
 ## Next
 

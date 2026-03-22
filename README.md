@@ -49,7 +49,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The current tests cover server startup, security headers, settings and project validation, log filtering, chat-session persistence, and core Claude/review failure paths.
+The current tests cover server startup, security headers, settings and project validation, WebSocket guardrails, log filtering, chat-session persistence, mocked Codex auto-review outcomes, and mocked Claude/Codex review-fix handoff paths without requiring live CLI quota.
 
 ---
 
