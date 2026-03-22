@@ -226,6 +226,7 @@ def _build_cli_env() -> dict[str, str]:
 
 _PROJECTS_PATH = Path.home() / ".config" / "omads" / "projects.json"
 _HISTORY_DIR = Path.home() / ".config" / "omads" / "history"
+_TIMELINE_DIR = Path.home() / ".config" / "omads" / "timeline"
 
 
 def _load_projects() -> list[dict]:
@@ -267,6 +268,13 @@ def _get_project_log_path(project_id: str) -> Path:
     return _HISTORY_DIR / f"{project_id}_log.jsonl"
 
 
+def _get_project_timeline_path(project_id: str) -> Path:
+    """Return the path to one project's unified event timeline."""
+    _validate_project_id(project_id)
+    _TIMELINE_DIR.mkdir(parents=True, exist_ok=True)
+    return _TIMELINE_DIR / f"{project_id}.jsonl"
+
+
 def _append_history(project_id: str, entry: dict) -> None:
     """Append one entry to the project history."""
     from datetime import datetime
@@ -286,6 +294,18 @@ def _append_log(project_id: str, entry: dict) -> None:
     entry["timestamp"] = datetime.now().strftime("%d.%m. %H:%M:%S")
     path = _get_project_log_path(project_id)
     _append_jsonl_line(path, entry)
+
+
+def _append_timeline_event(project_id: str, entry: dict) -> None:
+    """Append one event to the unified project timeline."""
+    from datetime import datetime, timezone
+
+    event = dict(entry)
+    now = datetime.now(timezone.utc)
+    event.setdefault("timestamp", now.isoformat())
+    event.setdefault("timestamp_display", now.strftime("%Y-%m-%d %H:%M:%S"))
+    path = _get_project_timeline_path(project_id)
+    _append_jsonl_line(path, event)
 
 
 def _read_history(project_id: str) -> list[dict]:
@@ -327,6 +347,27 @@ def _read_log(project_id: str) -> list[dict]:
                         entries.append(json.loads(line))
                     except json.JSONDecodeError:
                         pass
+        except OSError:
+            pass
+    return entries
+
+
+def _read_timeline(project_id: str) -> list[dict]:
+    """Read the full unified event timeline for one project."""
+    path = _get_project_timeline_path(project_id)
+    entries: list[dict] = []
+    if path.exists():
+        try:
+            with _get_file_lock(path):
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
         except OSError:
             pass
     return entries

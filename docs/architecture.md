@@ -161,6 +161,7 @@ Runtime data is stored below `~/.config/omads/`:
 - `gui_status.json`
 - `projects.json`
 - `chat_sessions.json`
+- `timeline/` for the unified per-project event stream used by both the chat view and live log
 - `history/`
 - `memory/`
 

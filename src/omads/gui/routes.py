@@ -24,6 +24,7 @@ from .state import (
     _load_projects,
     _read_history,
     _read_log,
+    _read_timeline,
     _save_projects,
     _update_settings,
     _validate_project_id,
@@ -315,6 +316,15 @@ async def get_project_logs(project_id: str):
     """Return the log entries for one project."""
     try:
         return _read_log(project_id)
+    except ValueError:
+        return {"error": "Invalid project ID"}
+
+
+@router.get("/api/projects/{project_id}/timeline")
+async def get_project_timeline(project_id: str):
+    """Return the unified event timeline for one project."""
+    try:
+        return _read_timeline(project_id)
     except ValueError:
         return {"error": "Invalid project ID"}
 

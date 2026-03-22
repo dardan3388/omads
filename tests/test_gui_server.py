@@ -104,6 +104,7 @@ def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(state, "_GUI_STATUS_PATH", home_dir / ".config" / "omads" / "gui_status.json")
     monkeypatch.setattr(state, "_PROJECTS_PATH", home_dir / ".config" / "omads" / "projects.json")
     monkeypatch.setattr(state, "_HISTORY_DIR", home_dir / ".config" / "omads" / "history")
+    monkeypatch.setattr(state, "_TIMELINE_DIR", home_dir / ".config" / "omads" / "timeline")
     monkeypatch.setattr(state, "_CHAT_SESSIONS_PATH", home_dir / ".config" / "omads" / "chat_sessions.json")
     monkeypatch.setattr(state, "_MEMORY_DIR", home_dir / ".config" / "omads" / "memory")
     monkeypatch.setattr(state, "_settings", copy.deepcopy(state._DEFAULT_SETTINGS))
@@ -248,19 +249,27 @@ def test_project_duplicate_invalid_id_history_and_log_endpoints(client: TestClie
 
     state._append_history(project_id, {"type": "user_input", "text": "hello"})
     state._append_log(project_id, {"type": "stream_text", "agent": "Claude", "text": "world"})
+    state._append_timeline_event(project_id, {"type": "user_input", "text": "hello"})
+    state._append_timeline_event(project_id, {"type": "stream_text", "agent": "Claude", "text": "world"})
 
     history = client.get(f"/api/projects/{project_id}/history")
     logs = client.get(f"/api/projects/{project_id}/logs")
+    timeline = client.get(f"/api/projects/{project_id}/timeline")
     assert history.status_code == 200
     assert logs.status_code == 200
+    assert timeline.status_code == 200
     assert history.json()[0]["text"] == "hello"
     assert logs.json()[0]["text"] == "world"
+    assert timeline.json()[0]["type"] == "user_input"
+    assert timeline.json()[1]["type"] == "stream_text"
 
     invalid_history = client.get("/api/projects/bad.id/history")
     invalid_logs = client.get("/api/projects/bad.id/logs")
+    invalid_timeline = client.get("/api/projects/bad.id/timeline")
     invalid_delete = client.delete("/api/projects/bad.id")
     assert invalid_history.json()["error"] == "Invalid project ID"
     assert invalid_logs.json()["error"] == "Invalid project ID"
+    assert invalid_timeline.json()["error"] == "Invalid project ID"
     assert invalid_delete.json()["error"] == "Invalid project ID"
 
 

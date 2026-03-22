@@ -137,7 +137,7 @@
 
   .history-empty { padding: 14px; font-size: 12px; color: var(--text-dim); text-align: center; }
 
-  /* ─── Timestamp im Chat-Stream ─── */
+  /* ─── Timestamps In The Chat Stream ─── */
   .msg-timestamp {
     font-size: 10px; color: var(--text-dim); padding: 12px 0 4px;
     text-align: center; opacity: 0.6;
@@ -287,7 +287,7 @@
   .agent-name.system { color: var(--yellow); }
   .agent-name.omads { color: var(--accent); }
 
-  /* Tool-Call Block (klappbar, wie Claude Code) */
+  /* Collapsible tool-call block, similar to Claude Code */
   .tool-block {
     margin: 3px 0; border-left: 3px solid var(--border);
     background: var(--tool-surface); border-radius: 0 6px 6px 0;
@@ -997,40 +997,36 @@ function connect() {
 }
 
 function handle(msg) {
-  const s = el('stream');
-
-  // === Live-Log: JEDES Event loggen ===
+  // Keep the raw event timeline visible in the log panel as well
   logEvent(msg);
+  renderChatEvent(msg);
+}
 
+function renderChatEvent(msg, { historical = false } = {}) {
+  const s = el('stream');
   switch (msg.type) {
 
-    // ─ Chat response (simple questions) ─
     case 'chat_response':
       addAgent(msg.agent || 'OMADS', msg.text);
-      unlock();
+      if (!historical) unlock();
       break;
 
-    // ─ Task Start ─
     case 'task_start':
       addSystem(`Task started`);
       break;
 
-    // ─ Live Text vom Agent ─
     case 'stream_text':
       if (msg.text && msg.text.trim()) addAgent(msg.agent, msg.text);
       break;
 
-    // ─ Tool-Call (klappbarer Block) ─
     case 'stream_tool':
       if (msg.tool) addToolBlock(msg.agent, msg.tool, msg.description || '', msg.detail || '');
       break;
 
-    // ─ Agent Status ─
     case 'agent_status':
       addStatus(msg.agent, msg.status);
       break;
 
-    // ─ Agent Activity (Breaker etc.) ─
     case 'agent_activity':
       if (msg.activity === 'finding') {
         addAgent(msg.agent, `Finding: ${msg.text}`);
@@ -1041,32 +1037,31 @@ function handle(msg) {
       }
       break;
 
-    // ─ Task fertig — Result-Card ─
     case 'task_complete': {
       const card = buildResultCard(msg);
       s.appendChild(card);
       scrollDown();
-      unlock();
+      if (!historical) unlock();
       break;
     }
 
     case 'task_stopped':
       addSystem(msg.text);
-      unlock();
+      if (!historical) unlock();
       break;
 
     case 'error':
       addSystem(msg.text || 'Error');
-      unlock();
+      if (!historical) unlock();
       break;
 
     case 'task_error':
       addAgent('System', msg.text);
-      unlock();
+      if (!historical) unlock();
       break;
 
     case 'settings_updated':
-      if (msg.settings) {
+      if (!historical && msg.settings) {
         if (msg.settings.target_repo) el('repoBadge').textContent = shortPath(msg.settings.target_repo);
         if (msg.settings.ui_theme) applyTheme(msg.settings.ui_theme);
         if (msg.settings.builder_agent) applyBuilderAgent(msg.settings.builder_agent);
@@ -1075,28 +1070,44 @@ function handle(msg) {
       break;
 
     case 'unlock':
-      unlock();
+      if (!historical) unlock();
       break;
 
     case 'review_fixes_available':
-      // Show the "Apply fixes?" prompt
-      const fixDiv = document.createElement('div');
-      fixDiv.className = 'msg msg-system';
-      fixDiv.innerHTML = `
-        <div style="padding:12px;background:var(--bg);border:1px solid var(--blue);border-radius:8px;margin:8px 0;">
-          <div style="margin-bottom:10px;color:var(--text);">${formatMsg(msg.text)}</div>
-          <div style="display:flex;gap:8px;">
-            <button onclick="applyFixes()" style="background:var(--green);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:bold;">Apply fixes</button>
-            <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background:var(--bg2);color:var(--muted);border:1px solid var(--border);padding:8px 16px;border-radius:6px;cursor:pointer;">No thanks</button>
-          </div>
-        </div>`;
-      el('stream').appendChild(fixDiv);
-      scrollDown();
+      if (historical) {
+        addSystem(msg.text || 'Fix suggestions were available for this review.');
+      } else {
+        const fixDiv = document.createElement('div');
+        fixDiv.className = 'msg msg-system';
+        fixDiv.innerHTML = `
+          <div style="padding:12px;background:var(--bg);border:1px solid var(--blue);border-radius:8px;margin:8px 0;">
+            <div style="margin-bottom:10px;color:var(--text);">${formatMsg(msg.text)}</div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="applyFixes()" style="background:var(--green);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:bold;">Apply fixes</button>
+              <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background:var(--bg2);color:var(--muted);border:1px solid var(--border);padding:8px 16px;border-radius:6px;cursor:pointer;">No thanks</button>
+            </div>
+          </div>`;
+        el('stream').appendChild(fixDiv);
+        scrollDown();
+      }
       break;
 
     case 'system':
       el('repoBadge').textContent = shortPath(msg.text);
       break;
+
+    case 'user_input': {
+      const d = document.createElement('div');
+      d.className = 'msg msg-user';
+      if (historical && msg.timestamp_display) {
+        d.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(msg.timestamp_display)}</span>${formatMsg(msg.text || '')}`;
+      } else {
+        d.innerHTML = formatMsg(msg.text || '');
+      }
+      el('stream').appendChild(d);
+      scrollDown();
+      break;
+    }
   }
 }
 
@@ -1660,8 +1671,6 @@ function scrollDown() {
   if (_scrollRAF) return;  // Already scheduled; avoid a duplicate reflow
   _scrollRAF = requestAnimationFrame(() => {
     const s = el('stream');
-    // DOM limit: max 500 chat items, remove the oldest ones
-    while (s.children.length > 500) s.removeChild(s.firstChild);
     s.scrollTop = s.scrollHeight;
     _scrollRAF = 0;
   });
@@ -1726,11 +1735,11 @@ function switchLogTab(tab) {
   });
 }
 
-function logEvent(msg) {
+function logEvent(msg, { historical = false } = {}) {
   // Log only relevant agent events
-  const logTypes = ['task_start', 'stream_text', 'stream_tool', 'agent_status',
+  const logTypes = ['user_input', 'task_start', 'stream_text', 'stream_tool', 'agent_status',
     'agent_activity', 'task_complete', 'task_stopped', 'task_error', 'chat_response',
-    'stream_thinking', 'stream_result'];
+    'stream_thinking', 'stream_result', 'review_fixes_available'];
   if (!logTypes.includes(msg.type)) return;
 
   const container = el('livelogContent');
@@ -1739,8 +1748,8 @@ function logEvent(msg) {
   if (empty) empty.remove();
 
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const dateStr = now.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit' });
+  const fallbackStamp = `${now.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+  const timestampText = msg.timestamp_display || msg.timestamp || fallbackStamp;
 
   const agent = msg.agent || 'System';
   const agentCls = agentClass(agent);
@@ -1792,6 +1801,10 @@ function logEvent(msg) {
       msgText = msg.text || '';
       typeLabel = 'chat';
       break;
+    case 'user_input':
+      msgText = msg.text || '';
+      typeLabel = 'input';
+      break;
     case 'stream_thinking':
       msgText = msg.text || '';
       msgCls = 'thinking';
@@ -1802,6 +1815,10 @@ function logEvent(msg) {
       msgCls = msg.is_error ? 'error' : 'result';
       typeLabel = msg.is_error ? 'error' : 'result';
       break;
+    case 'review_fixes_available':
+      msgText = msg.text || '';
+      typeLabel = 'review';
+      break;
   }
 
   if (!msgText.trim()) return;
@@ -1809,7 +1826,7 @@ function logEvent(msg) {
   const d = document.createElement('div');
   d.className = 'log-line';
   d.dataset.agent = agentCls;
-  d.innerHTML = `<span class="log-time">${dateStr} ${timeStr}</span><span class="log-agent ${agentCls}">${esc(agent)}</span><span class="log-type">[${typeLabel}]</span><span class="log-msg ${msgCls}">${esc(msgText)}</span>`;
+  d.innerHTML = `<span class="log-time">${esc(timestampText)}</span><span class="log-agent ${agentCls}">${esc(agent)}</span><span class="log-type">[${typeLabel}]</span><span class="log-msg ${msgCls}">${esc(msgText)}</span>`;
 
   // Apply the active filter
   if (_logFilter !== 'all') {
@@ -1818,9 +1835,7 @@ function logEvent(msg) {
   }
 
   container.appendChild(d);
-  // DOM limit: max 1000 log entries, remove the oldest ones
-  while (container.children.length > 1000) container.removeChild(container.firstChild);
-  container.scrollTop = container.scrollHeight;
+  if (!historical) container.scrollTop = container.scrollHeight;
 }
 
 // ─── Project management ─────────────────
@@ -1994,6 +2009,37 @@ async function loadHistoryIntoChat(projectId, projectName) {
   s.innerHTML = `<div class="msg-system">Project: ${esc(projectName)}</div>`;
 
   try {
+    const timelineRes = await fetch(`/api/projects/${projectId}/timeline`);
+    const timelineEntries = await timelineRes.json();
+
+    if (Array.isArray(timelineEntries) && timelineEntries.length > 0) {
+      const divider = document.createElement('div');
+      divider.className = 'msg-history-divider';
+      divider.textContent = `History (${timelineEntries.length} events)`;
+      s.appendChild(divider);
+
+      let lastDate = '';
+      for (const entry of timelineEntries) {
+        const time = entry.timestamp_display || entry.timestamp || '';
+        const dateOnly = time.split(' ')[0] || time.split('T')[0] || '';
+        if (dateOnly && dateOnly !== lastDate) {
+          const dt = document.createElement('div');
+          dt.className = 'msg-timestamp';
+          dt.textContent = dateOnly;
+          s.appendChild(dt);
+          lastDate = dateOnly;
+        }
+        renderChatEvent(entry, { historical: true });
+      }
+
+      const now = document.createElement('div');
+      now.className = 'msg-history-divider';
+      now.textContent = 'Now';
+      s.appendChild(now);
+      scrollDown();
+      return;
+    }
+
     const res = await fetch(`/api/projects/${projectId}/history`);
     const entries = await res.json();
 
@@ -2002,7 +2048,7 @@ async function loadHistoryIntoChat(projectId, projectName) {
       return;
     }
 
-    // Trennlinie: Vergangene Session
+    // Divider: previous session
     const divider = document.createElement('div');
     divider.className = 'msg-history-divider';
     divider.textContent = `History (${entries.length} entries)`;
@@ -2030,7 +2076,7 @@ async function loadHistoryIntoChat(projectId, projectName) {
         d.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(e.text)}`;
         s.appendChild(d);
       } else if (e.type === 'task_result') {
-        // Task-Ergebnis als Result-Banner
+        // Legacy task result banner
         const decision = e.decision || 'reject';
         const score = e.score ? (e.score * 100).toFixed(0) + '%' : '';
         const label = decision === 'accept' ? 'Done' : decision === 'escalate' ? 'Needs review' : 'Failed';
@@ -2051,7 +2097,7 @@ async function loadHistoryIntoChat(projectId, projectName) {
         da.innerHTML = `<span class="agent-name ${historyClass}">${esc(historyAgent)}</span>${formatMsg(e.text)}${meta ? '<span style="font-size:10px;color:var(--text-dim);display:block;margin-top:4px;">' + meta + '</span>' : ''}`;
         s.appendChild(da);
       } else if (e.type === 'chat') {
-        // User-Frage (alte Architektur)
+        // User question from the legacy architecture
         const dq = document.createElement('div');
         dq.className = 'msg msg-user';
         dq.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(e.question)}`;
@@ -2082,24 +2128,22 @@ async function loadProjectLogs(projectId) {
   const container = el('livelogContent');
   container.innerHTML = '<div class="livelog-empty">Waiting for activity...</div>';
   try {
-    const res = await fetch(`/api/projects/${projectId}/logs`);
+    let res = await fetch(`/api/projects/${projectId}/timeline`);
     const entries = await res.json();
-    if (!entries || entries.length === 0) return;
+    if (!entries || entries.length === 0) {
+      res = await fetch(`/api/projects/${projectId}/logs`);
+      const legacyEntries = await res.json();
+      if (!legacyEntries || legacyEntries.length === 0) return;
+      container.innerHTML = '';
+      for (const msg of legacyEntries) {
+        logEvent(msg, { historical: true });
+      }
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
     container.innerHTML = '';
     for (const msg of entries) {
-      const agent = msg.agent || 'System';
-      const agentCls = agentClass(agent);
-      const ts = msg.timestamp || '';
-      let typeLabel = (msg.type || '').replace('stream_', '').replace('agent_', '').replace('task_', '');
-      let msgText = msg.text || msg.status || msg.intent || '';
-      const line = document.createElement('div');
-      line.className = 'log-line';
-      line.dataset.agent = agentCls;
-      line.innerHTML = `<span class="log-ts">${esc(ts)}</span>`
-        + `<span class="log-agent ${agentCls}">${esc(agent)}</span>`
-        + `<span class="log-type">[${esc(typeLabel)}]</span>`
-        + `<span class="log-msg">${esc(truncate(msgText, 200))}</span>`;
-      container.appendChild(line);
+      logEvent(msg, { historical: true });
     }
     container.scrollTop = container.scrollHeight;
   } catch (e) {

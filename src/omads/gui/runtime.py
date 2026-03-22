@@ -19,6 +19,7 @@ from .streaming import (
 from .state import (
     _append_history,
     _append_log,
+    _append_timeline_event,
     _build_cli_env,
     _build_process_failure_text,
     _get_active_project_id,
@@ -128,6 +129,10 @@ def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
             _append_log(proj_id, dict(msg))
         except Exception:
             pass
+        try:
+            _append_timeline_event(proj_id, dict(msg))
+        except Exception:
+            pass
     with _connections_lock:
         snapshot = list(_connections)
     for ws in snapshot:
@@ -233,6 +238,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     proj_id = _frozen_proj_id
     if proj_id:
         _append_history(proj_id, {"type": "user_input", "text": user_text})
+        _append_timeline_event(proj_id, {"type": "user_input", "text": user_text})
 
     try:
         env = _build_cli_env()
@@ -524,6 +530,7 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
     proj_id = _frozen_proj_id
     if proj_id:
         _append_history(proj_id, {"type": "user_input", "text": user_text})
+        _append_timeline_event(proj_id, {"type": "user_input", "text": user_text})
 
     output_lines: list[str] = []
     try:
@@ -1287,6 +1294,15 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
     first_step_label = _review_runtime_label(review_first)
     second_step_label = _review_runtime_label(review_second)
     synthesis_label = _review_runtime_label(review_first, synthesis=True)
+    proj_id = _frozen_proj_id
+    if proj_id:
+        _append_timeline_event(
+            proj_id,
+            {
+                "type": "user_input",
+                "text": f"Start review — Scope: {scope_desc}, Focus: {focus_desc}",
+            },
+        )
 
     send({
         "type": "stream_text",

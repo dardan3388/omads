@@ -105,6 +105,9 @@ async def websocket_endpoint(ws: WebSocket):
                 if not repo_fixes:
                     await ws.send_json({"type": "error", "text": "No review fixes are available"})
                     continue
+                project_id = state._get_active_project_id()
+                if project_id:
+                    state._append_timeline_event(project_id, {"type": "user_input", "text": "Apply fixes"})
 
                 fix_prompt = (
                     "Apply the following fixes from the review now:\n\n"
