@@ -103,6 +103,7 @@ Owns local startup behavior:
 - `uvicorn.run(...)`
 - waiting for readiness
 - opening the browser automatically
+- browserless startup for headless or container use
 
 ## Runtime Flow
 
@@ -144,6 +145,7 @@ It covers:
 
 - app startup and security headers
 - settings and project validation
+- CLI and launcher startup flags
 - log filtering and session persistence
 - key Claude/review failure paths
 

@@ -206,6 +206,18 @@ The easiest local start on Linux or macOS is:
 
 This helper script creates `.venv` if needed, installs OMADS into it, and launches the GUI.
 
+On Windows PowerShell, use:
+
+```powershell
+.\start-omads.ps1
+```
+
+If your execution policy blocks local scripts, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-omads.ps1
+```
+
 Standard Python developer start:
 
 ```bash
@@ -225,6 +237,12 @@ Module form:
 .venv/bin/python -m omads gui
 ```
 
+Headless / remote start:
+
+```bash
+omads gui --host 0.0.0.0 --no-browser
+```
+
 The GUI opens automatically at **http://localhost:8080**.
 
 You can also start it on a custom port:
@@ -238,6 +256,23 @@ Or with the installed CLI:
 ```bash
 omads gui --port 9090
 ```
+
+### Docker
+
+OMADS now includes a basic Docker image for headless startup:
+
+```bash
+docker build -t omads .
+docker run --rm -p 8080:8080 omads
+```
+
+Then open `http://localhost:8080`.
+
+Important:
+
+- The Docker image starts OMADS with `--no-browser`.
+- This basic image is useful for trying the GUI or running the backend in a container.
+- A fully polished Docker workflow for authenticated Claude Code / Codex usage and mounted project workspaces is still an open follow-up item.
 
 ### Common Start Mistakes
 

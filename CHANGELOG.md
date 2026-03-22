@@ -9,8 +9,10 @@ The format is loosely based on Keep a Changelog.
 ### Added
 
 - Added `start-omads.sh` as a one-command local launcher for Linux/macOS.
+- Added `start-omads.ps1` as a Windows-friendly one-command launcher.
 - Added `python -m omads` support through `src/omads/__main__.py`.
 - Added mock-based tests for WebSocket guardrails, Codex auto-review outcomes, review fix suggestions, and Claude/Codex handoff flows without requiring live CLI access.
+- Added a basic Docker image and `.dockerignore` for headless/container startup.
 
 ### Changed
 
@@ -20,6 +22,7 @@ The format is loosely based on Keep a Changelog.
 - Standardized the GUI labels, onboarding copy, review flow messages, and API-facing project errors in English.
 - Clarified the README start flow with explicit quick-start and troubleshooting guidance.
 - Reduced `CLAUDE.md` to a minimal Claude-specific bridge file that delegates to the standard repository docs.
+- Added an explicit browserless startup mode for headless and container use.
 
 ## 2026-03-22
 

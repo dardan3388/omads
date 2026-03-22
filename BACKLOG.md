@@ -19,8 +19,8 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Next
 
-- [ ] Docker / cross-platform one-command setup
-  `start-omads.sh` now covers Linux/macOS local startup, but Windows-friendly setup and containerized onboarding are still open.
+- [ ] Dockerized AI CLI authentication and workspace mounts
+  A basic Docker entrypoint can run OMADS headlessly, but a polished container story for authenticated Claude/Codex usage and project mounts is still open.
 
 - [ ] Diff viewer
   Improve code inspection directly in the GUI.
@@ -33,6 +33,11 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 - [ ] GitHub issue templates and `CONTRIBUTING.md`
   Make collaboration on GitHub more structured.
+
+## Later
+
+- [ ] Selectable builder agent / Codex fallback builder
+  Let OMADS choose between Claude Code and Codex as the primary builder so work can continue when one builder is unavailable or out of quota.
 
 ## Technical Debt
 

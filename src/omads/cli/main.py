@@ -20,10 +20,11 @@ def cli(ctx):
 @cli.command()
 @click.option("--host", default="127.0.0.1", help="Server host")
 @click.option("--port", "-p", default=8080, help="Server port")
-def gui(host: str, port: int):
+@click.option("--browser/--no-browser", default=True, help="Open a browser window automatically")
+def gui(host: str, port: int, browser: bool):
     """Start the OMADS web GUI in the browser."""
     from omads.gui.server import start_gui
-    start_gui(host=host, port=port)
+    start_gui(host=host, port=port, open_browser=browser)
 
 
 def _format_tool_use(tool_name: str, tool_input: dict) -> str:
