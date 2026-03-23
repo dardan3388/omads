@@ -94,6 +94,7 @@ The old GUI backend monolith has been split into focused modules:
 - `src/omads/gui/runtime.py` — runtime state, broadcasts, task routing, and high-level orchestration
 - `src/omads/gui/builder_flow.py` — Claude/Codex builder runs plus the automatic breaker follow-up paths
 - `src/omads/gui/review_flow.py` — manual review helpers plus Claude/Codex review/synthesis subprocess steps
+- `src/omads/gui/static/js/` — browser-side modules for chat/log rendering, settings/diff UI, project/history loading, and app bootstrapping
 - `src/omads/gui/launcher.py` — local startup via Uvicorn and browser opening
 
 Functional changes should usually happen in the appropriate module instead of the facade in `server.py`.

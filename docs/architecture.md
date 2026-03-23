@@ -14,7 +14,12 @@ FastAPI App
     ├── builder_flow.py
     ├── review_flow.py
     ├── streaming.py
-    └── state.py
+    ├── state.py
+    ├── static/js/app.js
+    ├── static/js/chat_ui.js
+    ├── static/js/settings_ui.js
+    ├── static/js/projects_ui.js
+    └── static/js/shared.js
         ↕
   Claude Code CLI + Codex CLI
 ```
@@ -47,6 +52,7 @@ Owns:
 - FastAPI app creation
 - CORS configuration
 - security headers
+- static asset mounting for `/static`
 - router registration
 
 ### `src/omads/gui/routes.py`
@@ -142,6 +148,52 @@ Owns local startup behavior:
 - waiting for readiness
 - opening the browser automatically
 - browserless startup for headless or container use
+
+### `src/omads/gui/static/js/shared.js`
+
+Owns frontend-wide state and DOM helpers:
+
+- current UI state such as theme, builder selection, and reconnect delay
+- generic DOM helpers
+- message formatting and escaping
+- shared path/agent utility helpers
+
+### `src/omads/gui/static/js/chat_ui.js`
+
+Owns browser-side rendering for:
+
+- streamed chat events
+- result cards
+- lock/unlock state for the composer
+- live-log filtering and rendering
+
+### `src/omads/gui/static/js/settings_ui.js`
+
+Owns browser-side settings and inspector UI:
+
+- theme switching
+- builder and review-pipeline badges
+- settings modal loading/saving
+- project-folder picker inside settings
+- diff viewer modal
+
+### `src/omads/gui/static/js/projects_ui.js`
+
+Owns project-centric browser behavior:
+
+- project sidebar rendering
+- project switching and creation
+- history replay into the chat surface
+- log replay into the live-log panel
+
+### `src/omads/gui/static/js/app.js`
+
+Owns frontend bootstrapping and high-level browser orchestration:
+
+- WebSocket connection lifecycle
+- send/stop/review/apply-fixes actions
+- onboarding health banner
+- exposing the small set of global handlers still referenced by the HTML
 
 ## Runtime Flow
 
