@@ -11,6 +11,7 @@ FastAPI App
     ├── routes.py
     ├── websocket.py
     ├── runtime.py
+    ├── builder_flow.py
     ├── review_flow.py
     ├── streaming.py
     └── state.py
@@ -97,12 +98,21 @@ Owns runtime-only state and process orchestration:
 - active subprocess tracking
 - broadcast helpers
 - builder-task dispatch
-- Claude task runner
-- Codex builder task runner
 - review pipeline orchestration
-- automatic breaker runners for both builder paths
+- coordination between the dedicated builder/review helper modules
 
 This module should focus on high-level orchestration and shared runtime state, not the detailed review subprocess implementation.
+
+### `src/omads/gui/builder_flow.py`
+
+Owns the builder-specific helper logic:
+
+- Claude builder subprocess steps
+- Codex builder subprocess steps
+- automatic breaker subprocess steps for both builder paths
+- builder fix-follow-up runs after automatic findings
+
+`runtime.py` should call into this module instead of carrying the detailed builder subprocess code inline.
 
 ### `src/omads/gui/review_flow.py`
 

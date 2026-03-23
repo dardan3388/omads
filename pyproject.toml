@@ -1,7 +1,7 @@
 [project]
 name = "omads"
 version = "0.2.0"
-description = "OMADS Web-GUI — Claude Code Builder + Codex Auto-Review"
+description = "OMADS Web GUI — selectable Claude Code/Codex builder plus breaker workflow"
 license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [

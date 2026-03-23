@@ -28,6 +28,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Changed
 
+- Extracted the Claude/Codex builder task runners and automatic breaker subprocess helpers into `src/omads/gui/builder_flow.py`, so `runtime.py` now stays focused on runtime state, routing, and orchestration.
 - Extracted the manual review subprocess helpers and synthesis prompt builder into `src/omads/gui/review_flow.py`, so `runtime.py` keeps the orchestration role while review-specific mechanics live in a dedicated module.
 - New runtime activity now persists only through the unified per-project timeline; the legacy `history` and `log` endpoints are compatibility views derived from that timeline instead of a second live write path.
 - Tightened the manual review synthesis prompt when Reviewer 2 is incomplete or unavailable, so step 3 stays focused on consolidating the available findings instead of drifting into an open-ended fresh review.

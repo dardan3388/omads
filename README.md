@@ -91,7 +91,8 @@ The old GUI backend monolith has been split into focused modules:
 - `src/omads/gui/routes.py` — REST endpoints
 - `src/omads/gui/websocket.py` — WebSocket endpoint and GUI command handling
 - `src/omads/gui/state.py` — persistent settings, project registry, GUI status, logs, chat sessions, project memory
-- `src/omads/gui/runtime.py` — runtime state, broadcasts, builder loops, and high-level orchestration
+- `src/omads/gui/runtime.py` — runtime state, broadcasts, task routing, and high-level orchestration
+- `src/omads/gui/builder_flow.py` — Claude/Codex builder runs plus the automatic breaker follow-up paths
 - `src/omads/gui/review_flow.py` — manual review helpers plus Claude/Codex review/synthesis subprocess steps
 - `src/omads/gui/launcher.py` — local startup via Uvicorn and browser opening
 
