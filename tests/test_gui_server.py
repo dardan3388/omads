@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import sys
@@ -88,6 +89,29 @@ class NoopThread:
 
     def start(self):
         self.started = True
+
+
+class DummyAdmissionWebSocket:
+    def __init__(self, *, origin: str | None, client_host: str = "127.0.0.1", server_port: int = 8080):
+        self.headers = {"origin": origin} if origin is not None else {}
+        self.scope = {
+            "server": ("127.0.0.1", server_port),
+            "client": (client_host, 12345),
+        }
+        self.accepted = False
+        self.closed: tuple[int, str] | None = None
+
+    async def accept(self):
+        self.accepted = True
+
+    async def close(self, code: int = 1000, reason: str = ""):
+        self.closed = (code, reason)
+
+    async def receive_json(self):
+        raise websocket.WebSocketDisconnect()
+
+    async def send_json(self, message):
+        raise AssertionError(f"send_json should not be called: {message}")
 
 
 @pytest.fixture()
@@ -276,10 +300,21 @@ def test_project_duplicate_invalid_id_history_and_log_endpoints(client: TestClie
 def test_chat_session_persistence_roundtrip(isolated_server):
     repo_key = str(isolated_server["repo_dir"].resolve())
     state._set_chat_session(repo_key, "session-123")
-
     assert state._get_chat_session(repo_key) == "session-123"
     assert json.loads(state._CHAT_SESSIONS_PATH.read_text()) == {repo_key: "session-123"}
     assert state._load_chat_sessions() == {repo_key: "session-123"}
+
+
+def test_websocket_rejects_missing_origin_but_accepts_local_browser_origin(isolated_server):
+    missing_origin_ws = DummyAdmissionWebSocket(origin=None, client_host="127.0.0.1")
+    asyncio.run(websocket.websocket_endpoint(missing_origin_ws))
+    assert missing_origin_ws.accepted is False
+    assert missing_origin_ws.closed == (1008, "Origin not allowed")
+
+    allowed_origin_ws = DummyAdmissionWebSocket(origin="http://localhost:8080", client_host="127.0.0.1")
+    asyncio.run(websocket.websocket_endpoint(allowed_origin_ws))
+    assert allowed_origin_ws.accepted is True
+    assert allowed_origin_ws.closed is None
 
 
 def test_append_log_filters_unknown_types_and_reads_valid_entries(isolated_server):
@@ -313,6 +348,8 @@ def test_claude_task_failure_emits_task_error_and_unlock(isolated_server, monkey
 
 def test_review_step_one_failure_emits_task_error_and_unlock(isolated_server, monkeypatch: pytest.MonkeyPatch):
     messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    runtime._pending_review_fixes[repo_key] = "## Final fix plan\n- stale"
 
     monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: DummyProcess(returncode=7))
     monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
@@ -324,6 +361,7 @@ def test_review_step_one_failure_emits_task_error_and_unlock(isolated_server, mo
     assert any(msg["type"] == "task_error" and "exit code 7" in msg["text"].lower() for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
     assert not any(msg["type"] == "agent_status" and "Step 1/3 done" in msg.get("status", "") for msg in messages)
+    assert repo_key not in runtime._pending_review_fixes
 
 
 def test_websocket_chat_validates_length_and_rate_limit(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -352,6 +390,57 @@ def test_websocket_chat_validates_length_and_rate_limit(client: TestClient, monk
     assert started_threads[0].started is True
     assert started_threads[0].target is runtime._run_builder_session_thread
     assert started_threads[0].args[1] == "first"
+
+
+def test_websocket_reserves_slot_before_worker_thread_starts(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    started_threads: list[NoopThread] = []
+
+    def build_thread(*args, **kwargs):
+        thread = NoopThread(*args, **kwargs)
+        started_threads.append(thread)
+        return thread
+
+    monkeypatch.setattr(websocket.threading, "Thread", build_thread)
+
+    try:
+        with client.websocket_connect("/ws") as ws_client:
+            ws_client.send_json({"type": "chat", "text": "first"})
+            ws_client.send_json({"type": "review", "scope": "project", "focus": "all"})
+            message = ws_client.receive_json()
+            assert message["type"] == "error"
+            assert "A task is already running" in message["text"]
+    finally:
+        with runtime._process_lock:
+            runtime._active_process = None
+            runtime._task_cancelled = False
+
+    assert len(started_threads) == 1
+    assert started_threads[0].started is True
+    assert started_threads[0].target is runtime._run_builder_session_thread
+    assert started_threads[0].args[1] == "first"
+
+
+def test_websocket_rejects_new_work_while_task_slot_is_reserved(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    started_threads: list[NoopThread] = []
+
+    def build_thread(*args, **kwargs):
+        thread = NoopThread(*args, **kwargs)
+        started_threads.append(thread)
+        return thread
+
+    monkeypatch.setattr(websocket.threading, "Thread", build_thread)
+
+    assert runtime._try_reserve_task_slot() is True
+    try:
+        with client.websocket_connect("/ws") as ws_client:
+            ws_client.send_json({"type": "chat", "text": "hello"})
+            message = ws_client.receive_json()
+            assert message["type"] == "error"
+            assert "A task is already running" in message["text"]
+    finally:
+        runtime._release_reserved_task_slot()
+
+    assert started_threads == []
 
 
 def test_websocket_apply_fixes_and_set_repo_errors(client: TestClient, isolated_server):
@@ -399,6 +488,7 @@ def test_websocket_apply_fixes_uses_selected_first_reviewer(
     assert started_threads[0].started is True
     assert started_threads[0].target is runtime._run_codex_session_thread
     assert "Apply the following fixes from the review now" in started_threads[0].args[1]
+    assert str(isolated_server["repo_dir"].resolve()) not in runtime._pending_review_fixes
 
 
 def test_websocket_rejects_new_work_while_task_is_running(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -617,6 +707,8 @@ def test_review_thread_emits_fix_suggestion_flow_without_live_clis(
 ):
     messages: list[dict] = []
     repo_key = str(isolated_server["repo_dir"].resolve())
+    claude_commands: list[list[str]] = []
+    state._set_chat_session(repo_key, "builder-session-before-review")
     processes = [
         DummyProcess(lines=[
             json.dumps({
@@ -641,6 +733,7 @@ def test_review_thread_emits_fix_suggestion_flow_without_live_clis(
     ]
 
     def popen(*args, **kwargs):
+        claude_commands.append(list(args[0]))
         return processes.pop(0)
 
     monkeypatch.setattr(runtime.subprocess, "Popen", popen)
@@ -651,9 +744,62 @@ def test_review_thread_emits_fix_suggestion_flow_without_live_clis(
 
     runtime._run_review_thread(None, "custom", "bugs", "src/api.py")
 
-    assert state._get_chat_session(repo_key) == "review-session-2"
+    assert state._get_chat_session(repo_key) == "builder-session-before-review"
     assert runtime._pending_review_fixes[repo_key].startswith("## Final fix plan")
+    assert "--resume" not in claude_commands[0]
+    synthesis_cmd = claude_commands[-1]
+    assert "--resume" in synthesis_cmd
+    assert synthesis_cmd[synthesis_cmd.index("--resume") + 1] == "review-session-1"
     assert any(msg["type"] == "review_fixes_available" for msg in messages)
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "Step 3/3 done" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_review_thread_clears_stale_fix_plan_when_review_finishes_cleanly(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    review_key = f"{repo_key}::manual_review"
+    runtime._pending_review_fixes[repo_key] = "## Final fix plan\n- stale"
+    processes = [
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "review-session-1",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "## Summary\nNo issues found."}]},
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "type": "item.completed",
+                "item": {"text": "## Findings\nNo issues found."},
+            }) + "\n"
+        ]),
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "review-session-2",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "## Final fix plan\nNo fixes needed\nFIXES_NEEDED: false"}]},
+            }) + "\n"
+        ]),
+    ]
+
+    def popen(*args, **kwargs):
+        return processes.pop(0)
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_review_thread(None, "project", "all", "")
+
+    assert repo_key not in runtime._pending_review_fixes
+    assert state._get_chat_session(review_key) is None
+    assert not any(msg["type"] == "review_fixes_available" for msg in messages)
     assert any(msg["type"] == "agent_status" and msg.get("status") == "Step 3/3 done" for msg in messages)
     assert any(msg["type"] == "unlock" for msg in messages)
 
@@ -664,6 +810,7 @@ def test_review_thread_supports_reversed_pipeline_and_custom_focus(
 ):
     messages: list[dict] = []
     repo_key = str(isolated_server["repo_dir"].resolve())
+    state._set_chat_session(repo_key, "builder-session-before-review")
     codex_processes: list[DummyProcess] = []
     claude_commands: list[list[str]] = []
     processes = [
@@ -719,8 +866,8 @@ def test_review_thread_supports_reversed_pipeline_and_custom_focus(
         "Race conditions in the websocket flow",
     )
 
-    assert state._get_chat_session(repo_key) == "review-session-claude"
     assert runtime._pending_review_fixes[repo_key].startswith("## Final fix plan")
+    assert state._get_chat_session(repo_key) == "builder-session-before-review"
     assert any("Flow: Codex -> Claude Code -> Codex" in msg.get("text", "") for msg in messages if msg["type"] == "stream_text")
     assert any(msg["type"] == "review_fixes_available" for msg in messages)
     assert "Race conditions in the websocket flow" in codex_processes[0].stdin.buffer

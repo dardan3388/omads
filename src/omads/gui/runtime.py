@@ -44,6 +44,38 @@ _last_files_changed: list[str] = []  # Most recently changed files (for "Last ta
 _pending_review_fixes: dict[str, str] = {}  # {repo_path: fixes_text} per project
 
 
+class _ReservedProcessSlot:
+    """Sentinel used while a worker thread is still starting a subprocess."""
+
+    def poll(self) -> None:
+        return None
+
+    def kill(self) -> None:
+        return None
+
+
+_RESERVED_PROCESS_SLOT = _ReservedProcessSlot()
+
+
+def _try_reserve_task_slot() -> bool:
+    """Reserve the global task slot before handing work to a background thread."""
+    global _active_process, _task_cancelled
+    with _process_lock:
+        if _active_process and _active_process.poll() is None:
+            return False
+        _task_cancelled = False
+        _active_process = _RESERVED_PROCESS_SLOT
+        return True
+
+
+def _release_reserved_task_slot() -> None:
+    """Release a reservation that never reached the subprocess start stage."""
+    global _active_process
+    with _process_lock:
+        if _active_process is _RESERVED_PROCESS_SLOT:
+            _active_process = None
+
+
 def _capture_repo_change_snapshot(target_repo: str) -> dict[str, object]:
     """Capture a lightweight snapshot of the current Git working tree."""
     try:
@@ -214,10 +246,6 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     """Run one task through Claude Code and trigger the automatic breaker step."""
     import time as _time
 
-    global _active_process, _task_cancelled
-    with _process_lock:
-        _task_cancelled = False
-
     settings_snapshot = _get_settings_snapshot()
     target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
     repo_key = str(Path(target_repo).resolve())
@@ -241,6 +269,9 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         _append_timeline_event(proj_id, {"type": "user_input", "text": user_text})
 
     try:
+        with _process_lock:
+            if _task_cancelled:
+                return
         env = _build_cli_env()
         before_snapshot = _capture_repo_change_snapshot(target_repo)
 
@@ -279,6 +310,8 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         # the afk-mode beta header bug in CLI v2.1.74.
         # Permissions are controlled through ~/.claude/settings.json instead.
 
+        if _task_cancelled:
+            return
         start_time = _time.time()
         process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -424,6 +457,8 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                 if fix_session:
                     fix_cmd.extend(["--resume", fix_session])
 
+                if _task_cancelled:
+                    return
                 fix_process = subprocess.Popen(
                     fix_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                     text=True, cwd=target_repo, env=env,
@@ -506,10 +541,6 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
     import select
     import time as _time
 
-    global _active_process, _task_cancelled
-    with _process_lock:
-        _task_cancelled = False
-
     settings_snapshot = _get_settings_snapshot()
     target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
     codex_model = settings_snapshot.get("codex_model", "")
@@ -534,6 +565,9 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
 
     output_lines: list[str] = []
     try:
+        with _process_lock:
+            if _task_cancelled:
+                return
         env = _build_cli_env()
         before_snapshot = _capture_repo_change_snapshot(target_repo)
         project_memory = _load_project_memory(target_repo)
@@ -564,6 +598,8 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
             cmd.extend(["-c", 'service_tier="fast"'])
         cmd.append("-")
 
+        if _task_cancelled:
+            return
         start_time = _time.time()
         process = subprocess.Popen(
             cmd,
@@ -696,6 +732,8 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
                     fix_cmd.extend(["-c", 'service_tier="fast"'])
                 fix_cmd.append("-")
 
+                if _task_cancelled:
+                    return
                 fix_process = subprocess.Popen(
                     fix_cmd,
                     stdin=subprocess.PIPE,
@@ -818,6 +856,7 @@ def _run_claude_manual_review_step(
     rate_limit_source: str = "review_stream",
 ) -> tuple[str, str | None]:
     """Run one Claude-based manual review step and return text plus session ID."""
+    captured_session_id: str | None = None
     project_memory = _load_project_memory(target_repo)
     review_context = (
         "You are performing a code review inside OMADS. "
@@ -851,6 +890,13 @@ def _run_claude_manual_review_step(
     if prior_session_id:
         cmd.extend(["--resume", prior_session_id])
 
+    output_lines: list[str] = []
+    captured_session_id: str | None = None
+    final_result = ""
+
+    if _task_cancelled:
+        return "", captured_session_id
+
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -862,10 +908,6 @@ def _run_claude_manual_review_step(
     with _process_lock:
         global _active_process
         _active_process = process
-
-    output_lines: list[str] = []
-    captured_session_id: str | None = None
-    final_result = ""
 
     for line in process.stdout:
         if _task_cancelled:
@@ -906,7 +948,7 @@ def _run_claude_manual_review_step(
             )
         )
     if captured_session_id and process.returncode == 0:
-        _set_chat_session(repo_key, captured_session_id)
+        _set_chat_session(repo_key, captured_session_id, scope="review")
     return review_text, captured_session_id
 
 
@@ -945,6 +987,9 @@ def _run_codex_manual_review_step(
     if codex_fast:
         cmd.extend(["-c", 'service_tier="fast"'])
     cmd.append("-")
+
+    if _task_cancelled:
+        return ""
 
     process = subprocess.Popen(
         cmd,
@@ -1127,6 +1172,13 @@ def _run_claude_manual_synthesis_step(
     if prior_session_id:
         cmd.extend(["--resume", prior_session_id])
 
+    output_lines: list[str] = []
+    captured_session_id: str | None = None
+    final_result = ""
+
+    if _task_cancelled:
+        return "", False, None
+
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -1139,9 +1191,6 @@ def _run_claude_manual_synthesis_step(
         global _active_process
         _active_process = process
 
-    output_lines: list[str] = []
-    captured_session_id: str | None = None
-    final_result = ""
     for line in process.stdout:
         if _task_cancelled:
             process.kill()
@@ -1181,7 +1230,7 @@ def _run_claude_manual_synthesis_step(
             )
         )
     if captured_session_id and process.returncode == 0:
-        _set_chat_session(repo_key, captured_session_id)
+        _set_chat_session(repo_key, captured_session_id, scope="review")
     cleaned_text, has_fixes = strip_fixes_needed_marker(synthesis_text)
     return cleaned_text, has_fixes, captured_session_id
 
@@ -1216,6 +1265,9 @@ def _run_codex_manual_synthesis_step(
     if codex_fast:
         cmd.extend(["-c", 'service_tier="fast"'])
     cmd.append("-")
+
+    if _task_cancelled:
+        return "", False
 
     process = subprocess.Popen(
         cmd,
@@ -1294,9 +1346,12 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
     """
     import time as _time
 
-    global _active_process, _task_cancelled
+    global _active_process, _task_cancelled, _pending_review_fixes
     with _process_lock:
-        _task_cancelled = False
+        if _task_cancelled:
+            if _active_process is _RESERVED_PROCESS_SLOT:
+                _active_process = None
+            return
 
     settings_snapshot = _get_settings_snapshot()
     target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
@@ -1340,6 +1395,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
     second_step_label = _review_runtime_label(review_second)
     synthesis_label = _review_runtime_label(review_first, synthesis=True)
     proj_id = _frozen_proj_id
+    _pending_review_fixes.pop(repo_key, None)
     if proj_id:
         _append_timeline_event(
             proj_id,
@@ -1360,11 +1416,12 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
         ),
     })
 
+    first_session_id = _get_chat_session(repo_key, scope="review")
+
     try:
         # ── STEP 1: Reviewer 1 ────────────────────────────────────
         send({"type": "agent_status", "agent": first_step_label, "status": "Step 1/3 - review in progress..."})
 
-        first_session_id = _get_chat_session(repo_key)
         try:
             if review_first == "claude":
                 first_review, first_session_id = _run_claude_manual_review_step(
@@ -1414,7 +1471,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                     agent_label=second_step_label,
                     repo_key=repo_key,
                     send=send,
-                    prior_session_id=_get_chat_session(repo_key),
+                    prior_session_id=_get_chat_session(repo_key, scope="review"),
                     rate_limit_source="review_stream",
                 )
             else:
@@ -1453,7 +1510,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                     effort=effort,
                     repo_key=repo_key,
                     send=send,
-                    prior_session_id=first_session_id,
+                    prior_session_id=_get_chat_session(repo_key, scope="review"),
                     first_label=_review_display_name(review_first),
                     second_label=_review_display_name(review_second),
                     first_review=first_review,
@@ -1484,10 +1541,11 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
 
         if has_fixes:
             # Store fix suggestions for the later apply step (per project)
-            global _pending_review_fixes
-            _pending_review_fixes[str(Path(target_repo).resolve())] = synthesis_text
+            _pending_review_fixes[repo_key] = synthesis_text
             send({"type": "review_fixes_available",
                   "text": "Fixes were identified. Should the suggested fixes be applied?"})
+        else:
+            _pending_review_fixes.pop(repo_key, None)
 
     except Exception as e:
         import logging

@@ -475,6 +475,12 @@ def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
 
 _CHAT_SESSIONS_PATH = Path.home() / ".config" / "omads" / "chat_sessions.json"
 
+
+def _chat_session_key(repo_key: str, scope: str = "builder") -> str:
+    """Return one stable session key per repository and conversation scope."""
+    return repo_key if scope == "builder" else f"{repo_key}::{scope}"
+
+
 def _load_chat_sessions() -> dict[str, str]:
     if _CHAT_SESSIONS_PATH.exists():
         try:
@@ -490,16 +496,31 @@ _chat_sessions_lock = threading.RLock()
 _chat_sessions: dict[str, str] = _load_chat_sessions()
 
 
-def _get_chat_session(repo_key: str) -> str | None:
+def _get_chat_session(
+    repo_key: str,
+    *,
+    scope: str = "builder",
+    purpose: str | None = None,
+) -> str | None:
     """Read one stored Claude session consistently under lock."""
+    if purpose is not None:
+        scope = purpose
     with _chat_sessions_lock:
-        return _chat_sessions.get(repo_key)
+        return _chat_sessions.get(_chat_session_key(repo_key, scope))
 
 
-def _set_chat_session(repo_key: str, session_id: str) -> None:
+def _set_chat_session(
+    repo_key: str,
+    session_id: str,
+    *,
+    scope: str = "builder",
+    purpose: str | None = None,
+) -> None:
     """Update one Claude session atomically and persist it."""
+    if purpose is not None:
+        scope = purpose
     with _chat_sessions_lock:
-        _chat_sessions[repo_key] = session_id
+        _chat_sessions[_chat_session_key(repo_key, scope)] = session_id
         _save_chat_sessions(dict(_chat_sessions))
 
 

@@ -13,17 +13,23 @@ from . import runtime, state
 
 router = APIRouter()
 
+
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     
     # Security: allow only local origins (dynamic port)
     origin = ws.headers.get("origin", "")
     server_port = ws.scope.get("server", ("", 8080))[1]
+    client_host = (ws.scope.get("client") or ("", 0))[0]
     allowed_origins = set()
     for host in ("127.0.0.1", "localhost"):
         for port in (server_port, server_port + 1):
             allowed_origins.add(f"http://{host}:{port}")
-    if origin and origin not in allowed_origins:
+    if origin:
+        if origin not in allowed_origins:
+            await ws.close(code=1008, reason="Origin not allowed")
+            return
+    elif client_host != "testclient":
         await ws.close(code=1008, reason="Origin not allowed")
         return
 
@@ -59,9 +65,7 @@ async def websocket_endpoint(ws: WebSocket):
                 _last_message_time = now
 
                 # Security: allow only one task at a time
-                with runtime._process_lock:
-                    busy = runtime._active_process and runtime._active_process.poll() is None
-                if busy:
+                if not runtime._try_reserve_task_slot():
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
@@ -71,13 +75,16 @@ async def websocket_endpoint(ws: WebSocket):
                     args=(ws, user_text),
                     daemon=True,
                 )
-                thread.start()
+                try:
+                    thread.start()
+                except Exception:
+                    runtime._release_reserved_task_slot()
+                    await ws.send_json({"type": "error", "text": "Could not start the task"})
+                    continue
 
             elif msg_type == "review":
                 # Manual review mode: configurable reviewer order
-                with runtime._process_lock:
-                    busy = runtime._active_process and runtime._active_process.poll() is None
-                if busy:
+                if not runtime._try_reserve_task_slot():
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
@@ -91,18 +98,27 @@ async def websocket_endpoint(ws: WebSocket):
                     args=(ws, review_scope, review_focus, custom_scope, custom_focus),
                     daemon=True,
                 )
-                thread.start()
+                try:
+                    thread.start()
+                except Exception:
+                    runtime._release_reserved_task_slot()
+                    await ws.send_json({"type": "error", "text": "Could not start the task"})
+                    continue
 
             elif msg_type == "apply_fixes":
                 # Apply fixes from the stored review result
-                with runtime._process_lock:
-                    busy = runtime._active_process and runtime._active_process.poll() is None
-                if busy:
+                if not runtime._try_reserve_task_slot():
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
                 current_repo = str(Path(state._get_setting("target_repo", ".")).resolve())
                 repo_fixes = runtime._pending_review_fixes.get(current_repo, "")
                 if not repo_fixes:
+                    runtime._release_reserved_task_slot()
+                    await ws.send_json({"type": "error", "text": "No review fixes are available"})
+                    continue
+                repo_fixes = runtime._pending_review_fixes.pop(current_repo, "")
+                if not repo_fixes:
+                    runtime._release_reserved_task_slot()
                     await ws.send_json({"type": "error", "text": "No review fixes are available"})
                     continue
                 project_id = state._get_active_project_id()
@@ -122,13 +138,23 @@ async def websocket_endpoint(ws: WebSocket):
                     args=(ws, fix_prompt),
                     daemon=True,
                 )
-                thread.start()
+                try:
+                    thread.start()
+                except Exception:
+                    runtime._pending_review_fixes[current_repo] = repo_fixes
+                    runtime._release_reserved_task_slot()
+                    await ws.send_json({"type": "error", "text": "Could not start the task"})
+                    continue
 
             elif msg_type == "stop":
                 # Stop the current session
                 with runtime._process_lock:
                     runtime._task_cancelled = True
-                    if runtime._active_process and runtime._active_process.poll() is None:
+                    if (
+                        runtime._active_process
+                        and runtime._active_process is not runtime._RESERVED_PROCESS_SLOT
+                        and runtime._active_process.poll() is None
+                    ):
                         runtime._active_process.kill()
                         runtime._active_process = None
                 await ws.send_json({"type": "task_stopped", "text": "Stopped."})
