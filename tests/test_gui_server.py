@@ -727,6 +727,31 @@ def test_review_thread_supports_reversed_pipeline_and_custom_focus(
     assert claude_commands and claude_commands[0][0] == "claude"
 
 
+def test_manual_synthesis_prompt_switches_to_limited_mode_for_incomplete_second_review():
+    prompt = runtime._build_manual_synthesis_prompt(
+        first_label="Codex",
+        second_label="Claude Code",
+        first_review="## Findings\n- [HIGH] websocket.py:61: race condition",
+        second_review="(Claude Review incomplete: You've hit your limit · resets tomorrow)",
+    )
+
+    assert "Reviewer 2 was only partially available" in prompt
+    assert "do NOT start a fresh full-code review" in prompt
+    assert "Compare both reviews and produce a final report." not in prompt
+
+
+def test_manual_synthesis_prompt_keeps_full_compare_mode_for_complete_second_review():
+    prompt = runtime._build_manual_synthesis_prompt(
+        first_label="Claude Code",
+        second_label="Codex",
+        first_review="## Findings\n- [HIGH] websocket.py:61: race condition",
+        second_review="## Findings\n- [HIGH] websocket.py:61: race condition",
+    )
+
+    assert "Compare both reviews and produce a final report." in prompt
+    assert "Reviewer 2 was only partially available" not in prompt
+
+
 def test_claude_task_runs_fix_pass_after_auto_review_findings(
     isolated_server,
     monkeypatch: pytest.MonkeyPatch,

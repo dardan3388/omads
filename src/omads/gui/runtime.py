@@ -1008,6 +1008,82 @@ def _run_codex_manual_review_step(
     return review_text
 
 
+def _review_output_is_limited(review_text: str) -> bool:
+    text = review_text.strip().lower()
+    return text.startswith("(") and ("incomplete:" in text or "unavailable" in text)
+
+
+def _build_manual_synthesis_prompt(
+    *,
+    first_label: str,
+    second_label: str,
+    first_review: str,
+    second_review: str,
+) -> str:
+    """Build the final synthesis prompt for the manual three-step review flow."""
+    limited_second_review = _review_output_is_limited(second_review)
+    prompt_parts = [
+        f"You were Reviewer 1 ({first_label}) in this manual review flow.",
+        f"Reviewer 2 ({second_label}) independently reviewed the same scope.",
+    ]
+    if limited_second_review:
+        prompt_parts.append(
+            f"Reviewer 2 was only partially available, so treat its output as limited context instead of a full second review."
+        )
+    else:
+        prompt_parts.append("Compare both reviews and produce a final report.")
+
+    prompt_parts.append("")
+    prompt_parts.append(f"=== REVIEWER 1 ({first_label}) ===\n{first_review[:6000]}")
+    prompt_parts.append("")
+    prompt_parts.append(f"=== REVIEWER 2 ({second_label}) ===\n{second_review[:6000]}")
+    prompt_parts.append("")
+
+    if limited_second_review:
+        prompt_parts.extend(
+            [
+                "Task:",
+                "1. Preserve any solid findings from Reviewer 1.",
+                f"2. Mention that {second_label} was incomplete or unavailable where relevant.",
+                "3. Keep the final report concise and do NOT start a fresh full-code review.",
+                "4. Build a prioritized list of only the REAL findings that should still be fixed.",
+                "   Ignore false positives, restatements, and style-only remarks.",
+                "",
+            ]
+        )
+    else:
+        prompt_parts.extend(
+            [
+                "Task:",
+                "1. What did both reviews find (overlap)?",
+                f"2. What did only {second_label} find that {first_label} missed?",
+                f"3. What did only {first_label} find?",
+                "4. Build a prioritized list of all REAL findings that should be fixed.",
+                "   Ignore false positives and overly minor style remarks.",
+                "",
+            ]
+        )
+
+    prompt_parts.extend(
+        [
+            "Respond with:",
+            "## Overlap (found by both)" if not limited_second_review else "## Overlap / confirmed findings",
+            f"## Found only by {second_label}",
+            f"## Found only by {first_label}",
+            "## Final fix plan",
+            "For each fix: file, line, and exactly what should be changed.",
+            "",
+            "IMPORTANT: Do NOT make any changes, only analyze. Respond in English.",
+            "",
+            "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:",
+            "FIXES_NEEDED: true",
+            "or",
+            "FIXES_NEEDED: false",
+        ]
+    )
+    return "\n".join(prompt_parts)
+
+
 def _run_claude_manual_synthesis_step(
     *,
     target_repo: str,
@@ -1022,30 +1098,11 @@ def _run_claude_manual_synthesis_step(
     second_review: str,
 ) -> tuple[str, bool, str | None]:
     """Run one Claude synthesis step for manual review."""
-    synthesis_prompt = (
-        f"You were Reviewer 1 ({first_label}) in this manual review flow. "
-        f"Reviewer 2 ({second_label}) independently reviewed the same scope. "
-        "Compare both reviews and produce a final report.\n\n"
-        f"=== REVIEWER 1 ({first_label}) ===\n{first_review[:6000]}\n\n"
-        f"=== REVIEWER 2 ({second_label}) ===\n{second_review[:6000]}\n\n"
-        "Task:\n"
-        "1. What did both reviews find (overlap)?\n"
-        f"2. What did only {second_label} find that {first_label} missed?\n"
-        f"3. What did only {first_label} find?\n"
-        "4. Build a prioritized list of all REAL findings that should be fixed.\n"
-        "   Ignore false positives and overly minor style remarks.\n\n"
-        "Respond with:\n"
-        "## Overlap (found by both)\n"
-        f"## Found only by {second_label}\n"
-        f"## Found only by {first_label}\n"
-        "## Final fix plan\n"
-        "For each fix: file, line, and exactly what should be changed.\n\n"
-        "IMPORTANT: Do NOT make any changes, only analyze. Respond in English.\n\n"
-        "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:\n"
-        "FIXES_NEEDED: true\n"
-        "or\n"
-        "FIXES_NEEDED: false\n"
-        "Nothing else on that line. true = there are real fixes needed. false = everything is fine or only style remarks remain."
+    synthesis_prompt = _build_manual_synthesis_prompt(
+        first_label=first_label,
+        second_label=second_label,
+        first_review=first_review,
+        second_review=second_review,
     )
     synthesis_context = (
         "You are the final reviewer in OMADS. "
@@ -1144,23 +1201,11 @@ def _run_codex_manual_synthesis_step(
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
     codex_fast = settings_snapshot.get("codex_fast", False)
 
-    synthesis_prompt = (
-        f"You were Reviewer 1 ({first_label}) in this manual review flow. "
-        f"Reviewer 2 ({second_label}) independently reviewed the same scope. "
-        "Compare both reviews and produce a final report.\n\n"
-        f"=== REVIEWER 1 ({first_label}) ===\n{first_review[:6000]}\n\n"
-        f"=== REVIEWER 2 ({second_label}) ===\n{second_review[:6000]}\n\n"
-        "Respond with:\n"
-        "## Overlap (found by both)\n"
-        f"## Found only by {second_label}\n"
-        f"## Found only by {first_label}\n"
-        "## Final fix plan\n"
-        "For each fix: file, line, and exactly what should be changed.\n\n"
-        "IMPORTANT: Do NOT make code changes. Respond in English.\n\n"
-        "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:\n"
-        "FIXES_NEEDED: true\n"
-        "or\n"
-        "FIXES_NEEDED: false"
+    synthesis_prompt = _build_manual_synthesis_prompt(
+        first_label=first_label,
+        second_label=second_label,
+        first_review=first_review,
+        second_review=second_review,
     )
 
     cmd = ["codex", "exec", "-s", "read-only", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]

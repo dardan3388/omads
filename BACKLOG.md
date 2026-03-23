@@ -14,5 +14,5 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
-- Investigate and tighten the short-run behavior of the manual review flow `Codex -> Claude Code -> Codex` when Claude is rate-limited. The flow now continues into step 3 as intended, but it took longer than the current smoke-test timeout budget.
+- Re-run the short live smoke test for `Codex -> Claude Code -> Codex` on a clean working tree to verify the tighter limited-data synthesis prompt under a real Claude rate-limit.
 - The previously scheduled setup, GUI, docs, browser E2E, and configurable review-pipeline tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.
