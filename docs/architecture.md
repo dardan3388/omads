@@ -11,6 +11,7 @@ FastAPI App
     ├── routes.py
     ├── websocket.py
     ├── runtime.py
+    ├── review_flow.py
     ├── streaming.py
     └── state.py
         ↕
@@ -98,10 +99,20 @@ Owns runtime-only state and process orchestration:
 - builder-task dispatch
 - Claude task runner
 - Codex builder task runner
-- review pipeline runner
+- review pipeline orchestration
 - automatic breaker runners for both builder paths
 
-This module should call shared parsing helpers instead of duplicating stream-json or JSONL parsing logic inline.
+This module should focus on high-level orchestration and shared runtime state, not the detailed review subprocess implementation.
+
+### `src/omads/gui/review_flow.py`
+
+Owns the review-specific helper logic:
+
+- review labels and focus descriptions
+- manual synthesis prompt construction
+- Claude review subprocess steps
+- Codex review subprocess steps
+- Claude/Codex synthesis subprocess steps
 
 ### `src/omads/gui/streaming.py`
 
