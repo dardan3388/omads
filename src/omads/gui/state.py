@@ -333,15 +333,16 @@ def _read_history(project_id: str) -> list[dict]:
     Prefer the unified timeline when available, then fall back to the legacy
     history file for older runs.
     """
-    timeline_entries = [
-        entry for entry in _read_timeline(project_id)
-        if entry.get("type") in _HISTORY_COMPAT_TYPES
-    ]
+    from collections import deque
+
+    timeline_entries: deque[dict] = deque(maxlen=200)
+    for entry in _iter_timeline(project_id):
+        if entry.get("type") in _HISTORY_COMPAT_TYPES:
+            timeline_entries.append(entry)
     if timeline_entries:
-        return timeline_entries[-200:]
+        return list(timeline_entries)
 
     # Legacy fallback for older runs that predate the unified timeline.
-    from collections import deque
     path = _get_project_history_path(project_id)
     entries = []
     if path.exists():
@@ -367,15 +368,16 @@ def _read_log(project_id: str) -> list[dict]:
     Prefer the unified timeline when available, then fall back to the legacy
     log file for older runs.
     """
-    timeline_entries = [
-        entry for entry in _read_timeline(project_id)
-        if entry.get("type") in _LOG_TYPES
-    ]
+    from collections import deque
+
+    timeline_entries: deque[dict] = deque(maxlen=500)
+    for entry in _iter_timeline(project_id):
+        if entry.get("type") in _LOG_TYPES:
+            timeline_entries.append(entry)
     if timeline_entries:
-        return timeline_entries[-500:]
+        return list(timeline_entries)
 
     # Legacy fallback for older runs that predate the unified timeline.
-    from collections import deque
     path = _get_project_log_path(project_id)
     entries = []
     if path.exists():
@@ -395,10 +397,9 @@ def _read_log(project_id: str) -> list[dict]:
     return entries
 
 
-def _read_timeline(project_id: str) -> list[dict]:
-    """Read the full unified event timeline for one project."""
+def _iter_timeline(project_id: str):
+    """Yield parsed timeline events in chronological order."""
     path = _get_project_timeline_path(project_id)
-    entries: list[dict] = []
     if path.exists():
         try:
             with _get_file_lock(path):
@@ -408,12 +409,48 @@ def _read_timeline(project_id: str) -> list[dict]:
                         if not line:
                             continue
                         try:
-                            entries.append(json.loads(line))
+                            yield json.loads(line)
                         except json.JSONDecodeError:
                             pass
         except OSError:
             pass
-    return entries
+
+
+def _read_timeline(project_id: str) -> list[dict]:
+    """Read the full unified event timeline for one project."""
+    return list(_iter_timeline(project_id))
+
+
+def _read_timeline_page(project_id: str, *, limit: int = 200, before: int | None = None) -> dict[str, Any]:
+    """Read one bounded page from the unified timeline without truncating the source data."""
+    from collections import deque
+
+    safe_limit = max(1, min(limit, 500))
+    total_count = 0
+    window: deque[tuple[int, dict[str, Any]]] = deque(maxlen=safe_limit)
+
+    for seq, entry in enumerate(_iter_timeline(project_id), start=1):
+        total_count = seq
+        if before is not None and seq >= before:
+            continue
+        window.append((seq, entry))
+
+    entries = []
+    for seq, entry in window:
+        event = dict(entry)
+        event["seq"] = seq
+        entries.append(event)
+
+    has_more = bool(entries) and entries[0]["seq"] > 1
+    next_before = entries[0]["seq"] if has_more else None
+
+    return {
+        "entries": entries,
+        "limit": safe_limit,
+        "has_more": has_more,
+        "next_before": next_before,
+        "total_count": total_count,
+    }
 
 
 def _find_project_by_path(path: str) -> dict | None:

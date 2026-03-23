@@ -13,8 +13,7 @@ export async function loadProjects() {
     if (active) {
       appState.activeProjectId = active.id;
       renderProjects();
-      await loadHistoryIntoChat(active.id, active.name);
-      await loadProjectLogs(active.id);
+      await loadTimelineWindow(active.id, active.name);
     }
   } catch (error) {
     console.error("Error while loading projects:", error);
@@ -71,8 +70,7 @@ export async function switchProject(projectId) {
       el("repoBadge").textContent = shortPath(data.project.path);
       renderProjects();
       el("stream").innerHTML = "";
-      await loadHistoryIntoChat(projectId, data.project.name);
-      await loadProjectLogs(projectId);
+      await loadTimelineWindow(projectId, data.project.name);
     }
   } catch {}
 }
@@ -166,24 +164,106 @@ export async function createProject() {
   el("stream").innerHTML = `<div class="msg-system">New project: ${esc(name)}. What should I build?</div>`;
 }
 
-export async function loadHistoryIntoChat(projectId, projectName) {
+function createLoadOlderButton(label) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "msg-system";
+  wrapper.style.padding = "12px 0 4px";
+
+  const button = document.createElement("button");
+  button.className = "btn-sm";
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    void loadOlderTimeline();
+  });
+  wrapper.appendChild(button);
+  return wrapper;
+}
+
+function renderTimelineChat(projectName, { preservePosition = false } = {}) {
+  const stream = el("stream");
+  stream.innerHTML = `<div class="msg-system">Project: ${esc(projectName)}</div>`;
+
+  if (appState.timelineHasMore) {
+    stream.appendChild(createLoadOlderButton("Load older history"));
+  }
+
+  if (appState.timelineEntries.length === 0) {
+    addSystem("No history yet. Send your first task!");
+    return;
+  }
+
+  const divider = document.createElement("div");
+  divider.className = "msg-history-divider";
+  const loaded = appState.timelineEntries.length;
+  const total = appState.timelineTotalCount || loaded;
+  divider.textContent = total > loaded ? `History (${loaded} of ${total} events loaded)` : `History (${loaded} events)`;
+  stream.appendChild(divider);
+
+  let lastDate = "";
+  for (const entry of appState.timelineEntries) {
+    const time = entry.timestamp_display || entry.timestamp || "";
+    const dateOnly = time.split(" ")[0] || time.split("T")[0] || "";
+    if (dateOnly && dateOnly !== lastDate) {
+      const dt = document.createElement("div");
+      dt.className = "msg-timestamp";
+      dt.textContent = dateOnly;
+      stream.appendChild(dt);
+      lastDate = dateOnly;
+    }
+    renderChatEvent(entry, { historical: true });
+  }
+
+  const now = document.createElement("div");
+  now.className = "msg-history-divider";
+  now.textContent = "Now";
+  stream.appendChild(now);
+  if (!preservePosition) scrollDown();
+}
+
+function renderTimelineLogs({ preservePosition = false } = {}) {
+  const container = el("livelogContent");
+  container.innerHTML = '<div class="livelog-empty">Waiting for activity...</div>';
+  if (appState.timelineEntries.length === 0) return;
+
+  container.innerHTML = "";
+  if (appState.timelineHasMore) {
+    const toolbar = document.createElement("div");
+    toolbar.className = "livelog-empty";
+    const button = document.createElement("button");
+    button.className = "btn-sm";
+    button.textContent = "Load older events";
+    button.addEventListener("click", () => {
+      void loadOlderTimeline();
+    });
+    toolbar.appendChild(button);
+    container.appendChild(toolbar);
+  }
+
+  for (const msg of appState.timelineEntries) {
+    logEvent(msg, { historical: true });
+  }
+  if (!preservePosition) container.scrollTop = container.scrollHeight;
+}
+
+async function loadLegacyProjectData(projectId, projectName) {
   const stream = el("stream");
   stream.innerHTML = `<div class="msg-system">Project: ${esc(projectName)}</div>`;
 
   try {
-    const timelineRes = await fetch(`/api/projects/${projectId}/timeline`);
-    const timelineEntries = await timelineRes.json();
-
-    if (Array.isArray(timelineEntries) && timelineEntries.length > 0) {
+    const historyRes = await fetch(`/api/projects/${projectId}/history`);
+    const entries = await historyRes.json();
+    if (!entries || entries.length === 0) {
+      addSystem("No history yet. Send your first task!");
+    } else {
       const divider = document.createElement("div");
       divider.className = "msg-history-divider";
-      divider.textContent = `History (${timelineEntries.length} events)`;
+      divider.textContent = `History (${entries.length} entries)`;
       stream.appendChild(divider);
 
       let lastDate = "";
-      for (const entry of timelineEntries) {
-        const time = entry.timestamp_display || entry.timestamp || "";
-        const dateOnly = time.split(" ")[0] || time.split("T")[0] || "";
+      for (const entry of entries) {
+        const time = entry.timestamp || "";
+        const dateOnly = time.split(" ")[0] || "";
         if (dateOnly && dateOnly !== lastDate) {
           const dt = document.createElement("div");
           dt.className = "msg-timestamp";
@@ -191,7 +271,45 @@ export async function loadHistoryIntoChat(projectId, projectName) {
           stream.appendChild(dt);
           lastDate = dateOnly;
         }
-        renderChatEvent(entry, { historical: true });
+
+        if (entry.type === "user_input") {
+          const div = document.createElement("div");
+          div.className = "msg msg-user";
+          div.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(entry.text)}`;
+          stream.appendChild(div);
+        } else if (entry.type === "task_result") {
+          const decision = entry.decision || "reject";
+          const score = entry.score ? `${(entry.score * 100).toFixed(0)}%` : "";
+          const label = decision === "accept" ? "Done" : decision === "escalate" ? "Needs review" : "Failed";
+          const div = document.createElement("div");
+          div.className = `result-banner ${decision}`;
+          div.innerHTML = `<span style="font-size:10px;color:inherit;opacity:0.7;display:block;margin-bottom:2px;">${esc(time)}</span>${label} ${score} — ${esc(truncate(entry.intent, 60))}`;
+          if (entry.files_changed) {
+            div.innerHTML += `<span style="font-size:11px;opacity:0.7;margin-left:8px;">(${entry.files_changed} file${entry.files_changed > 1 ? "s" : ""})</span>`;
+          }
+          stream.appendChild(div);
+        } else if (entry.type === "claude_response" || entry.type === "builder_response") {
+          const div = document.createElement("div");
+          div.className = "msg msg-agent";
+          let meta = "";
+          if (entry.files_changed) meta += `${entry.files_changed} file${entry.files_changed > 1 ? "s" : ""} changed`;
+          if (entry.duration_s) meta += `${meta ? " · " : ""}${entry.duration_s}s`;
+          const historyAgent = entry.agent || "Claude Code";
+          const historyClass = agentClass(historyAgent);
+          div.innerHTML = `<span class="agent-name ${historyClass}">${esc(historyAgent)}</span>${formatMsg(entry.text)}${meta ? `<span style="font-size:10px;color:var(--text-dim);display:block;margin-top:4px;">${meta}</span>` : ""}`;
+          stream.appendChild(div);
+        } else if (entry.type === "chat") {
+          const question = document.createElement("div");
+          question.className = "msg msg-user";
+          question.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(entry.question)}`;
+          stream.appendChild(question);
+          if (entry.answer) {
+            const answer = document.createElement("div");
+            answer.className = "msg msg-agent";
+            answer.innerHTML = `<span class="agent-name claude">${esc(entry.model || "Chat")}</span>${formatMsg(entry.answer)}`;
+            stream.appendChild(answer);
+          }
+        }
       }
 
       const now = document.createElement("div");
@@ -199,107 +317,54 @@ export async function loadHistoryIntoChat(projectId, projectName) {
       now.textContent = "Now";
       stream.appendChild(now);
       scrollDown();
-      return;
     }
 
-    const res = await fetch(`/api/projects/${projectId}/history`);
-    const entries = await res.json();
-
-    if (!entries || entries.length === 0) {
-      addSystem("No history yet. Send your first task!");
-      return;
+    const logContainer = el("livelogContent");
+    logContainer.innerHTML = '<div class="livelog-empty">Waiting for activity...</div>';
+    const logRes = await fetch(`/api/projects/${projectId}/logs`);
+    const legacyEntries = await logRes.json();
+    if (!legacyEntries || legacyEntries.length === 0) return;
+    logContainer.innerHTML = "";
+    for (const msg of legacyEntries) {
+      logEvent(msg, { historical: true });
     }
-
-    const divider = document.createElement("div");
-    divider.className = "msg-history-divider";
-    divider.textContent = `History (${entries.length} entries)`;
-    stream.appendChild(divider);
-
-    let lastDate = "";
-    for (const entry of entries) {
-      const time = entry.timestamp || "";
-      const dateOnly = time.split(" ")[0] || "";
-      if (dateOnly && dateOnly !== lastDate) {
-        const dt = document.createElement("div");
-        dt.className = "msg-timestamp";
-        dt.textContent = dateOnly;
-        stream.appendChild(dt);
-        lastDate = dateOnly;
-      }
-
-      if (entry.type === "user_input") {
-        const div = document.createElement("div");
-        div.className = "msg msg-user";
-        div.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(entry.text)}`;
-        stream.appendChild(div);
-      } else if (entry.type === "task_result") {
-        const decision = entry.decision || "reject";
-        const score = entry.score ? `${(entry.score * 100).toFixed(0)}%` : "";
-        const label = decision === "accept" ? "Done" : decision === "escalate" ? "Needs review" : "Failed";
-        const div = document.createElement("div");
-        div.className = `result-banner ${decision}`;
-        div.innerHTML = `<span style="font-size:10px;color:inherit;opacity:0.7;display:block;margin-bottom:2px;">${esc(time)}</span>${label} ${score} — ${esc(truncate(entry.intent, 60))}`;
-        if (entry.files_changed) {
-          div.innerHTML += `<span style="font-size:11px;opacity:0.7;margin-left:8px;">(${entry.files_changed} file${entry.files_changed > 1 ? "s" : ""})</span>`;
-        }
-        stream.appendChild(div);
-      } else if (entry.type === "claude_response" || entry.type === "builder_response") {
-        const div = document.createElement("div");
-        div.className = "msg msg-agent";
-        let meta = "";
-        if (entry.files_changed) meta += `${entry.files_changed} file${entry.files_changed > 1 ? "s" : ""} changed`;
-        if (entry.duration_s) meta += `${meta ? " · " : ""}${entry.duration_s}s`;
-        const historyAgent = entry.agent || "Claude Code";
-        const historyClass = agentClass(historyAgent);
-        div.innerHTML = `<span class="agent-name ${historyClass}">${esc(historyAgent)}</span>${formatMsg(entry.text)}${meta ? `<span style="font-size:10px;color:var(--text-dim);display:block;margin-top:4px;">${meta}</span>` : ""}`;
-        stream.appendChild(div);
-      } else if (entry.type === "chat") {
-        const question = document.createElement("div");
-        question.className = "msg msg-user";
-        question.innerHTML = `<span style="font-size:10px;color:var(--text-dim);display:block;margin-bottom:2px;">${esc(time)}</span>${formatMsg(entry.question)}`;
-        stream.appendChild(question);
-        if (entry.answer) {
-          const answer = document.createElement("div");
-          answer.className = "msg msg-agent";
-          answer.innerHTML = `<span class="agent-name claude">${esc(entry.model || "Chat")}</span>${formatMsg(entry.answer)}`;
-          stream.appendChild(answer);
-        }
-      }
-    }
-
-    const now = document.createElement("div");
-    now.className = "msg-history-divider";
-    now.textContent = "Now";
-    stream.appendChild(now);
-    scrollDown();
+    logContainer.scrollTop = logContainer.scrollHeight;
   } catch (error) {
-    console.error("Error while loading history:", error);
+    console.error("Error while loading legacy project data:", error);
   }
 }
 
-export async function loadProjectLogs(projectId) {
-  const container = el("livelogContent");
-  container.innerHTML = '<div class="livelog-empty">Waiting for activity...</div>';
+export async function loadTimelineWindow(projectId, projectName, { before = null } = {}) {
   try {
-    let res = await fetch(`/api/projects/${projectId}/timeline`);
-    const entries = await res.json();
-    if (!entries || entries.length === 0) {
-      res = await fetch(`/api/projects/${projectId}/logs`);
-      const legacyEntries = await res.json();
-      if (!legacyEntries || legacyEntries.length === 0) return;
-      container.innerHTML = "";
-      for (const msg of legacyEntries) {
-        logEvent(msg, { historical: true });
-      }
-      container.scrollTop = container.scrollHeight;
+    const params = new URLSearchParams({ limit: "200" });
+    if (before) params.set("before", String(before));
+    const timelineRes = await fetch(`/api/projects/${projectId}/timeline?${params.toString()}`);
+    const timelinePage = await timelineRes.json();
+
+    if (!Array.isArray(timelinePage.entries)) {
+      await loadLegacyProjectData(projectId, projectName);
       return;
     }
-    container.innerHTML = "";
-    for (const msg of entries) {
-      logEvent(msg, { historical: true });
-    }
-    container.scrollTop = container.scrollHeight;
+
+    appState.currentProjectName = projectName;
+    appState.timelineTotalCount = timelinePage.total_count || timelinePage.entries.length;
+    appState.timelineHasMore = Boolean(timelinePage.has_more);
+    appState.timelineNextBefore = timelinePage.next_before;
+    appState.timelineEntries = before
+      ? [...timelinePage.entries, ...appState.timelineEntries]
+      : timelinePage.entries;
+
+    const preservePosition = before !== null;
+    renderTimelineChat(projectName, { preservePosition });
+    renderTimelineLogs({ preservePosition });
   } catch (error) {
-    console.error("Error while loading logs:", error);
+    console.error("Error while loading timeline window:", error);
   }
+}
+
+export async function loadOlderTimeline() {
+  if (!appState.activeProjectId || !appState.timelineHasMore || !appState.timelineNextBefore) return;
+  await loadTimelineWindow(appState.activeProjectId, appState.currentProjectName, {
+    before: appState.timelineNextBefore,
+  });
 }

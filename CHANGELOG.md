@@ -28,6 +28,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Changed
 
+- Changed the project timeline API and frontend history/log loaders to use bounded pages with an older-events cursor, so long project histories stay responsive without truncating the stored timeline data.
 - Split the old inline frontend script out of `src/omads/gui/frontend.html` into browser modules under `src/omads/gui/static/js/`, and mounted `/static` from FastAPI so the GUI logic now ships as maintainable frontend files instead of one large HTML-embedded script block.
 - Extracted the Claude/Codex builder task runners and automatic breaker subprocess helpers into `src/omads/gui/builder_flow.py`, so `runtime.py` now stays focused on runtime state, routing, and orchestration.
 - Extracted the manual review subprocess helpers and synthesis prompt builder into `src/omads/gui/review_flow.py`, so `runtime.py` keeps the orchestration role while review-specific mechanics live in a dedicated module.

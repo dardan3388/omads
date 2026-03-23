@@ -65,6 +65,7 @@ Owns REST endpoints for:
 - runtime status refresh
 - health and status endpoints
 - ledger and history reads
+- paged timeline reads for the chat surface and live log
 - frontend delivery at `/`
 
 FastAPI's built-in docs also stay enabled at `/docs`, `/redoc`, and `/openapi.json`.
@@ -238,6 +239,8 @@ Runtime data is stored below `~/.config/omads/`:
 - `history/` only as a legacy fallback for older local data
 - `memory/`
 
+The browser does not load the full timeline on every project switch anymore. It requests the newest bounded page first and can fetch older pages on demand through the same paged timeline endpoint.
+
 Project ledger data is stored under `data/ledger/`.
 
 ## Testing
@@ -253,6 +256,7 @@ It covers:
 - log filtering and session persistence
 - builder selection and dispatch
 - key Claude/review failure paths
+- timeline paging and bounded loading behavior
 - browser-driven E2E coverage for theme switching, builder switching, diff inspection, and the WebSocket chat flow
 
 The next highest-value test areas are deeper browser-driven scenarios such as reconnect recovery, review dialogs, and multi-project switching.

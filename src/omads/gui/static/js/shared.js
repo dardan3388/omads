@@ -12,6 +12,11 @@ export const appState = {
   projects: [],
   activeProjectId: null,
   savedSettings: {},
+  timelineEntries: [],
+  timelineHasMore: false,
+  timelineNextBefore: null,
+  timelineTotalCount: 0,
+  currentProjectName: "",
   scrollRAF: 0,
 };
 

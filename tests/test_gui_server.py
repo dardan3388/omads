@@ -282,8 +282,10 @@ def test_project_duplicate_invalid_id_history_and_log_endpoints(client: TestClie
     assert timeline.status_code == 200
     assert history.json()[0]["text"] == "hello"
     assert logs.json()[0]["text"] == "world"
-    assert timeline.json()[0]["type"] == "user_input"
-    assert timeline.json()[1]["type"] == "stream_text"
+    assert timeline.json()["entries"][0]["type"] == "user_input"
+    assert timeline.json()["entries"][1]["type"] == "stream_text"
+    assert timeline.json()["entries"][0]["seq"] == 1
+    assert timeline.json()["total_count"] == 2
 
     invalid_history = client.get("/api/projects/bad.id/history")
     invalid_logs = client.get("/api/projects/bad.id/logs")
@@ -309,6 +311,36 @@ def test_history_and_logs_are_derived_from_timeline_when_present(client: TestCli
     assert logs.status_code == 200
     assert [entry["type"] for entry in history.json()] == ["user_input"]
     assert [entry["type"] for entry in logs.json()] == ["stream_text", "agent_status"]
+
+
+def test_timeline_endpoint_supports_bounded_loading_and_before_cursor(client: TestClient):
+    project_id = "projpage"
+
+    for idx in range(1, 8):
+        state._append_timeline_event(project_id, {"type": "stream_text", "agent": "Codex", "text": f"entry-{idx}"})
+
+    first_page = client.get(f"/api/projects/{project_id}/timeline?limit=3")
+    assert first_page.status_code == 200
+    payload = first_page.json()
+    assert payload["total_count"] == 7
+    assert payload["has_more"] is True
+    assert payload["next_before"] == 5
+    assert [entry["text"] for entry in payload["entries"]] == ["entry-5", "entry-6", "entry-7"]
+    assert [entry["seq"] for entry in payload["entries"]] == [5, 6, 7]
+
+    older_page = client.get(f"/api/projects/{project_id}/timeline?limit=3&before=5")
+    assert older_page.status_code == 200
+    older_payload = older_page.json()
+    assert older_payload["has_more"] is True
+    assert older_payload["next_before"] == 2
+    assert [entry["text"] for entry in older_payload["entries"]] == ["entry-2", "entry-3", "entry-4"]
+
+    earliest_page = client.get(f"/api/projects/{project_id}/timeline?limit=3&before=2")
+    assert earliest_page.status_code == 200
+    earliest_payload = earliest_page.json()
+    assert earliest_payload["has_more"] is False
+    assert earliest_payload["next_before"] is None
+    assert [entry["text"] for entry in earliest_payload["entries"]] == ["entry-1"]
 
 
 def test_chat_session_persistence_roundtrip(isolated_server):
