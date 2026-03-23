@@ -227,6 +227,28 @@ def _build_cli_env() -> dict[str, str]:
 _PROJECTS_PATH = Path.home() / ".config" / "omads" / "projects.json"
 _HISTORY_DIR = Path.home() / ".config" / "omads" / "history"
 _TIMELINE_DIR = Path.home() / ".config" / "omads" / "timeline"
+_LOG_TYPES = {
+    "task_start",
+    "stream_text",
+    "stream_tool",
+    "agent_status",
+    "agent_activity",
+    "task_complete",
+    "task_stopped",
+    "task_error",
+    "chat_response",
+    "stream_thinking",
+    "stream_result",
+}
+_HISTORY_COMPAT_TYPES = {
+    "user_input",
+    "builder_response",
+    "claude_response",
+    "task_result",
+    "chat",
+    "task_error",
+    "chat_response",
+}
 
 
 def _load_projects() -> list[dict]:
@@ -286,9 +308,6 @@ def _append_history(project_id: str, entry: dict) -> None:
 def _append_log(project_id: str, entry: dict) -> None:
     """Append one entry to the project log file."""
     from datetime import datetime
-    _LOG_TYPES = {"task_start", "stream_text", "stream_tool", "agent_status",
-                  "agent_activity", "task_complete", "task_stopped", "task_error",
-                  "chat_response", "stream_thinking", "stream_result"}
     if entry.get("type") not in _LOG_TYPES:
         return
     entry["timestamp"] = datetime.now().strftime("%d.%m. %H:%M:%S")
@@ -309,7 +328,19 @@ def _append_timeline_event(project_id: str, entry: dict) -> None:
 
 
 def _read_history(project_id: str) -> list[dict]:
-    """Read the last 200 history entries for one project (tail read)."""
+    """Return a history-compatible view for one project.
+
+    Prefer the unified timeline when available, then fall back to the legacy
+    history file for older runs.
+    """
+    timeline_entries = [
+        entry for entry in _read_timeline(project_id)
+        if entry.get("type") in _HISTORY_COMPAT_TYPES
+    ]
+    if timeline_entries:
+        return timeline_entries[-200:]
+
+    # Legacy fallback for older runs that predate the unified timeline.
     from collections import deque
     path = _get_project_history_path(project_id)
     entries = []
@@ -331,7 +362,19 @@ def _read_history(project_id: str) -> list[dict]:
 
 
 def _read_log(project_id: str) -> list[dict]:
-    """Read the last 500 log entries for one project (tail read)."""
+    """Return a log-compatible view for one project.
+
+    Prefer the unified timeline when available, then fall back to the legacy
+    log file for older runs.
+    """
+    timeline_entries = [
+        entry for entry in _read_timeline(project_id)
+        if entry.get("type") in _LOG_TYPES
+    ]
+    if timeline_entries:
+        return timeline_entries[-500:]
+
+    # Legacy fallback for older runs that predate the unified timeline.
     from collections import deque
     path = _get_project_log_path(project_id)
     entries = []

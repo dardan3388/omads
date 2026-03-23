@@ -271,8 +271,6 @@ def test_project_duplicate_invalid_id_history_and_log_endpoints(client: TestClie
     assert duplicate.status_code == 200
     assert "already exists" in duplicate.json()["error"]
 
-    state._append_history(project_id, {"type": "user_input", "text": "hello"})
-    state._append_log(project_id, {"type": "stream_text", "agent": "Claude", "text": "world"})
     state._append_timeline_event(project_id, {"type": "user_input", "text": "hello"})
     state._append_timeline_event(project_id, {"type": "stream_text", "agent": "Claude", "text": "world"})
 
@@ -295,6 +293,22 @@ def test_project_duplicate_invalid_id_history_and_log_endpoints(client: TestClie
     assert invalid_logs.json()["error"] == "Invalid project ID"
     assert invalid_timeline.json()["error"] == "Invalid project ID"
     assert invalid_delete.json()["error"] == "Invalid project ID"
+
+
+def test_history_and_logs_are_derived_from_timeline_when_present(client: TestClient):
+    project_id = "proj123"
+
+    state._append_timeline_event(project_id, {"type": "user_input", "text": "build this"})
+    state._append_timeline_event(project_id, {"type": "stream_text", "agent": "Codex", "text": "working"})
+    state._append_timeline_event(project_id, {"type": "agent_status", "agent": "Codex", "status": "Done (3s)"})
+
+    history = client.get(f"/api/projects/{project_id}/history")
+    logs = client.get(f"/api/projects/{project_id}/logs")
+
+    assert history.status_code == 200
+    assert logs.status_code == 200
+    assert [entry["type"] for entry in history.json()] == ["user_input"]
+    assert [entry["type"] for entry in logs.json()] == ["stream_text", "agent_status"]
 
 
 def test_chat_session_persistence_roundtrip(isolated_server):

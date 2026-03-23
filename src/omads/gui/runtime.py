@@ -17,8 +17,6 @@ from .streaming import (
     strip_fixes_needed_marker,
 )
 from .state import (
-    _append_history,
-    _append_log,
     _append_timeline_event,
     _build_cli_env,
     _build_process_failure_text,
@@ -154,13 +152,9 @@ async def broadcast(msg: dict) -> None:
 
 def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
     """Synchronous wrapper for `broadcast` used from worker threads."""
-    # Persist log events per project
+    # Persist all live runtime events through the unified per-project timeline.
     proj_id = proj_id_override or _get_active_project_id()
     if proj_id:
-        try:
-            _append_log(proj_id, dict(msg))
-        except Exception:
-            pass
         try:
             _append_timeline_event(proj_id, dict(msg))
         except Exception:
@@ -262,10 +256,9 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
     send({"type": "agent_status", "agent": agent_label, "status": "Working..."})
 
-    # History: record the user input
+    # Persist the user input through the unified timeline.
     proj_id = _frozen_proj_id
     if proj_id:
-        _append_history(proj_id, {"type": "user_input", "text": user_text})
         _append_timeline_event(proj_id, {"type": "user_input", "text": user_text})
 
     try:
@@ -386,12 +379,6 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
                     output_lines=output_lines,
                 ),
             })
-            if proj_id:
-                _append_history(proj_id, {
-                    "type": "task_error",
-                    "text": f"Claude task exit code {process.returncode}",
-                    "duration_s": elapsed,
-                })
             return
 
         # Save the session ID for follow-up messages (chat memory)
@@ -424,13 +411,6 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
             summary_parts.append(f"Latest task: {user_text[:200]}")
             summary_parts.append(f"Result: {recent_output[:2000]}")
             _save_project_memory(target_repo, "\n".join(summary_parts))
-
-        # History: log the result
-        if proj_id:
-            _append_history(proj_id, {
-                "type": "claude_response", "text": result_text[:500],
-                "files_changed": len(files_changed), "duration_s": elapsed,
-            })
 
         # === CODEX AUTO REVIEW ===
         # If Claude changed files and auto review is enabled, Codex reviews them
@@ -560,7 +540,6 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
 
     proj_id = _frozen_proj_id
     if proj_id:
-        _append_history(proj_id, {"type": "user_input", "text": user_text})
         _append_timeline_event(proj_id, {"type": "user_input", "text": user_text})
 
     output_lines: list[str] = []
@@ -662,12 +641,6 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
                     output_lines=output_lines,
                 ),
             })
-            if proj_id:
-                _append_history(proj_id, {
-                    "type": "task_error",
-                    "text": f"Codex task exit code {process.returncode}",
-                    "duration_s": elapsed,
-            })
             return
 
         after_snapshot = _capture_repo_change_snapshot(target_repo)
@@ -689,15 +662,6 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
             summary_parts.append(f"Latest task: {user_text[:200]}")
             summary_parts.append(f"Result: {result_text[:2000]}")
             _save_project_memory(target_repo, "\n".join(summary_parts))
-
-        if proj_id:
-            _append_history(proj_id, {
-                "type": "builder_response",
-                "agent": agent_label,
-                "text": result_text[:500],
-                "files_changed": len(files_changed),
-                "duration_s": elapsed,
-            })
 
         if files_changed and auto_review:
             review_findings = _run_claude_auto_review(

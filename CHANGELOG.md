@@ -28,6 +28,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Changed
 
+- New runtime activity now persists only through the unified per-project timeline; the legacy `history` and `log` endpoints are compatibility views derived from that timeline instead of a second live write path.
 - Tightened the manual review synthesis prompt when Reviewer 2 is incomplete or unavailable, so step 3 stays focused on consolidating the available findings instead of drifting into an open-ended fresh review.
 - Reworked the README so the repository is easier to understand for future public GitHub readers, with a clearer product pitch, faster quick-start path, and example OMADS workflows.
 - Normal chat tasks now follow the persistent GUI builder selection instead of being hardwired to Claude Code.
