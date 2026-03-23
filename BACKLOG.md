@@ -14,5 +14,5 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
-- Run short live smoke tests for both builders and both manual review orders tomorrow, with intentionally brief prompts so the runs finish quickly while still validating the real CLI paths.
+- Investigate and tighten the short-run behavior of the manual review flow `Codex -> Claude Code -> Codex` when Claude is rate-limited. The flow now continues into step 3 as intended, but it took longer than the current smoke-test timeout budget.
 - The previously scheduled setup, GUI, docs, browser E2E, and configurable review-pipeline tasks were completed on 2026-03-22 and moved into `CHANGELOG.md`.
