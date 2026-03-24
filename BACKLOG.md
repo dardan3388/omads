@@ -68,6 +68,20 @@ GitHub OAuth App anlegen unter `github.com/settings/developers` → `client_id` 
 - `full_name` gegen `^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$` validieren
 - Token-Fehler-Scrubbing vor jedem Log/Error-Output
 
+**Erweiterung: Hybrid-Modus (Quick Edit ohne Clone)**
+
+Ziel: Kleine Änderungen direkt via GitHub API — ohne lokalen Clone, ohne Overhead.
+
+Zwei Modi im GitHub-Modal:
+- **Quick Edit** — Einzelne Datei über GitHub Contents API lesen/bearbeiten/committen, kein lokales Klonen nötig
+- **Mit OMADS öffnen** — vollständiger Clone, Claude Code / Codex können auf dem Filesystem arbeiten
+
+Wann welcher Modus sinnvoll ist:
+- Quick Edit: einzelne Konfigdatei, Tippfehler-Fix, README-Änderung
+- Mit OMADS öffnen: Code ausführen, testen, großer Refactor über viele Dateien
+
+Technisch: GitHub Contents API (`GET/PUT /repos/{owner}/{repo}/contents/{path}`) — kein `git` nötig, kein lokales Filesystem.
+
 - Re-run the short live smoke test for `Codex -> Claude Code -> Codex` on a clean working tree to verify the tighter limited-data synthesis prompt under a real Claude rate-limit.
 - Phase 2 (runtime module split) was completed on 2026-03-23 by extracting both `review_flow.py` and `builder_flow.py` out of `runtime.py`.
 - Phase 3 (frontend module split) was completed on 2026-03-23 by moving the large inline GUI script into `src/omads/gui/static/js/` browser modules.
