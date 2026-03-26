@@ -136,7 +136,7 @@ Owns the review-specific helper logic:
 Owns reusable parsing helpers for:
 
 - Claude Code `stream-json` lines
-- Codex JSONL review output
+- Codex JSONL output including error events (rate-limit, auth failures)
 - synthesis markers such as `FIXES_NEEDED`
 
 If behavior is tied to a running task, streaming, subprocess execution, or live GUI state, it probably belongs here.
@@ -203,7 +203,8 @@ Owns frontend bootstrapping and high-level browser orchestration:
 1. The browser sends a `chat` message over WebSocket.
 2. `websocket.py` validates the request and starts a background thread.
 3. `runtime.py` routes the task to the selected primary builder from GUI settings.
-4. The chosen builder subprocess streams readable events back to the browser.
+4. If the user switched builders, OMADS loads the recent conversation from the project timeline and passes it as context to the new builder so it can continue naturally.
+5. The chosen builder subprocess streams readable events back to the browser.
 5. If the builder changed files and auto-review is enabled, OMADS starts the current automatic breaker step.
 6. Today that means `Codex` reviews Claude-built changes, while `Claude Review` checks Codex-built changes before findings are handed back to the builder.
 7. If the breaker reports real findings, the active builder receives them for a follow-up fix decision.

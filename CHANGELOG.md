@@ -8,6 +8,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Added
 
+- Added chat context handover when switching builders — OMADS passes the recent conversation history to the new builder so it can continue naturally without losing context, even across different providers (Claude Code ↔ Codex).
 - Added a public-ready README gallery with real OMADS screenshots under `docs/assets/`.
 - Added a persistent primary-builder setting so normal chat tasks can be routed to either Claude Code or Codex from the GUI until the user changes the selection.
 - Added a dedicated Review settings tab so users can choose Reviewer 1 and Reviewer 2 for the manual review button while step 3 automatically returns to Reviewer 1.
@@ -25,6 +26,15 @@ The format is loosely based on Keep a Changelog.
 - Added `compose.yaml` plus `.env.docker.example` for Docker-based workspace/auth mounting.
 - Added `CONTRIBUTING.md` and GitHub issue templates for bug reports and feature requests.
 - Added `src/omads/gui/streaming.py` to centralize Claude/Codex stream parsing helpers.
+
+### Changed
+
+- Builder sessions are now scoped per builder (`builder:claude`) instead of per repo, preventing stale session resumption when switching builders.
+
+### Fixed
+
+- Codex CLI error messages (e.g. rate-limit with retry time) are now surfaced in the chat instead of showing only a generic "exit code 1" failure.
+- Fixed duplicate Codex error display caused by both `error` and `turn.failed` JSONL events being forwarded.
 
 ### Changed
 

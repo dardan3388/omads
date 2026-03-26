@@ -44,7 +44,7 @@ The **Review** button is intentionally separate. It exists for manual inspection
 
 ## What You Can Do With OMADS
 
-- Switch the primary builder between Claude Code and Codex
+- Switch the primary builder between Claude Code and Codex — conversation context is handed over automatically so the new builder can continue where the other left off
 - Run the automatic breaker loop after builder-created code changes
 - Configure the manual review pipeline as `Claude -> Codex -> Claude` or `Codex -> Claude -> Codex`
 - Review the whole project, only the last task, or a custom file/folder selection
