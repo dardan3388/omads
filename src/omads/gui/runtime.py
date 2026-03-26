@@ -33,6 +33,7 @@ from .streaming import (
 )
 from .state import (
     _append_timeline_event,
+    _build_chat_handover_context,
     _build_cli_env,
     _build_process_failure_text,
     _get_active_project_id,
@@ -280,6 +281,7 @@ def _builder_runtime_context(frozen_proj_id: str | None) -> BuilderRuntimeContex
 
     return BuilderRuntimeContext(
         append_timeline_event=_append_timeline_event,
+        build_chat_handover_context=_build_chat_handover_context,
         build_cli_env=_build_cli_env,
         build_process_failure_text=_build_process_failure_text,
         capture_repo_change_snapshot=_capture_repo_change_snapshot,

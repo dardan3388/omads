@@ -24,6 +24,7 @@ class BuilderRuntimeContext:
     build_process_failure_text: Callable[..., str]
     capture_repo_change_snapshot: Callable[[str], dict[str, object]]
     forward_codex_stream_line: Callable[..., None]
+    build_chat_handover_context: Callable[[str], str]
     get_active_project_id: Callable[[], str | None]
     get_chat_session: Callable[..., str | None]
     get_settings_snapshot: Callable[[], dict]
@@ -86,7 +87,16 @@ def run_claude_session_thread(
                     "You have the following context from previous sessions and the project:\n\n"
                     + project_memory
                     + "\n\nUse this context to continue seamlessly without requiring the user "
-                    "to explain where the work left off."
+                    "to explain where the work left off.\n\n"
+                )
+            # Provide recent chat history so the builder knows the conversation context
+            # even when switching from another builder (e.g. Codex -> Claude Code)
+            handover = ctx.build_chat_handover_context(proj_id or "")
+            if handover:
+                omads_context += (
+                    "Recent conversation in this project (may include messages from another builder):\n\n"
+                    + handover
+                    + "\n\nContinue naturally from this context. Do not repeat or summarize it.\n\n"
                 )
 
         cmd = [
@@ -401,6 +411,14 @@ def run_codex_session_thread(
         ]
         if project_memory:
             prompt_parts.append("\nProject context:\n" + project_memory)
+        # Provide recent chat history for builder handover context
+        handover = ctx.build_chat_handover_context(proj_id or "")
+        if handover:
+            prompt_parts.append(
+                "\nRecent conversation in this project (may include messages from another builder):\n"
+                + handover
+                + "\n\nContinue naturally from this context. Do not repeat or summarize it."
+            )
         prompt_parts.append("\nUser request:\n" + user_text)
         prompt = "\n".join(prompt_parts)
 

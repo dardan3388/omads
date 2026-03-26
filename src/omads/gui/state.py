@@ -453,6 +453,38 @@ def _read_timeline_page(project_id: str, *, limit: int = 200, before: int | None
     }
 
 
+def _build_chat_handover_context(project_id: str, *, max_entries: int = 30, max_chars: int = 4000) -> str:
+    """Build a conversation summary from recent timeline events for builder handover."""
+    if not project_id:
+        return ""
+    relevant_types = {"user_input", "stream_text", "chat_response", "task_error"}
+    entries: list[str] = []
+    total_chars = 0
+    for event in _iter_timeline(project_id):
+        etype = event.get("type", "")
+        if etype not in relevant_types:
+            continue
+        if etype == "user_input":
+            line = f"User: {event.get('text', '')}"
+        elif etype == "task_error":
+            line = f"System: {event.get('text', '')}"
+        else:
+            agent = event.get("agent", "Agent")
+            line = f"{agent}: {event.get('text', '')}"
+        # Truncate very long individual messages
+        if len(line) > 500:
+            line = line[:500] + "..."
+        entries.append(line)
+        total_chars += len(line)
+    if not entries:
+        return ""
+    # Take only the last N entries within the char budget
+    recent = entries[-max_entries:]
+    while recent and sum(len(e) for e in recent) > max_chars:
+        recent.pop(0)
+    return "\n".join(recent)
+
+
 def _find_project_by_path(path: str) -> dict | None:
     """Find one project by its path."""
     resolved = str(Path(path).resolve())
