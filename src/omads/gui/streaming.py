@@ -99,7 +99,17 @@ def parse_codex_jsonl_line(line: str) -> list[str]:
     except (json.JSONDecodeError, TypeError, ValueError):
         return [stripped] if stripped.strip() else []
 
-    if event.get("type") != "item.completed":
+    etype = event.get("type", "")
+
+    # Surface error messages (e.g. rate-limit, auth failures)
+    if etype == "error":
+        msg = event.get("message", "")
+        return [msg] if msg else []
+    if etype == "turn.failed":
+        msg = event.get("error", {}).get("message", "")
+        return [msg] if msg else []
+
+    if etype != "item.completed":
         return []
 
     text = event.get("item", {}).get("text", "")
