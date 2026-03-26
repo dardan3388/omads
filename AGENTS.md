@@ -75,6 +75,7 @@ Never commit:
 
 ## Working Style
 
+- Never break or restructure the existing architecture. New features must fit into the current module structure as documented in `docs/architecture.md`. If a task would require architectural changes, stop and discuss with the user first.
 - Prefer small, targeted changes over broad rewrites.
 - Understand the current diff before editing.
 - Touch only files required for the current task.
