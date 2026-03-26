@@ -15,7 +15,7 @@ Additional repository-specific rules for this project.
 
 - When extending files that already changed, inspect the diff first and build on top of it instead of replacing it blindly.
 - Meta files such as `AGENTS.md`, `PROJECT_RULES.md`, `.gitignore`, `README.md`, `CHANGELOG.md`, and `docs/` may be maintained without interfering with ongoing feature work in `src/`.
-- At meaningful checkpoints with useful history, actively ask the user: `Should I sync the current state?`
+- After meaningful code changes, automatically sync (add, commit, push) without asking.
 
 ## Documentation
 

@@ -42,12 +42,11 @@ If you need recent shipped context, use `CHANGELOG.md` and Git history instead o
 
 ## Sync Rule
 
-- At meaningful checkpoints, ask: `Should I sync the current state?`
-- Always wait for the user's answer.
-- If the user says `sync now`, run exactly this flow:
+- After meaningful code changes, automatically sync without asking:
 - `git add .`
 - `git commit -m "<clear, meaningful description>"`
 - `git push`
+- Do not wait for explicit confirmation — push immediately after important changes.
 
 ## .gitignore / Security
 
