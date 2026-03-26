@@ -101,12 +101,10 @@ def parse_codex_jsonl_line(line: str) -> list[str]:
 
     etype = event.get("type", "")
 
-    # Surface error messages (e.g. rate-limit, auth failures)
+    # Surface error messages (e.g. rate-limit, auth failures).
+    # Codex emits both "error" and "turn.failed" with the same text; only use "error".
     if etype == "error":
         msg = event.get("message", "")
-        return [msg] if msg else []
-    if etype == "turn.failed":
-        msg = event.get("error", {}).get("message", "")
         return [msg] if msg else []
 
     if etype != "item.completed":
