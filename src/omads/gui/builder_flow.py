@@ -25,7 +25,7 @@ class BuilderRuntimeContext:
     capture_repo_change_snapshot: Callable[[str], dict[str, object]]
     forward_codex_stream_line: Callable[..., None]
     get_active_project_id: Callable[[], str | None]
-    get_chat_session: Callable[[str], str | None]
+    get_chat_session: Callable[..., str | None]
     get_settings_snapshot: Callable[[], dict]
     is_task_cancelled: Callable[[], bool]
     load_project_memory: Callable[[str], str]
@@ -37,7 +37,7 @@ class BuilderRuntimeContext:
     run_claude_auto_review: Callable[..., str | None]
     run_codex_auto_review: Callable[..., str | None]
     save_project_memory: Callable[[str, str], None]
-    set_builder_session: Callable[[str, str], None]
+    set_builder_session: Callable[..., None]
     set_last_files_changed: Callable[[list[str]], None]
     update_claude_limit_status: Callable[[dict, str], dict]
 
@@ -78,7 +78,7 @@ def run_claude_session_thread(
             "Respond in English.\n\n"
         )
 
-        session_id = ctx.get_chat_session(repo_key)
+        session_id = ctx.get_chat_session(repo_key, scope="builder:claude")
         if not session_id:
             project_memory = ctx.load_project_memory(target_repo)
             if project_memory:
@@ -194,7 +194,7 @@ def run_claude_session_thread(
             return
 
         if captured_session_id and success:
-            ctx.set_builder_session(repo_key, captured_session_id)
+            ctx.set_builder_session(repo_key, captured_session_id, scope="builder:claude")
 
         after_snapshot = ctx.capture_repo_change_snapshot(target_repo) if success else before_snapshot
         snapshot_files = (

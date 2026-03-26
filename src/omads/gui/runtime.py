@@ -271,8 +271,8 @@ def _builder_runtime_context(frozen_proj_id: str | None) -> BuilderRuntimeContex
     def get_active_project_id() -> str | None:
         return frozen_proj_id
 
-    def set_builder_session(repo_key: str, session_id: str) -> None:
-        _set_chat_session(repo_key, session_id)
+    def set_builder_session(repo_key: str, session_id: str, *, scope: str = "builder") -> None:
+        _set_chat_session(repo_key, session_id, scope=scope)
 
     def set_last_files_changed(files: list[str]) -> None:
         global _last_files_changed
