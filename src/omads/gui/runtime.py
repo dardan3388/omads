@@ -36,13 +36,16 @@ from .state import (
     _build_chat_handover_context,
     _build_cli_env,
     _build_process_failure_text,
+    _clear_chat_session,
     _get_active_project_id,
     _get_chat_session,
+    _get_last_builder,
     _get_setting,
     _get_settings_snapshot,
     _load_project_memory,
     _save_project_memory,
     _set_chat_session,
+    _set_last_builder,
     _update_claude_limit_status,
 )
 
@@ -190,6 +193,19 @@ _loop: asyncio.AbstractEventLoop | None = None
 def _run_builder_session_thread(ws: WebSocket, user_text: str) -> None:
     """Route one chat task to the currently selected primary builder."""
     builder_agent = _get_setting("builder_agent", "claude")
+    proj_id = _get_active_project_id()
+
+    # Detect builder switch and invalidate the Claude session so the next
+    # Claude run starts fresh with the full chat handover context instead
+    # of resuming a stale session that knows nothing about the other builder.
+    if proj_id:
+        last_builder = _get_last_builder(proj_id)
+        if last_builder and last_builder != builder_agent:
+            target_repo = _get_setting("target_repo", "")
+            if target_repo:
+                _clear_chat_session(target_repo, scope="builder:claude")
+        _set_last_builder(proj_id, builder_agent)
+
     if builder_agent == "codex":
         _run_codex_session_thread(ws, user_text)
     else:

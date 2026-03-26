@@ -627,6 +627,46 @@ def _set_chat_session(
         _save_chat_sessions(dict(_chat_sessions))
 
 
+def _clear_chat_session(repo_key: str, *, scope: str = "builder") -> None:
+    """Remove a stored session so the next run starts fresh with handover context."""
+    key = _chat_session_key(repo_key, scope)
+    with _chat_sessions_lock:
+        if key in _chat_sessions:
+            del _chat_sessions[key]
+            _save_chat_sessions(dict(_chat_sessions))
+
+
+# ─── Last builder tracking (detect builder switches for handover) ──
+_LAST_BUILDER_PATH = Path.home() / ".config" / "omads" / "last_builder.json"
+
+
+def _get_last_builder(project_id: str) -> str | None:
+    """Return which builder was last used for a project."""
+    if not project_id:
+        return None
+    try:
+        if _LAST_BUILDER_PATH.exists():
+            data = json.loads(_read_json_text(_LAST_BUILDER_PATH))
+            return data.get(project_id)
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _set_last_builder(project_id: str, builder: str) -> None:
+    """Record which builder was just used for a project."""
+    if not project_id:
+        return
+    try:
+        data = {}
+        if _LAST_BUILDER_PATH.exists():
+            data = json.loads(_read_json_text(_LAST_BUILDER_PATH))
+    except (json.JSONDecodeError, OSError):
+        data = {}
+    data[project_id] = builder
+    _write_text_file(_LAST_BUILDER_PATH, json.dumps(data, indent=2))
+
+
 # ─── Project memory (persistent context across sessions) ──────────
 _MEMORY_DIR = Path.home() / ".config" / "omads" / "memory"
 
