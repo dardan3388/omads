@@ -36,10 +36,22 @@ import {
   openNewProject,
   pickNewProjectFolder,
 } from "./projects_ui.js";
+import {
+  closeGitHub,
+  closeGitOps,
+  handleGitHubWsEvent,
+  loadGitHubStatus,
+  openGitHub,
+  openGitOps,
+} from "./github_ui.js";
 
 function handle(msg) {
   if (msg.type === "server_restart") {
     addSystem(msg.text || "Server is restarting…");
+    return;
+  }
+  if (msg.type === "github_connected" || msg.type === "github_disconnected") {
+    handleGitHubWsEvent(msg);
     return;
   }
   logEvent(msg);
@@ -55,6 +67,7 @@ function connect() {
     el("connBadge").classList.add("on");
     loadSettings();
     loadProjects();
+    loadGitHubStatus();
   };
   appState.ws.onclose = () => {
     el("connBadge").textContent = "Disconnected";
@@ -260,6 +273,10 @@ function exposeGlobals() {
   window.onKey = onKey;
   window.applyFixes = applyFixes;
   window.browseTo = browseTo;
+  window.openGitHub = openGitHub;
+  window.closeGitHub = closeGitHub;
+  window.openGitOps = openGitOps;
+  window.closeGitOps = closeGitOps;
 }
 
 function init() {

@@ -649,6 +649,34 @@
     .form-group select, .form-group input[type="text"] { font-size: 16px; min-height: 44px; }
     .review-group select, .review-group input, .review-group textarea { font-size: 16px; min-height: 44px; }
   }
+
+  /* ─── GitHub integration styles ─── */
+  .gh-auth-start { text-align: center; padding: 16px 0; }
+  .gh-loading { text-align: center; color: var(--text-dim); padding: 20px 0; }
+  .gh-error { color: #e74c3c; padding: 8px 12px; background: rgba(231,76,60,.1); border-radius: 6px; margin: 8px 0; font-size: 13px; }
+  .gh-success { color: #2ecc71; padding: 8px 12px; background: rgba(46,204,113,.1); border-radius: 6px; margin: 8px 0; font-size: 13px; }
+  .gh-user-code { font-family: monospace; font-size: 28px; font-weight: 700; letter-spacing: 4px; padding: 12px; background: var(--bg); border: 2px solid var(--cyan); border-radius: 8px; user-select: all; }
+  .gh-poll-status { font-size: 13px; color: var(--text-dim); }
+  .gh-repo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .gh-repo-list { max-height: 400px; overflow-y: auto; }
+  .gh-repo-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; transition: background .15s; }
+  .gh-repo-item:hover { background: var(--bg); }
+  .gh-repo-info { flex: 1; min-width: 0; margin-right: 12px; }
+  .gh-repo-name { font-weight: 600; font-size: 14px; }
+  .gh-repo-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gh-repo-actions { flex-shrink: 0; }
+  .gh-lang { font-size: 11px; color: var(--cyan); margin-left: 6px; }
+  .gh-private { font-size: 10px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; margin-left: 6px; }
+  .gh-clone-dialog h3 { font-size: 16px; }
+  .gh-status-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 12px; overflow-x: auto; margin: 0 0 12px; white-space: pre; }
+  .gh-ops-row { padding-top: 4px; }
+  .gh-commit-row { display: flex; gap: 8px; }
+  .btn-danger { color: #e74c3c !important; border-color: #e74c3c !important; }
+  .btn-danger:hover { background: rgba(231,76,60,.15) !important; }
+  .btn-primary { background: var(--cyan) !important; color: #000 !important; border-color: var(--cyan) !important; font-weight: 600; }
+  .btn-primary:hover { opacity: .85; }
+  .gh-git-btn { background: none; border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; font-size: 12px; padding: 2px 8px; border-radius: 4px; transition: all .15s; }
+  .gh-git-btn:hover { border-color: var(--cyan); color: var(--cyan); }
 </style>
 </head>
 <body>
@@ -660,6 +688,7 @@
     <span class="badge" id="connBadge">Connecting...</span>
     <span class="badge" id="builderBadge" title="Selected builder">Builder: Claude</span>
     <span class="badge" id="repoBadge" title="Open project settings" style="cursor:pointer" onclick="openSettings()">No project</span>
+    <span class="badge" id="githubBadge" title="GitHub integration" style="cursor:pointer" onclick="openGitHub()">GitHub</span>
   </div>
   <div class="header-right">
     <span class="badge on" id="autoReviewBadge" title="Automatic post-change review is enabled">Auto Review: On</span>
@@ -1018,6 +1047,28 @@
     <div class="hint" style="margin-top:12px;">If the QR code does not scan, type the URL into your phone browser manually.</div>
     <div class="modal-actions">
       <button class="btn-m secondary" onclick="closeLanModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- GitHub Modal -->
+<div class="modal-overlay" id="githubModal" onclick="if(event.target===this)closeGitHub()">
+  <div class="modal" style="width:560px;max-height:80vh;overflow-y:auto;">
+    <h2>GitHub</h2>
+    <div id="githubModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn-m secondary" onclick="closeGitHub()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Git Operations Modal -->
+<div class="modal-overlay" id="gitOpsModal" onclick="if(event.target===this)closeGitOps()">
+  <div class="modal" style="width:500px;max-height:70vh;overflow-y:auto;">
+    <h2 id="gitOpsTitle">Git</h2>
+    <div id="gitOpsBody"></div>
+    <div class="modal-actions">
+      <button class="btn-m secondary" onclick="closeGitOps()">Close</button>
     </div>
   </div>
 </div>

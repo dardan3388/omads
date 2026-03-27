@@ -1,5 +1,6 @@
 import { appState, el, esc, formatMsg, shortPath, agentClass, truncate, scrollDown } from "./shared.js";
 import { addSystem, logEvent, renderChatEvent } from "./chat_ui.js";
+import { openGitOps } from "./github_ui.js";
 
 export async function loadProjects() {
   try {
@@ -42,9 +43,19 @@ export function renderProjects() {
           <div class="project-path" title="${esc(project.path)}">${esc(shortP)}</div>
           <div class="project-meta">Last used: ${lastUsed}</div>
         </div>
-        <button class="btn-delete-project" data-id="${esc(project.id)}" data-name="${esc(project.name)}" title="Delete project" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <button class="gh-git-btn" data-path="${esc(project.path)}" data-name="${esc(project.name)}" title="Git operations">Git</button>
+          <button class="btn-delete-project" data-id="${esc(project.id)}" data-name="${esc(project.name)}" title="Delete project" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
+        </div>
       </div>
     `;
+    const gitBtn = div.querySelector(".gh-git-btn");
+    if (gitBtn) {
+      gitBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openGitOps(gitBtn.dataset.path, gitBtn.dataset.name);
+      });
+    }
     const deleteBtn = div.querySelector(".btn-delete-project");
     if (deleteBtn) {
       deleteBtn.addEventListener("click", (event) => {

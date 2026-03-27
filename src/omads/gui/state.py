@@ -170,6 +170,17 @@ class SwitchProjectRequest(_RequestModel):
     id: str = ""
 
 
+class GitHubCloneRequest(_RequestModel):
+    full_name: str = ""
+    target_dir: str = ""
+
+
+class GitHubGitRequest(_RequestModel):
+    repo_path: str = ""
+    operation: str = ""  # status, commit, push, pull
+    message: str = ""
+
+
 def _load_config() -> dict[str, Any]:
     """Load settings from ~/.config/omads/gui_settings.json."""
     settings = dict(_DEFAULT_SETTINGS)

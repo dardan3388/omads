@@ -8,6 +8,7 @@ The format is loosely based on Keep a Changelog.
 
 ### Added
 
+- Added smartphone access via LAN — OMADS binds to `0.0.0.0`, CORS allows private RFC-1918 IPs, new `/api/network-info` endpoint, "Auf Smartphone öffnen" button with URL modal, and a fully responsive mobile layout.
 - Added chat context handover when switching builders — OMADS passes the recent conversation history to the new builder so it can continue naturally without losing context, even across different providers (Claude Code ↔ Codex).
 - Added a public-ready README gallery with real OMADS screenshots under `docs/assets/`.
 - Added a persistent primary-builder setting so normal chat tasks can be routed to either Claude Code or Codex from the GUI until the user changes the selection.

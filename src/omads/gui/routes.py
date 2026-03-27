@@ -20,6 +20,8 @@ from omads.utils.paths import get_data_dir, get_dna_dir
 from . import runtime
 from .state import (
     CreateProjectRequest,
+    GitHubCloneRequest,
+    GitHubGitRequest,
     SwitchProjectRequest,
     UpdateSettingsRequest,
     _detect_lan_ip,
@@ -474,3 +476,129 @@ async def get_ledger():
         except OSError:
             pass
     return entries
+
+
+# ─── GitHub integration endpoints ─────────────────────────────────
+
+@router.post("/api/github/auth/connect")
+async def github_auth_connect(data: dict[str, Any]):
+    """Connect to GitHub with a Personal Access Token."""
+    from . import github
+
+    token = (data.get("token") or "").strip()
+    if not token:
+        return {"error": "Token is required"}
+    try:
+        result = github.connect_with_token(token)
+        await runtime.broadcast({"type": "github_connected", "username": result.get("username", "")})
+        return result
+    except ValueError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": f"Connection failed: {exc}"}
+
+
+@router.delete("/api/github/auth")
+async def github_auth_disconnect():
+    """Disconnect from GitHub (delete stored token)."""
+    from . import github
+
+    github.disconnect()
+    await runtime.broadcast({"type": "github_disconnected"})
+    return {"ok": True}
+
+
+@router.get("/api/github/auth/status")
+async def github_auth_status():
+    """Return current GitHub auth status (no token exposed)."""
+    from . import github
+
+    return github.get_auth_status()
+
+
+@router.get("/api/github/repos")
+async def github_list_repos(page: int = 1, per_page: int = 30):
+    """List the authenticated user's GitHub repos."""
+    from . import github
+
+    try:
+        repos = github.list_repos(page=page, per_page=per_page)
+        return {"repos": repos}
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": f"Failed to list repos: {exc}"}
+
+
+@router.post("/api/github/clone")
+async def github_clone_repo(data: GitHubCloneRequest):
+    """Clone a GitHub repo and register it as an OMADS project."""
+    from datetime import datetime
+    import hashlib
+    from . import github
+
+    full_name = data.full_name.strip()
+    target_dir = data.target_dir.strip()
+    if not full_name or not target_dir:
+        return {"error": "full_name and target_dir are required"}
+
+    try:
+        clone_result = github.clone_repo(full_name, target_dir)
+    except (ValueError, RuntimeError) as exc:
+        return {"error": str(exc)}
+
+    cloned_path = clone_result["path"]
+
+    # Auto-register as OMADS project
+    project_name = full_name.split("/")[-1]
+    existing = _find_project_by_path(cloned_path)
+    if existing:
+        return {"ok": True, "project": existing, "cloned": True}
+
+    project_id = hashlib.sha256(cloned_path.encode()).hexdigest()[:12]
+    project = {
+        "id": project_id,
+        "name": project_name,
+        "path": cloned_path,
+        "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "last_used": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "github_repo": full_name,
+    }
+    projects = _load_projects()
+    projects.append(project)
+    _save_projects(projects)
+
+    # Switch to the newly cloned project
+    _update_settings(lambda settings: settings.__setitem__("target_repo", cloned_path))
+    await runtime.broadcast({"type": "github_connected", "username": github.get_auth_status().get("username", "")})
+
+    return {"ok": True, "project": project, "cloned": True}
+
+
+@router.post("/api/github/git")
+async def github_git_operation(data: GitHubGitRequest):
+    """Run a Git operation (status, commit, push, pull) on a repo."""
+    from . import github
+
+    repo_path = data.repo_path.strip()
+    operation = data.operation.strip()
+    if not repo_path or not operation:
+        return {"error": "repo_path and operation are required"}
+
+    if operation not in ("status", "commit", "push", "pull"):
+        return {"error": f"Unknown operation: {operation}"}
+
+    # Security: only allow repos inside $HOME
+    resolved = str(Path(repo_path).expanduser().resolve())
+    home_str = str(Path.home().resolve())
+    if resolved != home_str and not resolved.startswith(home_str + "/"):
+        return {"error": "Only repositories inside $HOME are allowed"}
+
+    try:
+        kwargs: dict[str, Any] = {}
+        if operation == "commit":
+            kwargs["message"] = data.message
+        result = github.git_operation(resolved, operation, **kwargs)
+        return {"ok": True, **result}
+    except (ValueError, RuntimeError) as exc:
+        return {"error": str(exc)}

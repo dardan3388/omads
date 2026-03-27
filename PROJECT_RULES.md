@@ -28,6 +28,15 @@ Additional repository-specific rules for this project.
 - `CHANGELOG.md` for notable changes
 - `docs/architecture.md` for structural explanation
 
+## UX First
+
+- User-friendliness is the top priority for every feature in OMADS.
+- Always choose the simplest path for the end user (e.g. paste a token instead of registering an OAuth app).
+- Never require environment variables, CLI setup, or developer knowledge as a prerequisite for features.
+- When a setup step is unavoidable, explain it step-by-step directly inside the GUI.
+- Design all flows so that other agents (Codex, Claude Code) can also operate them.
+- Default litmus test: "Could a non-developer use this without help?"
+
 ## Git and Security
 
 - The remote should point to a private GitHub repository.
