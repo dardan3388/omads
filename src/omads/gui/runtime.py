@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import subprocess
 import threading
 from pathlib import Path
@@ -177,7 +178,7 @@ def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
         try:
             _append_timeline_event(proj_id, dict(msg))
         except Exception:
-            pass
+            logging.getLogger("omads").debug("Timeline write failed for %s", proj_id, exc_info=True)
     with _connections_lock:
         snapshot = list(_connections)
     for ws in snapshot:

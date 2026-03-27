@@ -454,22 +454,30 @@ def _read_log(project_id: str) -> list[dict]:
 
 
 def _iter_timeline(project_id: str):
-    """Yield parsed timeline events in chronological order."""
+    """Yield parsed timeline events in chronological order.
+
+    The file is read in one pass under the lock so that callers never
+    hold the lock across yields — preventing potential deadlocks when
+    a write to the same file is attempted between iterations.
+    """
     path = _get_project_timeline_path(project_id)
-    if path.exists():
-        try:
-            with _get_file_lock(path):
-                with open(path, encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            yield json.loads(line)
-                        except json.JSONDecodeError:
-                            pass
-        except OSError:
-            pass
+    if not path.exists():
+        return
+    entries: list[dict] = []
+    try:
+        with _get_file_lock(path):
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+    except OSError:
+        return
+    yield from entries
 
 
 def _read_timeline(project_id: str) -> list[dict]:
