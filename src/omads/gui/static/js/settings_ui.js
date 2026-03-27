@@ -156,6 +156,9 @@ export async function loadSettings() {
     el("sCodexFast").value = settings.codex_fast ? "true" : "false";
     el("sAutoReview").value = settings.auto_review !== false ? "true" : "false";
     el("sTheme").value = settings.ui_theme || "dark";
+    el("sLanAccess").value = settings.lan_access ? "true" : "false";
+    const lanGroup = el("lanInfoGroup");
+    if (lanGroup) lanGroup.style.display = settings.lan_access ? "block" : "none";
     applyTheme(settings.ui_theme || "dark");
     applyBuilderAgent(settings.builder_agent || "claude");
     applyReviewPipeline(settings.review_first_reviewer || "claude", settings.review_second_reviewer || "codex");
@@ -165,6 +168,7 @@ export async function loadSettings() {
 }
 
 export async function saveSettings() {
+  const lanNow = el("sLanAccess").value === "true";
   const data = {
     target_repo: el("sRepo").value,
     builder_agent: el("sBuilder").value,
@@ -178,6 +182,7 @@ export async function saveSettings() {
     codex_fast: el("sCodexFast").value === "true",
     auto_review: el("sAutoReview").value === "true",
     ui_theme: el("sTheme").value,
+    lan_access: lanNow,
   };
   if (appState.ws && data.target_repo) {
     appState.ws.send(JSON.stringify({ type: "set_repo", path: data.target_repo }));
@@ -192,6 +197,8 @@ export async function saveSettings() {
   applyReviewPipeline(data.review_first_reviewer, data.review_second_reviewer);
   applyAutoReviewEnabled(data.auto_review);
   el("repoBadge").textContent = shortPath(data.target_repo);
+  const lanGroup = el("lanInfoGroup");
+  if (lanGroup) lanGroup.style.display = lanNow ? "block" : "none";
   closeSettings();
 }
 
@@ -245,4 +252,39 @@ export async function loadDiffViewer() {
     btn.disabled = false;
     btn.textContent = oldText;
   }
+}
+
+// ─── LAN access modal ────────────────────────────────────────────
+
+export async function openLanModal() {
+  closeSettings();
+  el("lanModal").classList.add("open");
+  try {
+    const res = await fetch("/api/network-info");
+    const info = await res.json();
+    const url = info.lan_url || `http://${info.lan_ip}:${info.port}`;
+    el("lanUrlDisplay").textContent = url;
+    if (info.qr_data_url) {
+      el("lanQr").innerHTML = `<img src="${info.qr_data_url}" alt="QR Code" style="width:100%;max-width:290px;image-rendering:pixelated">`;
+    } else {
+      el("lanQr").innerHTML = "";
+    }
+  } catch {
+    el("lanUrlDisplay").textContent = "Could not detect LAN address";
+    el("lanQr").innerHTML = "";
+  }
+}
+
+export function closeLanModal() {
+  el("lanModal").classList.remove("open");
+}
+
+export function copyLanUrl() {
+  const url = el("lanUrlDisplay").textContent;
+  if (!url || url === "—") return;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = el("btnCopyLan");
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = "Copy URL"; }, 1500);
+  }).catch(() => {});
 }

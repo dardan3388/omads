@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import subprocess
 import threading
 import time
@@ -69,6 +70,48 @@ def _build_process_failure_text(
         text += f" Last output: {compact}"
     return text
 
+# ─── LAN helpers ──────────────────────────────────────────────────
+
+_RFC1918_RE = re.compile(
+    r"^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"|192\.168\.\d{1,3}\.\d{1,3})$"
+)
+
+
+def _detect_lan_ip() -> str:
+    """Return the local LAN IP via a non-sending UDP connect trick."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        if _RFC1918_RE.match(ip):
+            return ip
+    except OSError:
+        pass
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if _RFC1918_RE.match(ip):
+            return ip
+    except OSError:
+        pass
+    return "127.0.0.1"
+
+
+def is_rfc1918_origin(origin: str) -> bool:
+    """Return True if *origin* looks like http://<private-ip>:<port>."""
+    import urllib.parse
+    try:
+        parsed = urllib.parse.urlparse(origin)
+        host = parsed.hostname or ""
+        return bool(_RFC1918_RE.match(host))
+    except Exception:
+        return False
+
+
 # ─── Config file (persistent) ─────────────────────────────────────
 
 _CONFIG_PATH = Path.home() / ".config" / "omads" / "gui_settings.json"
@@ -94,6 +137,7 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "codex_fast": False,  # service_tier: fast vs default
     "auto_review": True,  # Run the current automatic breaker step after builder code changes
     "ui_theme": "dark",  # dark, light
+    "lan_access": False,  # Bind to 0.0.0.0 so the GUI is reachable from LAN devices
 }
 
 
@@ -114,6 +158,7 @@ class UpdateSettingsRequest(_RequestModel):
     codex_fast: bool | None = None
     auto_review: bool | None = None
     ui_theme: str | None = None
+    lan_access: bool | None = None
 
 
 class CreateProjectRequest(_RequestModel):

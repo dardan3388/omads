@@ -17,7 +17,7 @@ router = APIRouter()
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     
-    # Security: allow only local origins (dynamic port)
+    # Security: allow only local origins (dynamic port) plus LAN when enabled
     origin = ws.headers.get("origin", "")
     server_port = ws.scope.get("server", ("", 8080))[1]
     client_host = (ws.scope.get("client") or ("", 0))[0]
@@ -27,8 +27,11 @@ async def websocket_endpoint(ws: WebSocket):
             allowed_origins.add(f"http://{host}:{port}")
     if origin:
         if origin not in allowed_origins:
-            await ws.close(code=1008, reason="Origin not allowed")
-            return
+            # When LAN access is on, also accept private-network origins
+            lan_ok = state._get_setting("lan_access", False) and state.is_rfc1918_origin(origin)
+            if not lan_ok:
+                await ws.close(code=1008, reason="Origin not allowed")
+                return
     elif client_host != "testclient":
         await ws.close(code=1008, reason="Origin not allowed")
         return

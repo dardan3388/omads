@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +22,7 @@ from .state import (
     CreateProjectRequest,
     SwitchProjectRequest,
     UpdateSettingsRequest,
+    _detect_lan_ip,
     _find_project_by_path,
     _get_setting,
     _get_settings_snapshot,
@@ -60,10 +65,22 @@ _ALLOWED_SETTINGS = {
     "codex_fast": bool,
     "auto_review": bool,
     "ui_theme": str,
+    "lan_access": bool,
 }
+
+def _schedule_server_restart() -> None:
+    """Restart the server process after a brief delay so the HTTP response can flush."""
+
+    def _do_restart() -> None:
+        time.sleep(1.5)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+
 
 @router.post("/api/settings")
 async def update_settings(data: UpdateSettingsRequest):
+    lan_before = _get_setting("lan_access", False)
     payload = data.model_dump(exclude_none=True)
 
     def apply_updates(settings: dict[str, Any]) -> None:
@@ -103,7 +120,43 @@ async def update_settings(data: UpdateSettingsRequest):
 
     snapshot = _update_settings(apply_updates)
     await runtime.broadcast({"type": "settings_updated", "settings": snapshot})
+
+    # Auto-restart when LAN access changes (CORS middleware is bound at startup)
+    lan_after = snapshot.get("lan_access", False)
+    if lan_before != lan_after:
+        await runtime.broadcast({
+            "type": "server_restart",
+            "text": "Server restarts to apply LAN access change…",
+        })
+        _schedule_server_restart()
+
     return {"ok": True}
+
+
+@router.get("/api/network-info")
+async def get_network_info():
+    """Return the detected LAN IP, port, QR code image, and current LAN access state."""
+    import base64
+    import io
+
+    import segno
+
+    lan_ip = _detect_lan_ip()
+    port = int(os.environ.get("OMADS_PORT", "8080"))
+    enabled = _get_setting("lan_access", False)
+    lan_url = f"http://{lan_ip}:{port}"
+
+    buf = io.BytesIO()
+    segno.make(lan_url).save(buf, kind="png", scale=10, border=4)
+    qr_data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    return {
+        "lan_ip": lan_ip,
+        "port": port,
+        "lan_url": lan_url,
+        "lan_access_enabled": enabled,
+        "qr_data_url": qr_data_url,
+    }
 
 
 def _run_git_command(repo_path: Path, args: list[str]) -> subprocess.CompletedProcess[str]:

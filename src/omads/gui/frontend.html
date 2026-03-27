@@ -619,6 +619,36 @@
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ─── Mobile responsive ─── */
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    .sidebar-toggle { display: none; }
+    .header { padding: 8px 12px; flex-wrap: wrap; gap: 6px; }
+    .header-left { gap: 8px; flex-wrap: wrap; }
+    .header-right { gap: 8px; flex-wrap: wrap; }
+    .logo { font-size: 16px; }
+    .badge { font-size: 10px; padding: 2px 6px; }
+    .btn-sm { padding: 5px 10px; font-size: 11px; min-height: 36px; }
+    .btn-log-toggle { min-height: 36px; }
+    .stream-panel { max-width: 100%; }
+    .stream-area { padding: 12px 10px; }
+    .input-area { padding: 10px 10px; gap: 6px; }
+    .chat-input { font-size: 16px; min-height: 44px; padding: 10px 12px; }
+    .btn-send, .btn-stop { min-height: 44px; min-width: 70px; font-size: 14px; padding: 10px 14px; }
+    .btn-review { min-height: 44px; padding: 10px 12px; font-size: 13px; }
+    .modal { width: 95vw; max-height: 90vh; padding: 16px; }
+    .review-dialog { width: 95vw; padding: 16px; }
+    .livelog-panel.open { width: 100%; min-width: 0; }
+    .msg { font-size: 14px; }
+    .msg-user { max-width: 95%; }
+    .onboard-banner .cli-status { flex-direction: column; }
+    .diff-toolbar { flex-direction: column; }
+    .tabs { flex-wrap: wrap; gap: 0; }
+    .tab { padding: 6px 10px; font-size: 12px; }
+    .form-group select, .form-group input[type="text"] { font-size: 16px; min-height: 44px; }
+    .review-group select, .review-group input, .review-group textarea { font-size: 16px; min-height: 44px; }
+  }
 </style>
 </head>
 <body>
@@ -817,6 +847,18 @@
         </select>
         <div class="hint">Choose the interface theme that feels best for long coding sessions.</div>
       </div>
+      <div class="section-title">LAN access</div>
+      <div class="form-group">
+        <label>Open for local network</label>
+        <select id="sLanAccess">
+          <option value="false">Disabled (localhost only)</option>
+          <option value="true">Enabled (reachable from LAN)</option>
+        </select>
+        <div class="hint">When enabled, OMADS binds to all network interfaces so you can open it on your phone. Requires a server restart to take effect.</div>
+      </div>
+      <div class="form-group" id="lanInfoGroup" style="display:none">
+        <button type="button" class="btn-m secondary" onclick="openLanModal()">Show phone access (QR code)</button>
+      </div>
     </div>
 
     <!-- Tab: Review -->
@@ -959,6 +1001,23 @@
     <pre class="diff-pre" id="diffContent">Loading diff...</pre>
     <div class="modal-actions">
       <button class="btn-m secondary" onclick="closeDiffViewer()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- LAN Access Modal (QR code + URL) -->
+<div class="modal-overlay" id="lanModal" onclick="if(event.target===this)closeLanModal()">
+  <div class="modal" style="width:400px;text-align:center;">
+    <h2>Open on your phone</h2>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Scan this QR code with your phone camera while both devices are on the same Wi-Fi network.</p>
+    <div id="lanQr" style="display:flex;justify-content:center;margin-bottom:16px;"></div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:15px;font-family:monospace;user-select:all;cursor:pointer;" id="lanUrlDisplay">—</div>
+    <div style="margin-top:8px;">
+      <button class="btn-m secondary" onclick="copyLanUrl()" id="btnCopyLan">Copy URL</button>
+    </div>
+    <div class="hint" style="margin-top:12px;">If the QR code does not scan, type the URL into your phone browser manually.</div>
+    <div class="modal-actions">
+      <button class="btn-m secondary" onclick="closeLanModal()">Close</button>
     </div>
   </div>
 </div>

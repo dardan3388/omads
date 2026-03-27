@@ -15,10 +15,13 @@ import {
   applyTheme,
   browseTo,
   closeDiffViewer,
+  closeLanModal,
   closeSettings,
+  copyLanUrl,
   loadDiffViewer,
   loadSettings,
   openDiffViewerFromSettings,
+  openLanModal,
   openSettings,
   pickFolder,
   saveSettings,
@@ -35,6 +38,10 @@ import {
 } from "./projects_ui.js";
 
 function handle(msg) {
+  if (msg.type === "server_restart") {
+    addSystem(msg.text || "Server is restarting…");
+    return;
+  }
   logEvent(msg);
   renderChatEvent(msg);
 }
@@ -234,6 +241,9 @@ function exposeGlobals() {
   window.closeDiffViewer = closeDiffViewer;
   window.loadDiffViewer = loadDiffViewer;
   window.syncReviewReviewerOptions = syncReviewReviewerOptions;
+  window.openLanModal = openLanModal;
+  window.closeLanModal = closeLanModal;
+  window.copyLanUrl = copyLanUrl;
   window.toggleLiveLog = toggleLiveLog;
   window.switchLogTab = switchLogTab;
   window.openNewProject = openNewProject;

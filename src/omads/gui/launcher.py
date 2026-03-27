@@ -22,22 +22,37 @@ def start_gui(host: str = "127.0.0.1", port: int = 8080, open_browser: bool = Tr
 
     import uvicorn
 
+    from .state import _get_setting
+
+    # When LAN access is enabled and no explicit --host was given, bind to
+    # all interfaces so phones on the same network can reach the GUI.
+    if host == "127.0.0.1" and _get_setting("lan_access", False):
+        host = "0.0.0.0"
+
+    os.environ["OMADS_PORT"] = str(port)
+
     from .app import app
 
+    local_url = f"http://localhost:{port}"
     url = f"http://{host}:{port}"
     print(f"\n  OMADS GUI starting on {url} ...")
+    if host == "0.0.0.0":
+        from .state import _detect_lan_ip
+        lan_ip = _detect_lan_ip()
+        print(f"  LAN access enabled — open http://{lan_ip}:{port} on your phone")
 
     def open_browser_when_ready():
         """Wait until the server responds, then open the browser."""
+        check_url = local_url if host == "0.0.0.0" else url
         for _ in range(30):
             try:
-                urllib.request.urlopen(url, timeout=1)
-                print(f"  OMADS GUI: {url}\n")
-                webbrowser.open(url)
+                urllib.request.urlopen(check_url, timeout=1)
+                print(f"  OMADS GUI: {check_url}\n")
+                webbrowser.open(check_url)
                 return
             except Exception:
                 time.sleep(0.5)
-        webbrowser.open(url)
+        webbrowser.open(check_url)
 
     if should_open_browser(open_browser):
         threading.Thread(target=open_browser_when_ready, daemon=True).start()
