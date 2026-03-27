@@ -76,7 +76,7 @@ def run_claude_session_thread(
             "The user interacts with you through a web GUI. "
             "After every code change, Codex CLI automatically reviews your code in the background. "
             "If Codex finds issues, you will receive the findings as the next message and should fix them. "
-            "Respond in English.\n\n"
+            "Respond in the same language the user writes in.\n\n"
         )
 
         session_id = ctx.get_chat_session(repo_key, scope="builder:claude")
@@ -407,7 +407,7 @@ def run_codex_session_thread(
             "The user interacts with you through a web GUI.",
             "You are the currently selected primary builder for this task.",
             "After your code changes, the reviewer agent will check the result and you may receive findings to address.",
-            "Respond in English.",
+            "Respond in the same language the user writes in.",
         ]
         if project_memory:
             prompt_parts.append("\nProject context:\n" + project_memory)
@@ -540,7 +540,7 @@ def run_codex_session_thread(
                     "The Claude reviewer found the following issues in your code. "
                     "Review the findings carefully, fix the valid issues, and keep any non-issues unchanged.\n\n"
                     + review_findings
-                    + "\n\nRules: Fix ONLY the reported issues. No scope creep. Respond in English."
+                    + "\n\nRules: Fix ONLY the reported issues. No scope creep. Respond in the same language the user writes in."
                 )
 
                 fix_cmd = [
@@ -809,7 +809,7 @@ def run_claude_auto_review(
     reviewer_context = (
         "You are reviewing code changes inside OMADS. "
         "Read and analyze the code, but do NOT edit anything. "
-        "Respond in English.\n"
+        "Respond in the same language the user writes in.\n"
     )
     if project_memory:
         reviewer_context += f"\nProject context:\n{project_memory}\n"

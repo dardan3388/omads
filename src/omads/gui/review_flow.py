@@ -117,7 +117,7 @@ def build_manual_synthesis_prompt(
             "## Final fix plan",
             "For each fix: file, line, and exactly what should be changed.",
             "",
-            "IMPORTANT: Do NOT make any changes, only analyze. Respond in English.",
+            "IMPORTANT: Do NOT make any changes, only analyze. Respond in the same language the user writes in.",
             "",
             "REQUIRED: As the VERY LAST line of your answer, write exactly one of these markers:",
             "FIXES_NEEDED: true",
@@ -148,7 +148,7 @@ def run_claude_manual_review_step(
     review_context = (
         "You are performing a code review inside OMADS. "
         "Read and analyze the code, but do NOT edit anything. "
-        "Respond in English.\n\n"
+        "Respond in the same language the user writes in.\n\n"
     )
     if project_memory:
         review_context += f"Project context:\n{project_memory}\n\n"
@@ -157,7 +157,7 @@ def run_claude_manual_review_step(
         f"Perform a thorough code review. Focus: {focus_desc}.{file_hint}\n\n"
         "Respond with a structured analysis:\n"
         "## Summary\n## Findings (sorted by severity: CRITICAL > HIGH > MEDIUM)\n"
-        "## Positive notes\n\nRespond in English."
+        "## Positive notes\n\nRespond in the same language the user writes in."
     )
 
     cmd = [
@@ -259,7 +259,7 @@ def run_codex_manual_review_step(
     review_prompt += (
         "\nRespond with:\n## Files reviewed\n## Findings\n"
         "- [CRITICAL/HIGH/MEDIUM] file:line: description\n## Positive notes\n\n"
-        "Respond in English."
+        "Respond in the same language the user writes in."
     )
 
     cmd = ["codex", "exec", "-s", "read-only", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
