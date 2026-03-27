@@ -15,6 +15,14 @@ from fastapi import WebSocket
 from .streaming import parse_claude_stream_line
 
 
+def _validate_target_repo(target_repo: str) -> None:
+    """Raise early if the target repository directory does not exist."""
+    if not Path(target_repo).is_dir():
+        raise FileNotFoundError(
+            f"Project directory not found: {target_repo}"
+        )
+
+
 @dataclass(slots=True)
 class BuilderRuntimeContext:
     """Small adapter surface that keeps builder helpers decoupled from runtime.py."""
@@ -65,6 +73,7 @@ def run_claude_session_thread(
 
     output_lines: list[str] = []
     try:
+        _validate_target_repo(target_repo)
         if ctx.is_task_cancelled():
             return
 
@@ -396,6 +405,7 @@ def run_codex_session_thread(
 
     output_lines: list[str] = []
     try:
+        _validate_target_repo(target_repo)
         if ctx.is_task_cancelled():
             return
 
@@ -663,6 +673,7 @@ def run_codex_auto_review(
     file_list = ", ".join(short_files)
 
     send({"type": "agent_status", "agent": breaker_label, "status": f"Reviewing {len(files_changed)} changed file(s)..."})
+    _validate_target_repo(target_repo)
 
     review_prompt = f"""You are a code reviewer. Review the following recently changed files for issues:
 
@@ -804,6 +815,7 @@ def run_claude_auto_review(
     file_list = ", ".join(short_files)
 
     send({"type": "agent_status", "agent": breaker_label, "status": f"Reviewing {len(files_changed)} changed file(s)..."})
+    _validate_target_repo(target_repo)
 
     project_memory = ctx.load_project_memory(target_repo)
     reviewer_context = (

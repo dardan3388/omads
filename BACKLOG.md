@@ -59,6 +59,16 @@ Wann welcher Modus sinnvoll ist:
 
 Technisch: GitHub Contents API (`GET/PUT /repos/{owner}/{repo}/contents/{path}`) — kein `git` nötig, kein lokales Filesystem.
 
+### Hardening: Copilot-Audit Quick-Fixes
+
+Aus einem Copilot-Audit abgeleitete, validierte Verbesserungen:
+
+1. ~~**`Math.random()`-ID → Counter** (`chat_ui.js`) — Detail-Toggle-IDs per Counter statt `Math.random()` generieren.~~
+2. ~~**CWD-Existenz-Check vor Popen** (`builder_flow.py`, `review_flow.py`) — Vor jedem `subprocess.Popen` prüfen ob `target_repo` noch existiert, statt kryptische OS-Fehler zu bekommen.~~
+3. **Tests ausbauen** — Leeres `tests/`-Verzeichnis füllen, Edge-Cases für Builder-Flow und Review-Flow abdecken. CI/CD erst danach.
+
+### Smoke-Tests
+
 - Re-run the short live smoke test for `Codex -> Claude Code -> Codex` on a clean working tree to verify the tighter limited-data synthesis prompt under a real Claude rate-limit.
 - Phase 2 (runtime module split) was completed on 2026-03-23 by extracting both `review_flow.py` and `builder_flow.py` out of `runtime.py`.
 - Phase 3 (frontend module split) was completed on 2026-03-23 by moving the large inline GUI script into `src/omads/gui/static/js/` browser modules.

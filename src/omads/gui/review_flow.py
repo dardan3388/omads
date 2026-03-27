@@ -6,9 +6,18 @@ import select
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from .streaming import strip_fixes_needed_marker
+
+
+def _validate_target_repo(target_repo: str) -> None:
+    """Raise early if the target repository directory does not exist."""
+    if not Path(target_repo).is_dir():
+        raise FileNotFoundError(
+            f"Project directory not found: {target_repo}"
+        )
 
 
 @dataclass(slots=True)
@@ -143,6 +152,7 @@ def run_claude_manual_review_step(
     rate_limit_source: str = "review_stream",
 ) -> tuple[str, str | None]:
     """Run one Claude-based manual review step and return text plus session ID."""
+    _validate_target_repo(target_repo)
     captured_session_id: str | None = None
     project_memory = ctx.load_project_memory(target_repo)
     review_context = (
@@ -245,6 +255,7 @@ def run_codex_manual_review_step(
     send: Callable[[dict], None],
 ) -> str:
     """Run one Codex-based manual review step and return its text."""
+    _validate_target_repo(target_repo)
     settings_snapshot = ctx.get_settings_snapshot()
     codex_model = settings_snapshot.get("codex_model", "")
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
@@ -346,6 +357,7 @@ def run_claude_manual_synthesis_step(
     second_review: str,
 ) -> tuple[str, bool, str | None]:
     """Run one Claude synthesis step for manual review."""
+    _validate_target_repo(target_repo)
     synthesis_prompt = build_manual_synthesis_prompt(
         first_label=first_label,
         second_label=second_label,
@@ -445,6 +457,7 @@ def run_codex_manual_synthesis_step(
     send: Callable[[dict], None],
 ) -> tuple[str, bool]:
     """Run one Codex synthesis step for manual review."""
+    _validate_target_repo(target_repo)
     settings_snapshot = ctx.get_settings_snapshot()
     codex_model = settings_snapshot.get("codex_model", "")
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")

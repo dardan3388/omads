@@ -6,6 +6,8 @@ import {
   applyTheme,
 } from "./settings_ui.js";
 
+let _detailIdCounter = 0;
+
 export function lock() {
   appState.busy = true;
   el("btnSend").style.display = "none";
@@ -172,7 +174,7 @@ function buildResultCard(msg) {
     details.push({ text: issue, color: "#f59e0b" });
   }
 
-  const detailId = `rc-detail-${Math.random().toString(36).slice(2, 8)}`;
+  const detailId = `rc-detail-${++_detailIdCounter}`;
 
   let html = `
     <div class="rc-header">
