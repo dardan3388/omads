@@ -14,6 +14,29 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
+### Runtime Bugs: Builder/Breaker and Session Isolation
+
+Two newly observed issues need follow-up before the runtime can be considered robust:
+
+1. **Automatic breaker step did not run after a Codex builder change**
+- Observed in live use on 2026-03-28.
+- User selected `Codex` as builder, Codex created project files, but the expected automatic `Claude Review` breaker step did not visibly run afterward.
+- This contradicts the current product description in the GUI and docs:
+  - `Codex -> Claude Review`
+  - `Claude -> Codex`
+- Needs investigation across:
+  - repo-change detection after Codex runs
+  - breaker trigger conditions in `builder_flow.py`
+  - UI visibility for automatic review events
+
+2. **Global active project / builder state is still server-wide instead of session-scoped**
+- Current runtime settings such as `target_repo`, `builder_agent`, active task ownership, and some broadcasts still behave like process-global state.
+- This is fragile for:
+  - multiple browser tabs
+  - multiple clients on LAN
+  - project switching while another client is active
+- A proper architectural follow-up should move active project/task context closer to the WebSocket session or task instance, instead of relying on one server-global "current project".
+
 ### Feature: GitHub Integration v2 (OAuth Device Flow + New GUI)
 
 Complete rebuild of the GitHub integration. PAT-based authentication is being replaced by the OAuth Device Flow.
