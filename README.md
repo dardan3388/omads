@@ -111,6 +111,7 @@ Review only src/omads/gui/runtime.py and src/omads/gui/websocket.py. Focus on ra
 - [Getting Started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Live Smoke Tests](docs/live-smoke-tests.md)
+- [Public Release Checklist](docs/public-release-checklist.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 
