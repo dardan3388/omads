@@ -241,7 +241,15 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
     if not (repo / ".git").is_dir():
         raise ValueError(f"Not a Git repository: {repo}")
 
-    env = _build_cli_env()
+    env = {**_build_cli_env(), "LC_ALL": "C"}
+
+    def _has_commits() -> bool:
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, cwd=str(repo),
+            timeout=5, env=env,
+        )
+        return r.returncode == 0
 
     if operation == "status":
         result = subprocess.run(
@@ -274,6 +282,8 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         return {"committed": True, "output": result.stdout.strip()}
 
     if operation == "push":
+        if not _has_commits():
+            raise RuntimeError("Nothing to push — create a commit first.")
         origin_result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             capture_output=True, text=True, cwd=str(repo),
@@ -283,8 +293,15 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         full_name = _extract_full_name(origin_url)
         auth_url = _auth_remote_url(full_name)
 
+        branch_result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, cwd=str(repo),
+            timeout=5, env=env,
+        )
+        branch = branch_result.stdout.strip() or "main"
+
         result = subprocess.run(
-            ["git", "-c", f"remote.origin.url={auth_url}", "push"],
+            ["git", "push", auth_url, branch],
             capture_output=True, text=True, cwd=str(repo),
             timeout=60, env=env,
         )
@@ -293,6 +310,8 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         return {"pushed": True, "output": _scrub_token(result.stdout.strip() + "\n" + result.stderr.strip()).strip()}
 
     if operation == "pull":
+        if not _has_commits():
+            raise RuntimeError("Nothing to pull — the repository has no commits yet.")
         origin_result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             capture_output=True, text=True, cwd=str(repo),
@@ -302,8 +321,15 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         full_name = _extract_full_name(origin_url)
         auth_url = _auth_remote_url(full_name)
 
+        branch_result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, cwd=str(repo),
+            timeout=5, env=env,
+        )
+        branch = branch_result.stdout.strip() or "main"
+
         result = subprocess.run(
-            ["git", "-c", f"remote.origin.url={auth_url}", "pull"],
+            ["git", "pull", auth_url, branch],
             capture_output=True, text=True, cwd=str(repo),
             timeout=60, env=env,
         )
