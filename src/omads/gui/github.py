@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Users can also override via environment variable.
 import os as _os
 
-_GITHUB_CLIENT_ID = _os.environ.get("OMADS_GITHUB_CLIENT_ID", "")
+_GITHUB_CLIENT_ID = _os.environ.get("OMADS_GITHUB_CLIENT_ID", "Ov23li21bPVTbpOw7p27")
 
 # ─── Paths ────────────────────────────────────────────────────────
 

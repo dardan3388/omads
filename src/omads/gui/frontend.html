@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>OMADS</title>
 <style>
   :root {
@@ -13,6 +13,7 @@
     --text: #e8e8e8;
     --text-dim: #777;
     --muted: #777;
+    --cyan: #56b6c2;
     --green: #4ade80;
     --yellow: #fbbf24;
     --blue: #60a5fa;
@@ -35,6 +36,7 @@
     --text: #142033;
     --text-dim: #5d6778;
     --muted: #5d6778;
+    --cyan: #0e7490;
     --green: #15803d;
     --yellow: #b45309;
     --blue: #2563eb;
@@ -461,7 +463,8 @@
   .modal {
     background: var(--bg2); border: 1px solid var(--border);
     border-radius: 12px; padding: 24px; width: 600px;
-    max-height: 85vh; overflow-y: auto;
+    max-height: 85vh; max-height: 85dvh; overflow-y: auto;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   }
   .modal h2 { margin-bottom: 16px; color: var(--accent); font-size: 18px; }
   .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
@@ -637,7 +640,7 @@
     .chat-input { font-size: 16px; min-height: 44px; padding: 10px 12px; }
     .btn-send, .btn-stop { min-height: 44px; min-width: 70px; font-size: 14px; padding: 10px 14px; }
     .btn-review { min-height: 44px; padding: 10px 12px; font-size: 13px; }
-    .modal { width: 95vw; max-height: 90vh; padding: 16px; }
+    .modal { width: 95vw; max-height: 85vh; max-height: 85dvh; padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
     .review-dialog { width: 95vw; padding: 16px; }
     .livelog-panel.open { width: 100%; min-width: 0; }
     .msg { font-size: 14px; }
@@ -673,7 +676,7 @@
   .gh-commit-row { display: flex; gap: 8px; }
   .btn-danger { color: #e74c3c !important; border-color: #e74c3c !important; }
   .btn-danger:hover { background: rgba(231,76,60,.15) !important; }
-  .btn-primary { background: var(--cyan) !important; color: #000 !important; border-color: var(--cyan) !important; font-weight: 600; }
+  .btn-primary { background: var(--cyan) !important; color: #fff !important; border-color: var(--cyan) !important; font-weight: 600; }
   .btn-primary:hover { opacity: .85; }
   .gh-git-btn { background: none; border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; font-size: 12px; padding: 2px 8px; border-radius: 4px; transition: all .15s; }
   .gh-git-btn:hover { border-color: var(--cyan); color: var(--cyan); }
