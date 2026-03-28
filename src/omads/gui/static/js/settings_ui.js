@@ -26,6 +26,14 @@ export function applyBuilderAgent(builderAgent) {
   if (select) select.value = appState.builderAgent;
 }
 
+export function syncSelectedRepo(path) {
+  const repoPath = path || "";
+  const repoInput = el("sRepo");
+  if (repoInput) repoInput.value = repoPath;
+  const repoBadge = el("repoBadge");
+  if (repoBadge) repoBadge.textContent = shortPath(repoPath || "No project");
+}
+
 export function reviewerLabel(agent) {
   return agent === "codex" ? "Codex" : "Claude Code";
 }
@@ -89,7 +97,8 @@ export async function toggleTheme() {
   } catch {}
 }
 
-export function openSettings() {
+export async function openSettings() {
+  await loadSettings();
   el("settingsModal").classList.add("open");
   switchTab("tabProject");
   browseTo(el("sRepo").value || "~");
@@ -144,7 +153,7 @@ export async function loadSettings() {
     const res = await fetch("/api/settings");
     const settings = await res.json();
     appState.savedSettings = settings;
-    el("sRepo").value = settings.target_repo || "";
+    syncSelectedRepo(settings.target_repo || "");
     el("sBuilder").value = settings.builder_agent || "claude";
     el("sReviewFirst").value = settings.review_first_reviewer || "claude";
     el("sReviewSecond").value = settings.review_second_reviewer || "codex";
@@ -163,7 +172,6 @@ export async function loadSettings() {
     applyBuilderAgent(settings.builder_agent || "claude");
     applyReviewPipeline(settings.review_first_reviewer || "claude", settings.review_second_reviewer || "codex");
     applyAutoReviewEnabled(settings.auto_review !== false);
-    el("repoBadge").textContent = shortPath(settings.target_repo || "No project");
   } catch {}
 }
 
@@ -196,7 +204,7 @@ export async function saveSettings() {
   applyBuilderAgent(data.builder_agent);
   applyReviewPipeline(data.review_first_reviewer, data.review_second_reviewer);
   applyAutoReviewEnabled(data.auto_review);
-  el("repoBadge").textContent = shortPath(data.target_repo);
+  syncSelectedRepo(data.target_repo);
   const lanGroup = el("lanInfoGroup");
   if (lanGroup) lanGroup.style.display = lanNow ? "block" : "none";
   closeSettings();

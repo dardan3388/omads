@@ -1,6 +1,7 @@
-import { appState, el, esc, formatMsg, shortPath, agentClass, truncate, scrollDown } from "./shared.js";
+import { appState, el, esc, formatMsg, agentClass, truncate, scrollDown } from "./shared.js";
 import { addSystem, logEvent, renderChatEvent } from "./chat_ui.js";
 import { openGitOps } from "./github_ui.js";
+import { syncSelectedRepo } from "./settings_ui.js";
 
 export async function loadProjects() {
   try {
@@ -13,6 +14,7 @@ export async function loadProjects() {
     const active = appState.projects.find((project) => project.path === repo);
     if (active) {
       appState.activeProjectId = active.id;
+      syncSelectedRepo(active.path);
       renderProjects();
       await loadTimelineWindow(active.id, active.name);
     }
@@ -78,7 +80,7 @@ export async function switchProject(projectId) {
     const data = await res.json();
     if (data.ok) {
       appState.activeProjectId = projectId;
-      el("repoBadge").textContent = shortPath(data.project.path);
+      syncSelectedRepo(data.project.path);
       renderProjects();
       el("stream").innerHTML = "";
       await loadTimelineWindow(projectId, data.project.name);
@@ -171,7 +173,7 @@ export async function createProject() {
   }
   closeNewProject();
   appState.activeProjectId = data.project.id;
-  el("repoBadge").textContent = shortPath(data.project.path);
+  syncSelectedRepo(data.project.path);
   await loadProjects();
   el("stream").innerHTML = `<div class="msg-system">New project: ${esc(name)}. What should I build?</div>`;
 }
