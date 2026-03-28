@@ -24,7 +24,7 @@ The most visible session leak has been reduced:
 
 The remaining follow-up is deeper ownership isolation:
 
-- A later phase should decide whether OMADS stays intentionally single-task/global-stop, or whether task ownership should become fully session-bound.
+- Future change candidate: keep the current single-task/global-stop model for now, but later evaluate controlled parallelism (preferably repo-scoped before fully session-scoped) so different projects can run concurrently without opening same-repo write conflicts by default.
 
 ### Feature: GitHub Integration v2 (OAuth Device Flow + New GUI)
 
