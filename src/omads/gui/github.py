@@ -21,6 +21,7 @@ from .state import (
     _build_cli_env,
     _read_json_text,
     _write_text_file,
+    is_path_inside_home,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,10 @@ def _save_token(data: dict[str, Any]) -> None:
     """Persist a GitHub token to disk."""
     with _token_lock:
         _write_text_file(_TOKEN_PATH, json.dumps(data, indent=2))
+        try:
+            _TOKEN_PATH.chmod(0o600)
+        except OSError:
+            pass
 
 
 def _delete_token() -> None:
@@ -405,6 +410,8 @@ def clone_repo(full_name: str, target_dir: str) -> dict[str, Any]:
     """
     _validate_full_name(full_name)
     target = Path(target_dir).expanduser().resolve()
+    if not is_path_inside_home(target):
+        raise ValueError("Only clone targets inside the home directory are allowed")
 
     if target.exists() and any(target.iterdir()):
         raise ValueError(f"Target directory is not empty: {target}")
@@ -413,25 +420,46 @@ def clone_repo(full_name: str, target_dir: str) -> dict[str, Any]:
 
     auth_url = _auth_remote_url(full_name)
     plain_url = f"https://github.com/{full_name}.git"
+    env = {**_build_cli_env(), "LC_ALL": "C"}
 
     result = subprocess.run(
         ["git", "clone", auth_url, str(target)],
         capture_output=True,
         text=True,
         timeout=120,
-        env={**_build_cli_env(), "LC_ALL": "C"},
+        env=env,
     )
     if result.returncode != 0:
         raise RuntimeError(_scrub_token(result.stderr.strip() or "git clone failed"))
 
     # Immediately reset the remote to the plain URL (remove token from config)
-    subprocess.run(
+    reset_result = subprocess.run(
         ["git", "remote", "set-url", "origin", plain_url],
         capture_output=True,
         text=True,
         cwd=str(target),
         timeout=10,
+        env=env,
     )
+    if reset_result.returncode != 0:
+        cleanup_result = subprocess.run(
+            ["git", "remote", "remove", "origin"],
+            capture_output=True,
+            text=True,
+            cwd=str(target),
+            timeout=10,
+            env=env,
+        )
+        detail = _scrub_token(reset_result.stderr.strip() or reset_result.stdout.strip() or "git remote set-url failed")
+        if cleanup_result.returncode == 0:
+            raise RuntimeError(
+                "Repository cloned, but OMADS could not restore the plain origin URL. "
+                f"The origin remote was removed to avoid leaving credentials behind. Details: {detail}"
+            )
+        raise RuntimeError(
+            "Repository cloned, but OMADS could not remove the temporary authenticated origin URL. "
+            f"Delete the clone and reconnect before retrying. Details: {detail}"
+        )
 
     return {"path": str(target), "full_name": full_name}
 
@@ -439,6 +467,8 @@ def clone_repo(full_name: str, target_dir: str) -> dict[str, Any]:
 def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, Any]:
     """Run a Git operation (commit, push, pull, status) with token-based auth."""
     repo = Path(repo_path).expanduser().resolve()
+    if not is_path_inside_home(repo):
+        raise ValueError("Only repositories inside the home directory are allowed")
     if not (repo / ".git").is_dir():
         raise ValueError(f"Not a Git repository: {repo}")
 

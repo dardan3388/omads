@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omads.gui import routes, runtime, server, state, streaming, websocket
+from omads.gui import github, routes, runtime, server, state, streaming, websocket
 
 
 class DummyStream:
@@ -625,6 +625,19 @@ def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_
     assert ledger.json()[-1]["task"] == "two"
 
 
+def test_github_clone_endpoint_rejects_targets_outside_home(client: TestClient, isolated_server):
+    response = client.post(
+        "/api/github/clone",
+        json={
+            "full_name": "owner/repo",
+            "target_dir": str(isolated_server["outside_dir"] / "clone-target"),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "home directory" in response.json()["error"]
+
+
 
 def test_theme_settings_diff_endpoint_and_openapi_docs(
     client: TestClient,
@@ -773,6 +786,86 @@ def test_codex_builder_task_warns_when_json_events_have_no_visible_text(isolated
         for msg in messages
     )
     assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_review_step_one_codex_failure_surfaces_scrubbed_stderr(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    state._settings["review_first_reviewer"] = "codex"
+    state._settings["review_second_reviewer"] = "claude"
+
+    process = DummyProcess(
+        returncode=1,
+        stderr_lines=["fatal: token=sk-secret-1234567890\n"],
+    )
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_review_thread(None, "project", "all", "")
+
+    task_errors = [msg for msg in messages if msg["type"] == "task_error"]
+    assert task_errors
+    assert "***" in task_errors[0]["text"]
+    assert "sk-secret-1234567890" not in task_errors[0]["text"]
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_review_step_one_codex_warns_on_empty_output(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    state._settings["review_first_reviewer"] = "codex"
+    state._settings["review_second_reviewer"] = "claude"
+
+    process = DummyProcess(lines=[
+        json.dumps({"type": "thread.started", "thread_id": "abc"}) + "\n",
+        json.dumps({"type": "turn.completed", "usage": {"output_tokens": 1}}) + "\n",
+    ])
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_review_thread(None, "project", "all", "")
+
+    task_errors = [msg for msg in messages if msg["type"] == "task_error"]
+    assert task_errors
+    assert "without any user-visible response" in task_errors[0]["text"]
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_github_clone_repo_removes_origin_when_plain_url_restore_fails(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    target_dir = isolated_server["home_dir"] / "clone-target"
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[:2] == ["git", "clone"]:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            return DummyCompletedProcess(returncode=0)
+        if args[:4] == ["git", "remote", "set-url", "origin"]:
+            return DummyCompletedProcess(returncode=1, stderr="fatal: token=sk-secret-1234567890")
+        if args[:3] == ["git", "remote", "remove"]:
+            return DummyCompletedProcess(returncode=0)
+        raise AssertionError(f"Unexpected git call: {args}")
+
+    monkeypatch.setattr(github.Path, "home", classmethod(lambda cls: isolated_server["home_dir"]))
+    monkeypatch.setattr(github, "_get_token", lambda: "sk-secret-1234567890")
+    monkeypatch.setattr(github.subprocess, "run", fake_run)
+    monkeypatch.setattr(github, "_build_cli_env", lambda: {})
+
+    with pytest.raises(RuntimeError, match="origin remote was removed"):
+        github.clone_repo("owner/repo", str(target_dir))
+
+    assert calls[0][0:2] == ["git", "clone"]
+    assert calls[1][0:4] == ["git", "remote", "set-url", "origin"]
+    assert calls[2][0:3] == ["git", "remote", "remove"]
 
 
 def test_codex_auto_review_returns_none_when_no_issues_found(isolated_server, monkeypatch: pytest.MonkeyPatch):

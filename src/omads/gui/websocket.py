@@ -165,8 +165,7 @@ async def websocket_endpoint(ws: WebSocket):
             elif msg_type == "set_repo":
                 repo_path = data.get("path", "").strip()
                 resolved = Path(repo_path).resolve() if repo_path else None
-                home_dir = Path.home().resolve()
-                if resolved and resolved.is_dir() and (resolved == home_dir or str(resolved).startswith(str(home_dir) + "/")):
+                if resolved and resolved.is_dir() and state.is_path_inside_home(resolved):
                     snapshot = state._update_settings(lambda settings: settings.__setitem__("target_repo", str(resolved)))
                     await ws.send_json({
                         "type": "system",

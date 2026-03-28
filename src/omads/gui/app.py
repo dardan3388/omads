@@ -28,7 +28,7 @@ _LAN_ORIGIN_RE = (
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:*", "http://localhost:*"],
+    allow_origins=["http://127.0.0.1", "http://localhost"],
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type"],
     allow_origin_regex=_LAN_ORIGIN_RE if _lan_enabled else _LOCAL_ORIGIN_RE,

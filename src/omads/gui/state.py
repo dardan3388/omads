@@ -112,6 +112,24 @@ def is_rfc1918_origin(origin: str) -> bool:
         return False
 
 
+def _resolve_user_path(path: str | Path) -> Path:
+    """Resolve one user-supplied path without requiring it to exist."""
+    return Path(path).expanduser().resolve(strict=False)
+
+
+def is_path_inside_home(path: str | Path, *, allow_home: bool = True) -> bool:
+    """Return True when *path* resolves to the home directory or one of its descendants."""
+    target = _resolve_user_path(path)
+    home_dir = _resolve_user_path(Path.home())
+    if allow_home and target == home_dir:
+        return True
+    try:
+        target.relative_to(home_dir)
+        return True
+    except ValueError:
+        return False
+
+
 # ─── Config file (persistent) ─────────────────────────────────────
 
 _CONFIG_PATH = Path.home() / ".config" / "omads" / "gui_settings.json"

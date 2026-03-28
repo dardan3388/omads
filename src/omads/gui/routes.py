@@ -35,6 +35,7 @@ from .state import (
     _save_projects,
     _update_settings,
     _validate_project_id,
+    is_path_inside_home,
 )
 
 router = APIRouter()
@@ -95,9 +96,8 @@ async def update_settings(data: UpdateSettingsRequest):
                 continue
             # target_repo needs extra validation (is_dir + home boundary check)
             if key == "target_repo":
-                resolved = Path(value).resolve()
-                home_dir = Path.home().resolve()
-                if not resolved.is_dir() or (resolved != home_dir and not str(resolved).startswith(str(home_dir) + "/")):
+                resolved = Path(value).expanduser().resolve()
+                if not resolved.is_dir() or not is_path_inside_home(resolved):
                     continue  # Silently ignore invalid paths
                 settings[key] = str(resolved)
             else:
@@ -244,8 +244,7 @@ async def browse_directory(path: str = "~"):
         target = Path(path).expanduser().resolve()
 
         # Security: allow only the home directory and its descendants
-        allowed_base = Path.home().resolve()
-        if not (target == allowed_base or str(target).startswith(str(allowed_base) + "/")):
+        if not is_path_inside_home(target):
             return {"error": "Access is allowed only inside the home directory", "path": str(target), "dirs": []}
 
         if not target.exists() or not target.is_dir():
@@ -293,8 +292,7 @@ async def create_project(data: CreateProjectRequest):
     resolved = str(Path(path).expanduser().resolve())
     if not Path(resolved).is_dir():
         return {"error": f"Not a directory: {resolved}"}
-    home_str = str(Path.home().resolve())
-    if resolved != home_str and not resolved.startswith(home_str + "/"):
+    if not is_path_inside_home(resolved):
         return {"error": "Only directories inside $HOME are allowed"}
 
     # Check whether a project with this path already exists
@@ -612,6 +610,8 @@ async def github_clone_repo(data: GitHubCloneRequest):
     target_dir = data.target_dir.strip()
     if not full_name or not target_dir:
         return {"error": "full_name and target_dir are required"}
+    if not is_path_inside_home(target_dir):
+        return {"error": "Only clone targets inside the home directory are allowed"}
 
     try:
         clone_result = github.clone_repo(full_name, target_dir)
@@ -661,8 +661,7 @@ async def github_git_operation(data: GitHubGitRequest):
 
     # Security: only allow repos inside $HOME
     resolved = str(Path(repo_path).expanduser().resolve())
-    home_str = str(Path.home().resolve())
-    if resolved != home_str and not resolved.startswith(home_str + "/"):
+    if not is_path_inside_home(resolved):
         return {"error": "Only repositories inside $HOME are allowed"}
 
     try:

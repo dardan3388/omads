@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import select
+import queue
 import re
 import subprocess
 import threading
@@ -14,6 +14,8 @@ from typing import Callable
 from fastapi import WebSocket
 
 from .streaming import parse_claude_stream_line
+
+_REAL_THREAD = threading.Thread
 
 
 def _validate_target_repo(target_repo: str) -> None:
@@ -77,6 +79,29 @@ def _build_codex_empty_output_warning(
     return text
 
 
+def _start_stream_reader(
+    stream,
+    *,
+    stream_kind: str,
+    event_queue: "queue.Queue[tuple[str, object | None]]",
+) -> None:
+    """Read one text stream in the background and forward lines into a queue."""
+
+    def _reader() -> None:
+        try:
+            while True:
+                line = stream.readline()
+                if not line:
+                    event_queue.put((stream_kind, None))
+                    return
+                event_queue.put((stream_kind, line))
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            event_queue.put((stream_kind, exc))
+            event_queue.put((stream_kind, None))
+
+    _REAL_THREAD(target=_reader, daemon=True).start()
+
+
 def _stream_codex_process(
     process: subprocess.Popen,
     *,
@@ -91,13 +116,16 @@ def _stream_codex_process(
     """Drain one Codex process until completion while reading stdout and stderr."""
     raw_stdout_lines = 0
     stderr_lines: list[str] = []
-    open_streams: dict[object, str] = {}
+    event_queue: "queue.Queue[tuple[str, object | None]]" = queue.Queue()
+    open_streams: set[str] = set()
     if process.stdout is not None:
-        open_streams[process.stdout] = "stdout"
+        open_streams.add("stdout")
+        _start_stream_reader(process.stdout, stream_kind="stdout", event_queue=event_queue)
     if process.stderr is not None:
-        open_streams[process.stderr] = "stderr"
+        open_streams.add("stderr")
+        _start_stream_reader(process.stderr, stream_kind="stderr", event_queue=event_queue)
 
-    last_activity_time = time.time()
+    last_activity_time = time.monotonic()
     while open_streams:
         if ctx.is_task_cancelled():
             process.kill()
@@ -106,7 +134,7 @@ def _stream_codex_process(
                 send({"type": "task_stopped", "text": "Stopped."})
             return False, raw_stdout_lines, stderr_lines
 
-        if time.time() - last_activity_time > inactivity_limit:
+        if time.monotonic() - last_activity_time > inactivity_limit:
             process.kill()
             process.wait()
             timeout_text = inactivity_error_text
@@ -116,33 +144,32 @@ def _stream_codex_process(
             send({"type": "task_error", "text": timeout_text})
             return False, raw_stdout_lines, stderr_lines
 
-        ready, _, _ = select.select(list(open_streams.keys()), [], [], 5.0)
-        if not ready:
+        try:
+            stream_kind, payload = event_queue.get(timeout=1.0)
+        except queue.Empty:
             continue
 
-        for stream in ready:
-            stream_kind = open_streams.get(stream)
-            if not stream_kind:
-                continue
+        if payload is None:
+            open_streams.discard(stream_kind)
+            continue
+        if isinstance(payload, Exception):  # pragma: no cover - defensive fallback
+            open_streams.discard(stream_kind)
+            continue
 
-            line = stream.readline()
-            if not line:
-                open_streams.pop(stream, None)
-                continue
-
-            last_activity_time = time.time()
-            if stream_kind == "stdout":
-                raw_stdout_lines += 1
-                ctx.forward_codex_stream_line(
-                    line,
-                    agent_label=agent_label,
-                    send=send,
-                    text_buffer=text_buffer,
-                )
-            else:
-                cleaned = _scrub_token_errors(line.strip())
-                if cleaned:
-                    stderr_lines.append(cleaned)
+        line = payload
+        last_activity_time = time.monotonic()
+        if stream_kind == "stdout":
+            raw_stdout_lines += 1
+            ctx.forward_codex_stream_line(
+                line,
+                agent_label=agent_label,
+                send=send,
+                text_buffer=text_buffer,
+            )
+        else:
+            cleaned = _scrub_token_errors(line.strip())
+            if cleaned:
+                stderr_lines.append(cleaned)
 
     return True, raw_stdout_lines, stderr_lines
 
@@ -845,7 +872,7 @@ If there are no issues, write exactly: "No issues found."
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             cwd=str(target_repo),
             env=ctx.build_cli_env(),
@@ -868,42 +895,44 @@ If there are no issues, write exactly: "No issues found."
         threading.Thread(target=heartbeat, daemon=True).start()
 
         output_lines: list[str] = []
-        inactivity_limit = 900
-        last_output_time = time.time()
-        while True:
-            if ctx.is_task_cancelled():
-                process.kill()
-                process.wait()
-                heartbeat_stop.set()
-                return None
-            if time.time() - last_output_time > inactivity_limit:
-                process.kill()
-                process.wait()
-                heartbeat_stop.set()
-                send({"type": "agent_status", "agent": breaker_label, "status": "Inactivity - review cancelled (15 min without output)"})
-                return "\n".join(output_lines) if output_lines else None
-            ready, _, _ = select.select([process.stdout], [], [], 5.0)
-            if ready:
-                line = process.stdout.readline()
-                if not line:
-                    break
-                last_output_time = time.time()
-                ctx.forward_codex_stream_line(
-                    line,
-                    agent_label=breaker_label,
-                    send=send,
-                    text_buffer=output_lines,
-                )
-
+        completed, raw_stdout_lines, stderr_lines = _stream_codex_process(
+            process,
+            ctx=ctx,
+            send=send,
+            agent_label=breaker_label,
+            text_buffer=output_lines,
+            inactivity_error_text="Codex auto-review timed out after 15 minutes without output.",
+        )
         heartbeat_stop.set()
+        if not completed:
+            ctx.process_finished()
+            return "\n".join(output_lines).strip() if output_lines else None
+
         process.wait(timeout=10)
         ctx.process_finished()
 
         elapsed = round(time.time() - start_time)
         output = "\n".join(output_lines).strip()
         if not output and process.returncode != 0:
-            output = f"Review error: Codex exited with code {process.returncode}"
+            output = _build_codex_failure_detail(stdout_text="", stderr_lines=stderr_lines)
+            if not output:
+                output = f"Review error: Codex exited with code {process.returncode}"
             send({"type": "stream_result", "agent": breaker_label, "text": output, "is_error": True})
+
+        if not output and process.returncode == 0:
+            send(
+                {
+                    "type": "stream_text",
+                    "agent": breaker_label,
+                    "text": _build_codex_empty_output_warning(
+                        run_label="Codex auto-review",
+                        raw_stdout_lines=raw_stdout_lines,
+                        stderr_lines=stderr_lines,
+                    ),
+                }
+            )
+            send({"type": "agent_status", "agent": breaker_label, "status": "Review finished without response"})
+            return None
 
         send({"type": "stream_text", "agent": breaker_label, "text": f"Review completed ({elapsed}s)"})
 

@@ -43,6 +43,10 @@ The format is loosely based on Keep a Changelog.
 
 ### Fixed
 
+- Hardened home-directory path validation across settings, project switching, browsing, and GitHub clone/git endpoints so public users cannot steer OMADS at arbitrary filesystem locations through brittle string-prefix checks.
+- Hardened GitHub clone cleanup so a failed `origin` reset now removes the temporary authenticated remote instead of silently leaving credentials behind in `.git/config`, and saved GitHub tokens now get private file permissions where supported.
+- Manual Codex review and synthesis steps now surface scrubbed stderr-backed failures and treat empty successful exits as visible errors instead of silently continuing with missing review content.
+- Cleaned up the CORS allowlist to use valid explicit localhost origins plus the existing regex-based origin validation instead of invalid wildcard-port origin strings.
 - Codex CLI error messages (e.g. rate-limit with retry time) are now surfaced in the chat instead of showing only a generic "exit code 1" failure.
 - Fixed duplicate Codex error display caused by both `error` and `turn.failed` JSONL events being forwarded.
 - Fixed Codex builder runs that previously hung silently when `stdout` stayed empty: OMADS now reads and scrubs `stderr`, surfaces stderr-backed task failures, and warns when Codex exits without any user-visible response.

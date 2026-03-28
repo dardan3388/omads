@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
-import select
+import queue
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from .builder_flow import (
+    _build_codex_empty_output_warning,
+    _build_codex_failure_detail,
+    _scrub_token_errors,
+)
 from .streaming import strip_fixes_needed_marker
+
+_REAL_THREAD = threading.Thread
 
 
 def _validate_target_repo(target_repo: str) -> None:
@@ -34,6 +42,94 @@ class ReviewRuntimeContext:
     process_started: Callable[[subprocess.Popen], None]
     process_finished: Callable[[], None]
     store_review_session: Callable[[str, str], None]
+
+
+def _stream_codex_review_process(
+    process: subprocess.Popen,
+    *,
+    ctx: ReviewRuntimeContext,
+    send: Callable[[dict], None],
+    agent_label: str,
+    text_buffer: list[str],
+    inactivity_limit: int = 900,
+) -> tuple[bool, int, list[str], bool]:
+    """Drain one Codex review process while collecting both stdout and stderr."""
+    raw_stdout_lines = 0
+    stderr_lines: list[str] = []
+    timed_out = False
+    event_queue: "queue.Queue[tuple[str, object | None]]" = queue.Queue()
+    open_streams: set[str] = set()
+    if process.stdout is not None:
+        open_streams.add("stdout")
+        _start_stream_reader(process.stdout, stream_kind="stdout", event_queue=event_queue)
+    if process.stderr is not None:
+        open_streams.add("stderr")
+        _start_stream_reader(process.stderr, stream_kind="stderr", event_queue=event_queue)
+
+    last_activity_time = time.monotonic()
+    while open_streams:
+        if ctx.is_task_cancelled():
+            process.kill()
+            process.wait()
+            return False, raw_stdout_lines, stderr_lines, timed_out
+
+        if time.monotonic() - last_activity_time > inactivity_limit:
+            process.kill()
+            process.wait()
+            timed_out = True
+            return False, raw_stdout_lines, stderr_lines, timed_out
+
+        try:
+            stream_kind, payload = event_queue.get(timeout=1.0)
+        except queue.Empty:
+            continue
+
+        if payload is None:
+            open_streams.discard(stream_kind)
+            continue
+        if isinstance(payload, Exception):  # pragma: no cover - defensive fallback
+            open_streams.discard(stream_kind)
+            continue
+
+        line = payload
+        last_activity_time = time.monotonic()
+        if stream_kind == "stdout":
+            raw_stdout_lines += 1
+            ctx.forward_codex_stream_line(
+                line,
+                agent_label=agent_label,
+                send=send,
+                text_buffer=text_buffer,
+            )
+        else:
+            cleaned = _scrub_token_errors(line.strip())
+            if cleaned:
+                stderr_lines.append(cleaned)
+
+    return True, raw_stdout_lines, stderr_lines, timed_out
+
+
+def _start_stream_reader(
+    stream,
+    *,
+    stream_kind: str,
+    event_queue: "queue.Queue[tuple[str, object | None]]",
+) -> None:
+    """Read one text stream in the background and forward lines into a queue."""
+
+    def _reader() -> None:
+        try:
+            while True:
+                line = stream.readline()
+                if not line:
+                    event_queue.put((stream_kind, None))
+                    return
+                event_queue.put((stream_kind, line))
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            event_queue.put((stream_kind, exc))
+            event_queue.put((stream_kind, None))
+
+    _REAL_THREAD(target=_reader, daemon=True).start()
 
 
 def review_display_name(agent: str) -> str:
@@ -239,6 +335,8 @@ def run_claude_manual_review_step(
                 output_lines=output_lines,
             )
         )
+    if not review_text and process.returncode == 0 and not ctx.is_task_cancelled():
+        raise RuntimeError(f"{agent_label} finished without any user-visible response.")
     if captured_session_id and process.returncode == 0:
         ctx.store_review_session(repo_key, captured_session_id)
     return review_text, captured_session_id
@@ -289,7 +387,7 @@ def run_codex_manual_review_step(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         text=True,
         cwd=str(target_repo),
         env=ctx.build_cli_env(),
@@ -300,43 +398,49 @@ def run_codex_manual_review_step(
     process.stdin.close()
 
     output_lines: list[str] = []
-    inactivity_limit = 900
-    last_output_time = time.time()
-    while True:
+    completed, raw_stdout_lines, stderr_lines, timed_out = _stream_codex_review_process(
+        process,
+        ctx=ctx,
+        send=send,
+        agent_label=agent_label,
+        text_buffer=output_lines,
+    )
+    if not completed:
+        ctx.process_finished()
         if ctx.is_task_cancelled():
-            process.kill()
-            process.wait()
-            ctx.process_finished()
             return ""
-        if time.time() - last_output_time > inactivity_limit:
-            process.kill()
-            process.wait()
-            ctx.process_finished()
-            raise RuntimeError(f"{step_name} stopped after 15 minutes without output.")
-        ready, _, _ = select.select([process.stdout], [], [], 5.0)
-        if ready:
-            line = process.stdout.readline()
-            if not line:
-                break
-            last_output_time = time.time()
-            ctx.forward_codex_stream_line(
-                line,
-                agent_label=agent_label,
-                send=send,
-                text_buffer=output_lines,
-            )
+        timeout_text = f"{step_name} stopped after 15 minutes without output."
+        timeout_detail = _build_codex_failure_detail(
+            stdout_text="\n".join(output_lines).strip(),
+            stderr_lines=stderr_lines,
+        )
+        if timed_out and timeout_detail:
+            timeout_text += f" Last details: {timeout_detail}"
+        raise RuntimeError(timeout_text)
 
     process.wait(timeout=10)
     ctx.process_finished()
 
     review_text = "\n".join(output_lines).strip()
     if process.returncode != 0 and not ctx.is_task_cancelled():
+        failure_detail = _build_codex_failure_detail(
+            stdout_text=review_text,
+            stderr_lines=stderr_lines,
+        )
         raise RuntimeError(
             ctx.build_process_failure_text(
                 step_name,
                 process.returncode,
-                result_text=review_text,
+                result_text=failure_detail,
                 output_lines=output_lines,
+            )
+        )
+    if not review_text and process.returncode == 0 and not ctx.is_task_cancelled():
+        raise RuntimeError(
+            _build_codex_empty_output_warning(
+                run_label=step_name,
+                raw_stdout_lines=raw_stdout_lines,
+                stderr_lines=stderr_lines,
             )
         )
     return review_text
@@ -440,6 +544,8 @@ def run_claude_manual_synthesis_step(
                 output_lines=output_lines,
             )
         )
+    if not synthesis_text and process.returncode == 0 and not ctx.is_task_cancelled():
+        raise RuntimeError("Review step 3 (synthesis) finished without any user-visible response.")
     if captured_session_id and process.returncode == 0:
         ctx.store_review_session(repo_key, captured_session_id)
     cleaned_text, has_fixes = strip_fixes_needed_marker(synthesis_text)
@@ -486,7 +592,7 @@ def run_codex_manual_synthesis_step(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         text=True,
         cwd=str(target_repo),
         env=ctx.build_cli_env(),
@@ -497,43 +603,49 @@ def run_codex_manual_synthesis_step(
     process.stdin.close()
 
     output_lines: list[str] = []
-    inactivity_limit = 900
-    last_output_time = time.time()
-    while True:
+    completed, raw_stdout_lines, stderr_lines, timed_out = _stream_codex_review_process(
+        process,
+        ctx=ctx,
+        send=send,
+        agent_label="Codex",
+        text_buffer=output_lines,
+    )
+    if not completed:
+        ctx.process_finished()
         if ctx.is_task_cancelled():
-            process.kill()
-            process.wait()
-            ctx.process_finished()
             return "", False
-        if time.time() - last_output_time > inactivity_limit:
-            process.kill()
-            process.wait()
-            ctx.process_finished()
-            raise RuntimeError("Review step 3 (synthesis) stopped after 15 minutes without output.")
-        ready, _, _ = select.select([process.stdout], [], [], 5.0)
-        if ready:
-            line = process.stdout.readline()
-            if not line:
-                break
-            last_output_time = time.time()
-            ctx.forward_codex_stream_line(
-                line,
-                agent_label="Codex",
-                send=send,
-                text_buffer=output_lines,
-            )
+        timeout_text = "Review step 3 (synthesis) stopped after 15 minutes without output."
+        timeout_detail = _build_codex_failure_detail(
+            stdout_text="\n".join(output_lines).strip(),
+            stderr_lines=stderr_lines,
+        )
+        if timed_out and timeout_detail:
+            timeout_text += f" Last details: {timeout_detail}"
+        raise RuntimeError(timeout_text)
 
     process.wait(timeout=10)
     ctx.process_finished()
 
     synthesis_text = "\n".join(output_lines).strip()
     if process.returncode != 0 and not ctx.is_task_cancelled():
+        failure_detail = _build_codex_failure_detail(
+            stdout_text=synthesis_text,
+            stderr_lines=stderr_lines,
+        )
         raise RuntimeError(
             ctx.build_process_failure_text(
                 "Review step 3 (synthesis)",
                 process.returncode,
-                result_text=synthesis_text,
+                result_text=failure_detail,
                 output_lines=output_lines,
+            )
+        )
+    if not synthesis_text and process.returncode == 0 and not ctx.is_task_cancelled():
+        raise RuntimeError(
+            _build_codex_empty_output_warning(
+                run_label="Review step 3 (synthesis)",
+                raw_stdout_lines=raw_stdout_lines,
+                stderr_lines=stderr_lines,
             )
         )
     cleaned_text, has_fixes = strip_fixes_needed_marker(synthesis_text)
