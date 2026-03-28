@@ -120,6 +120,14 @@ The current tests cover server startup, security headers, settings and project v
 
 The GUI now restores the chat and live log from one shared per-project event timeline, and it loads that timeline in bounded pages so long histories stay responsive without truncating the underlying data.
 
+### Live Claude Builder Smoke Test
+
+Use the live Claude builder smoke test before documenting or publishing behavior that depends on the running GUI, the WebSocket chat path, and the real Claude Code CLI integration.
+
+![Animated Claude builder smoke test demo](docs/assets/omads-claude-builder-smoke-test.gif)
+
+The full procedure and the verified March 28, 2026 results live in [docs/live-smoke-tests.md](docs/live-smoke-tests.md).
+
 ---
 
 ## Requirements

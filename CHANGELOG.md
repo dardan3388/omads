@@ -8,9 +8,10 @@ The format is loosely based on Keep a Changelog.
 
 ### Added
 
-- Added smartphone access via LAN — OMADS binds to `0.0.0.0`, CORS allows private RFC-1918 IPs, new `/api/network-info` endpoint, "Auf Smartphone öffnen" button with URL modal, and a fully responsive mobile layout.
+- Added smartphone access via LAN — OMADS binds to `0.0.0.0`, CORS allows private RFC-1918 IPs, a new `/api/network-info` endpoint, a smartphone-open button with URL modal, and a fully responsive mobile layout.
 - Added chat context handover when switching builders — OMADS passes the recent conversation history to the new builder so it can continue naturally without losing context, even across different providers (Claude Code ↔ Codex).
 - Added a public-ready README gallery with real OMADS screenshots under `docs/assets/`.
+- Added `docs/live-smoke-tests.md` plus an animated demo GIF for the live Claude builder WebSocket smoke test.
 - Added a persistent primary-builder setting so normal chat tasks can be routed to either Claude Code or Codex from the GUI until the user changes the selection.
 - Added a dedicated Review settings tab so users can choose Reviewer 1 and Reviewer 2 for the manual review button while step 3 automatically returns to Reviewer 1.
 - Added custom free-text focus instructions to the manual review dialog.
@@ -31,6 +32,7 @@ The format is loosely based on Keep a Changelog.
 ### Changed
 
 - Builder sessions are now scoped per builder (`builder:claude`) instead of per repo, preventing stale session resumption when switching builders.
+- Standardized the current backlog and the new smoke-test documentation in English.
 
 ### Fixed
 

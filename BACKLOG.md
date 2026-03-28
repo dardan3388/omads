@@ -14,76 +14,76 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
-### Feature: GitHub-Integration v2 (OAuth Device Flow + neue GUI)
+### Feature: GitHub Integration v2 (OAuth Device Flow + New GUI)
 
-Kompletter Umbau der GitHub-Integration. PAT-basierte Auth wird durch OAuth Device Flow ersetzt.
-Ergebnis einer Architektur-Diskussion zwischen Claude Code und Codex (2026-03-28).
+Complete rebuild of the GitHub integration. PAT-based authentication is being replaced by the OAuth Device Flow.
+This direction came out of an architecture discussion between Claude Code and Codex on 2026-03-28.
 
-#### Warum der Umbau?
-- PATs sind nicht userfreundlich (manuell erstellen, Scopes pflegen, neue Repos manuell hinzufügen)
-- GitHub empfiehlt PATs nicht für Third-Party-Apps
-- `-c remote.origin.url=` Override wurde von Git ignoriert (Bug)
-- Fehlermeldungen kamen auf Deutsch statt Englisch
+#### Why the rebuild?
+- PATs are not user-friendly because users must create them manually, manage scopes, and manually re-authorize new repos.
+- GitHub does not recommend PATs for third-party applications.
+- The `-c remote.origin.url=` override was ignored by Git.
+- Error messages appeared in German instead of English.
 
 #### Auth: OAuth App + Device Flow
 
-- Eine zentrale OMADS OAuth App registrieren (`client_id` im Code, kein `client_secret` nötig)
-- Device Flow: User sieht Code → öffnet `github.com/login/device` → autorisiert → fertig
-- Token läuft nicht regelmäßig ab; Re-Auth nur bei Widerruf
-- Bei 401/403: automatisch Re-Auth anbieten
-- Für Git push/pull: zuerst native Git-Credentials probieren, OAuth-Token als Fallback
+- Register one central OMADS OAuth App (`client_id` in code, no `client_secret` required).
+- Device Flow: user sees a code, opens `github.com/login/device`, authorizes, done.
+- The token should not expire regularly; re-auth should be needed only after revocation.
+- On `401` or `403`, OMADS should offer re-auth automatically.
+- For Git push/pull, try native Git credentials first and use the OAuth token only as a fallback.
 
-#### GUI-Architektur (3 Integrationspunkte, kein Mega-Tab)
+#### GUI Architecture (3 Integration Points, No Mega Tab)
 
-**1. Header:** Kleiner Status-Chip (verbunden/nicht verbunden)
-**2. Startscreen / Projekt-Sidebar:** Aktionen (`Neues Repo` | `Repo öffnen` | `Repo reviewen`)
-**3. Offenes Projekt:** Branch, Remote-Status, Pull/Push in der Sidebar
+**1. Header:** Small status chip (connected / not connected)
+**2. Start screen / project sidebar:** Actions (`New repo` | `Open repo` | `Review repo`)
+**3. Open project:** Branch, remote status, pull/push controls in the sidebar
 
-#### Neue Features
+#### New Features
 
-**Repo-Picker mit Suche:**
-- Suchbare Liste der eigenen Repos (mit Org-Filter)
-- Direkte Eingabe von `owner/repo` oder GitHub-URL
-- Tabs: `Meine` | `Organisationen` | `Zuletzt` | `URL`
+**Repo picker with search:**
+- Searchable list of the user's repos, including org filtering.
+- Direct input for `owner/repo` or a GitHub URL.
+- Tabs: `Mine` | `Organizations` | `Recent` | `URL`
 
-**Neues Repo erstellen:**
-- Kompaktes Modal: Name, Public/Private, README, .gitignore
-- Nach Erstellen: automatisch klonen und als OMADS-Projekt öffnen
+**Create new repo:**
+- Compact modal with name, public/private, README, and `.gitignore`.
+- After creation, automatically clone the repo and open it as an OMADS project.
 
-**Fremdes Repo reviewen:**
-- User gibt `owner/repo` ein → OMADS validiert per API
-- Quick-Look: README, Metadaten (nur API)
-- Deep Review: temporärer Clone → vollständiges Review
+**Review an external repo:**
+- User enters `owner/repo` and OMADS validates it through the API.
+- Quick look: README and metadata via API only.
+- Deep review: temporary clone followed by a full review.
 
-#### Git-Ops-Modal UX-Fixes
-- Auto-Refresh nach Push/Pull (aktuell fehlt)
-- Leere Repos: Buttons disabled + Hinweis statt kryptischer Fehler
-- Commit-Message-Input nach Commit leeren
+#### Git Ops Modal UX Fixes
+- Auto-refresh after push/pull.
+- For empty repos, disable buttons and show a clear hint instead of a cryptic error.
+- Clear the commit-message input after a commit.
 
-#### Implementierungs-Phasen
-1. OAuth Device Flow Backend (`github.py` umbauen)
-2. Auth-Routes anpassen (`routes.py`)
-3. Auth-UI umbauen — Device Flow Modal (`github_ui.js`)
-4. Repo-Picker mit Suche + Create Repo
-5. Git-Ops-Modal UX-Fixes
-6. Fremdes Repo reviewen (temp clone)
+#### Implementation Phases
+1. Rework the OAuth Device Flow backend in `github.py`.
+2. Update the auth routes in `routes.py`.
+3. Rebuild the auth UI as a Device Flow modal in `github_ui.js`.
+4. Add the searchable repo picker and create-repo flow.
+5. Finish the Git ops modal UX fixes.
+6. Add external repo review via temporary clone.
 
-#### Sicherheit (bleibt bestehen)
-- Token nie an den Browser weitergeben — nur Auth-Status
-- Token nie in `.git/config` schreiben
-- Alle Subprocess-Aufrufe ohne `shell=True`
-- `full_name` gegen `^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$` validieren
-- Token-Fehler-Scrubbing vor jedem Log/Error-Output
+#### Security (must remain in place)
+- Never expose the token to the browser; only expose auth status.
+- Never write the token into `.git/config`.
+- Keep all subprocess calls on `shell=False`.
+- Validate `full_name` against `^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$`.
+- Scrub token-related errors before any log or user-visible error output.
 
-### Hardening: Copilot-Audit Quick-Fixes
+### Hardening: Copilot Audit Quick Fixes
 
-Aus einem Copilot-Audit abgeleitete, validierte Verbesserungen:
+Validated improvements derived from a Copilot audit:
 
-1. ~~**`Math.random()`-ID → Counter** (`chat_ui.js`) — Detail-Toggle-IDs per Counter statt `Math.random()` generieren.~~
-2. ~~**CWD-Existenz-Check vor Popen** (`builder_flow.py`, `review_flow.py`) — Vor jedem `subprocess.Popen` prüfen ob `target_repo` noch existiert, statt kryptische OS-Fehler zu bekommen.~~
-3. **Tests ausbauen** — Leeres `tests/`-Verzeichnis füllen, Edge-Cases für Builder-Flow und Review-Flow abdecken. CI/CD erst danach.
+1. ~~**`Math.random()` ID -> counter** (`chat_ui.js`) — Generate detail toggle IDs via a counter instead of `Math.random()`.~~
+2. ~~**Check CWD existence before `Popen`** (`builder_flow.py`, `review_flow.py`) — Verify that `target_repo` still exists before every `subprocess.Popen` call instead of surfacing a cryptic OS error.~~
+3. **Expand tests** — Fill the previously empty `tests/` directory and cover builder-flow and review-flow edge cases before moving on to CI/CD.
 
-### Smoke-Tests
+### Smoke Tests
 
 - Re-run the short live smoke test for `Codex -> Claude Code -> Codex` on a clean working tree to verify the tighter limited-data synthesis prompt under a real Claude rate-limit.
 - Phase 2 (runtime module split) was completed on 2026-03-23 by extracting both `review_flow.py` and `builder_flow.py` out of `runtime.py`.
