@@ -783,8 +783,8 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
             "text": f"---\n**Step 3:** {_review_display_name(review_first)} is comparing both reviews and preparing the final report...",
         })
 
-        try:
-            if review_first == "claude":
+        def _run_manual_synthesis_step(agent: str) -> tuple[str, bool]:
+            if agent == "claude":
                 synthesis_text, has_fixes, _ = _run_claude_manual_synthesis_step(
                     settings_snapshot=settings_snapshot,
                     target_repo=target_repo,
@@ -798,22 +798,70 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                     first_review=first_review,
                     second_review=second_review,
                 )
-            else:
-                synthesis_text, has_fixes = _run_codex_manual_synthesis_step(
-                    settings_snapshot=settings_snapshot,
-                    target_repo=target_repo,
-                    first_label=_review_display_name(review_first),
-                    second_label=_review_display_name(review_second),
-                    first_review=first_review,
-                    second_review=second_review,
-                    send=send,
-                )
-        except FileNotFoundError:
-            send({"type": "task_error", "text": f"{synthesis_label} is not installed, so step 3 could not start."})
-            return
-        except RuntimeError as exc:
-            send({"type": "task_error", "text": str(exc)})
-            return
+                return synthesis_text, has_fixes
+
+            return _run_codex_manual_synthesis_step(
+                settings_snapshot=settings_snapshot,
+                target_repo=target_repo,
+                first_label=_review_display_name(review_first),
+                second_label=_review_display_name(review_second),
+                first_review=first_review,
+                second_review=second_review,
+                send=send,
+            )
+
+        synthesis_agent = review_first
+        synthesis_failure: Exception | None = None
+        try:
+            synthesis_text, has_fixes = _run_manual_synthesis_step(synthesis_agent)
+        except (FileNotFoundError, RuntimeError) as exc:
+            synthesis_failure = exc
+
+        if synthesis_failure is not None:
+            fallback_agent = review_second if review_second != synthesis_agent else None
+            if not fallback_agent:
+                if isinstance(synthesis_failure, FileNotFoundError):
+                    send({"type": "task_error", "text": f"{synthesis_label} is not installed, so step 3 could not start."})
+                else:
+                    send({"type": "task_error", "text": str(synthesis_failure)})
+                return
+
+            fallback_label = _review_runtime_label(fallback_agent, synthesis=True)
+            failure_detail = (
+                f"{synthesis_label} is not installed"
+                if isinstance(synthesis_failure, FileNotFoundError)
+                else str(synthesis_failure).strip() or f"{synthesis_label} could not finish"
+            )
+            send({
+                "type": "stream_text",
+                "agent": "Review",
+                "text": (
+                    f"---\n**Step 3 fallback:** {synthesis_label} could not finish. "
+                    f"{fallback_label} will prepare the final report instead.\nReason: {failure_detail[:240]}"
+                ),
+            })
+            synthesis_label = fallback_label
+            send({"type": "agent_status", "agent": synthesis_label, "status": "Step 3/3 - fallback synthesis in progress..."})
+            try:
+                synthesis_text, has_fixes = _run_manual_synthesis_step(fallback_agent)
+            except FileNotFoundError:
+                send({
+                    "type": "task_error",
+                    "text": (
+                        f"{_review_runtime_label(fallback_agent, synthesis=True)} is also not installed, "
+                        "so step 3 could not recover."
+                    ),
+                })
+                return
+            except RuntimeError as exc:
+                send({
+                    "type": "task_error",
+                    "text": (
+                        f"Step 3 fallback with {fallback_label} also failed. "
+                        f"Original issue: {failure_detail[:160]} | Fallback issue: {str(exc)[:220]}"
+                    ),
+                })
+                return
 
         send({"type": "agent_status", "agent": synthesis_label, "status": "Step 3/3 done"})
         send({

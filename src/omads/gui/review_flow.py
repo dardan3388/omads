@@ -172,8 +172,9 @@ def build_manual_synthesis_prompt(
     """Build the final synthesis prompt for the manual three-step review flow."""
     limited_second_review = _review_output_is_limited(second_review)
     prompt_parts = [
-        f"You were Reviewer 1 ({first_label}) in this manual review flow.",
-        f"Reviewer 2 ({second_label}) independently reviewed the same scope.",
+        "You are preparing the final synthesis for this manual review flow.",
+        f"Reviewer 1 was {first_label}.",
+        f"Reviewer 2 was {second_label}.",
     ]
     if limited_second_review:
         prompt_parts.append(

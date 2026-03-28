@@ -1504,6 +1504,59 @@ def test_review_thread_supports_reversed_pipeline_and_custom_focus(
     assert claude_commands and claude_commands[0][0] == "claude"
 
 
+def test_review_thread_falls_back_to_second_reviewer_for_synthesis(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_append_timeline_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_get_chat_session", lambda *args, **kwargs: "review-session-1")
+    monkeypatch.setattr(runtime, "_run_codex_manual_review_step", lambda **kwargs: "## Findings\n- [HIGH] api.py: missing lock")
+    monkeypatch.setattr(runtime, "_run_claude_manual_review_step", lambda **kwargs: ("## Findings\n- [HIGH] api.py: missing lock", "review-session-2"))
+
+    def fail_primary_synthesis(**kwargs):
+        raise RuntimeError(
+            "Review step 3 (synthesis) failed (exit code 1). Last output: stdout: You've hit your usage limit."
+        )
+
+    monkeypatch.setattr(runtime, "_run_codex_manual_synthesis_step", fail_primary_synthesis)
+    monkeypatch.setattr(
+        runtime,
+        "_run_claude_manual_synthesis_step",
+        lambda **kwargs: ("## Final fix plan\n- api.py:10: add a lock\nFIXES_NEEDED: true", True, "review-session-3"),
+    )
+    state._update_settings(
+        lambda settings: settings.update(
+            {
+                "review_first_reviewer": "codex",
+                "review_second_reviewer": "claude",
+            }
+        )
+    )
+
+    runtime._run_review_thread(None, "project", "bugs", "")
+
+    assert runtime._pending_review_fixes[repo_key].startswith("## Final fix plan")
+    assert any(msg["type"] == "review_fixes_available" for msg in messages)
+    assert any(
+        msg["type"] == "stream_text"
+        and "Step 3 fallback" in msg.get("text", "")
+        and "Claude Code will prepare the final report instead." in msg.get("text", "")
+        for msg in messages
+    )
+    assert any(
+        msg["type"] == "agent_status"
+        and msg.get("agent") == "Claude Code"
+        and msg.get("status") == "Step 3/3 - fallback synthesis in progress..."
+        for msg in messages
+    )
+    assert not any(msg["type"] == "task_error" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
 def test_manual_synthesis_prompt_switches_to_limited_mode_for_incomplete_second_review():
     prompt = runtime._build_manual_synthesis_prompt(
         first_label="Codex",

@@ -10,6 +10,7 @@ The format is loosely based on Keep a Changelog.
 
 - Added smartphone access via LAN — OMADS binds to `0.0.0.0`, CORS allows private RFC-1918 IPs, a new `/api/network-info` endpoint, a smartphone-open button with URL modal, and a fully responsive mobile layout.
 - Added chat context handover when switching builders — OMADS passes the recent conversation history to the new builder so it can continue naturally without losing context, even across different providers (Claude Code ↔ Codex).
+- Added `docs/live-regression-tests.md` so larger OMADS live checks now have one reusable regression matrix covering both auto-review directions, manual review directions, project switching, and provider failure sanity checks.
 - Added a public-ready README gallery with real OMADS screenshots under `docs/assets/`.
 - Added `docs/live-smoke-tests.md` plus an animated demo GIF for the live Claude builder WebSocket smoke test.
 - Added a persistent primary-builder setting so normal chat tasks can be routed to either Claude Code or Codex from the GUI until the user changes the selection.
@@ -60,6 +61,7 @@ The format is loosely based on Keep a Changelog.
 - Fixed duplicate Codex error display caused by both `error` and `turn.failed` JSONL events being forwarded.
 - Fixed Codex builder runs that previously hung silently when `stdout` stayed empty: OMADS now reads and scrubs `stderr`, surfaces stderr-backed task failures, and warns when Codex exits without any user-visible response.
 - Fixed Codex builder auto-review in normal local folders without Git metadata by extracting changed files directly from Codex `file_change` JSON events and keeping Git snapshotting only as a fallback.
+- Fixed manual review step 3 so if the primary synthesis agent finishes steps 1 and 2 but then becomes unavailable or usage-limited, OMADS can fall back to the other reviewer for the final synthesis instead of discarding the whole review run.
 
 ### Changed
 
