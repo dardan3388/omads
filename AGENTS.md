@@ -82,6 +82,17 @@ Never commit:
 - Surface unclear conflicts instead of guessing.
 - Keep project-facing documentation in English unless the user explicitly requests otherwise.
 
+## Live Regression Tests
+
+Before public milestones or after larger changes, run the automated test suite:
+
+```bash
+python tests/live_regression.py            # default port 8080
+python tests/live_regression.py --port 8103
+```
+
+The script executes all eight test cases from `docs/live-regression-tests.md` via WebSocket, prints a PASS / FAIL / BLOCKED summary, and cleans up temporary files. No manual setup required beyond a running OMADS instance.
+
 ## Goal
 
 - Minimum effort for the user

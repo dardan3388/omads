@@ -215,6 +215,19 @@ Commit:
 Notes:
 ```
 
+## Automated Runner
+
+The full test matrix is implemented as a standalone script that any agent can
+run without manual setup:
+
+```bash
+python tests/live_regression.py            # default port 8080
+python tests/live_regression.py --port 8103
+```
+
+The script creates temporary repos, executes all eight tests via WebSocket,
+prints a PASS / FAIL / BLOCKED summary, and cleans up afterwards.
+
 ## Release Guidance
 
 Yes, tagged releases make sense.
