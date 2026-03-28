@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from typing import Any
 from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -12,6 +13,60 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from . import runtime, state
 
 router = APIRouter()
+
+
+def _normalize_session_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate one session-scoped settings patch from the WebSocket client."""
+    normalized: dict[str, Any] = {}
+
+    target_repo = payload.get("target_repo")
+    if isinstance(target_repo, str):
+        resolved = Path(target_repo).expanduser().resolve()
+        if resolved.is_dir() and state.is_path_inside_home(resolved):
+            normalized["target_repo"] = str(resolved)
+
+    builder_agent = payload.get("builder_agent")
+    if builder_agent in {"claude", "codex"}:
+        normalized["builder_agent"] = builder_agent
+
+    review_first = payload.get("review_first_reviewer")
+    review_second = payload.get("review_second_reviewer")
+    if review_first in {"claude", "codex"}:
+        normalized["review_first_reviewer"] = review_first
+    if review_second in {"claude", "codex"}:
+        normalized["review_second_reviewer"] = review_second
+    if (
+        normalized.get("review_first_reviewer")
+        and normalized.get("review_second_reviewer")
+        and normalized["review_first_reviewer"] == normalized["review_second_reviewer"]
+    ):
+        normalized["review_second_reviewer"] = (
+            "codex" if normalized["review_first_reviewer"] == "claude" else "claude"
+        )
+
+    if isinstance(payload.get("auto_review"), bool):
+        normalized["auto_review"] = payload["auto_review"]
+
+    claude_model = payload.get("claude_model")
+    if isinstance(claude_model, str):
+        normalized["claude_model"] = claude_model
+
+    claude_effort = payload.get("claude_effort")
+    if claude_effort in {"low", "medium", "high", "max"}:
+        normalized["claude_effort"] = claude_effort
+
+    codex_model = payload.get("codex_model")
+    if isinstance(codex_model, str):
+        normalized["codex_model"] = codex_model
+
+    codex_reasoning = payload.get("codex_reasoning")
+    if codex_reasoning in {"low", "medium", "high", "xhigh"}:
+        normalized["codex_reasoning"] = codex_reasoning
+
+    if isinstance(payload.get("codex_fast"), bool):
+        normalized["codex_fast"] = payload["codex_fast"]
+
+    return normalized
 
 
 @router.websocket("/ws")
@@ -37,8 +92,7 @@ async def websocket_endpoint(ws: WebSocket):
         return
 
     await ws.accept()
-    with runtime._connections_lock:
-        runtime._connections.append(ws)
+    runtime.register_connection(ws)
     runtime._loop = asyncio.get_event_loop()
 
     _MAX_MESSAGE_LENGTH = 50000
@@ -113,7 +167,8 @@ async def websocket_endpoint(ws: WebSocket):
                 if not runtime._try_reserve_task_slot():
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
-                current_repo = str(Path(state._get_setting("target_repo", ".")).resolve())
+                current_settings = runtime.get_connection_settings_snapshot(ws)
+                current_repo = str(Path(current_settings.get("target_repo", ".")).resolve())
                 repo_fixes = runtime._pending_review_fixes.get(current_repo, "")
                 if not repo_fixes:
                     runtime._release_reserved_task_slot()
@@ -124,7 +179,8 @@ async def websocket_endpoint(ws: WebSocket):
                     runtime._release_reserved_task_slot()
                     await ws.send_json({"type": "error", "text": "No review fixes are available"})
                     continue
-                project_id = state._get_active_project_id()
+                project = state._find_project_by_path(current_repo)
+                project_id = project["id"] if project else None
                 if project_id:
                     state._append_timeline_event(project_id, {"type": "user_input", "text": "Apply fixes"})
 
@@ -134,7 +190,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "Rules: Apply ONLY the changes described in the fix plan. No scope creep."
                 )
                 review_fix_runner = runtime._run_claude_session_thread
-                if state._get_setting("review_first_reviewer", "claude") == "codex":
+                if current_settings.get("review_first_reviewer", "claude") == "codex":
                     review_fix_runner = runtime._run_codex_session_thread
                 thread = threading.Thread(
                     target=review_fix_runner,
@@ -166,10 +222,11 @@ async def websocket_endpoint(ws: WebSocket):
                 repo_path = data.get("path", "").strip()
                 resolved = Path(repo_path).resolve() if repo_path else None
                 if resolved and resolved.is_dir() and state.is_path_inside_home(resolved):
-                    snapshot = state._update_settings(lambda settings: settings.__setitem__("target_repo", str(resolved)))
+                    persisted = state._update_settings(lambda settings: settings.__setitem__("target_repo", str(resolved)))
+                    runtime.update_connection_settings(ws, {"target_repo": str(resolved)})
                     await ws.send_json({
                         "type": "system",
-                        "text": f"Project: {snapshot['target_repo']}",
+                        "text": f"Project: {persisted['target_repo']}",
                     })
                 elif resolved and not resolved.is_dir():
                     await ws.send_json({
@@ -182,9 +239,10 @@ async def websocket_endpoint(ws: WebSocket):
                         "text": f"Directory is not allowed or does not exist: {repo_path}",
                     })
 
+            elif msg_type == "set_session_settings":
+                session_patch = _normalize_session_settings(data.get("settings", {}))
+                if session_patch:
+                    runtime.update_connection_settings(ws, session_patch)
+
     except WebSocketDisconnect:
-        with runtime._connections_lock:
-            try:
-                runtime._connections.remove(ws)
-            except ValueError:
-                pass
+        runtime.unregister_connection(ws)

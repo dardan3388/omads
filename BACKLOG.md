@@ -14,28 +14,20 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
-### Runtime Bugs: Builder/Breaker and Session Isolation
+### Runtime Follow-up: Deeper Session Isolation
 
-Two newly observed issues need follow-up before the runtime can be considered robust:
+The most visible session leak has been reduced:
 
-1. **Automatic breaker step did not run after a Codex builder change**
-- Observed in live use on 2026-03-28.
-- User selected `Codex` as builder, Codex created project files, but the expected automatic `Claude Review` breaker step did not visibly run afterward.
-- This contradicts the current product description in the GUI and docs:
-  - `Codex -> Claude Review`
-  - `Claude -> Codex`
-- Needs investigation across:
-  - repo-change detection after Codex runs
-  - breaker trigger conditions in `builder_flow.py`
-  - UI visibility for automatic review events
+- Builder/review task settings are now frozen from the initiating WebSocket session.
+- Task stream events are now sent back only to the initiating client instead of every connected client.
+- Project switching and settings saves no longer broadcast repo/theme/builder changes to every open browser session.
 
-2. **Global active project / builder state is still server-wide instead of session-scoped**
-- Current runtime settings such as `target_repo`, `builder_agent`, active task ownership, and some broadcasts still behave like process-global state.
-- This is fragile for:
-  - multiple browser tabs
-  - multiple clients on LAN
-  - project switching while another client is active
-- A proper architectural follow-up should move active project/task context closer to the WebSocket session or task instance, instead of relying on one server-global "current project".
+The remaining follow-up is deeper ownership isolation:
+
+- `stop` is still effectively global because OMADS still tracks one process slot server-wide.
+- Reconnects still rebuild from persisted global settings instead of a durable per-session state store.
+- Project switching still persists one global `target_repo`, even though live task execution now uses the session snapshot.
+- A later phase should decide whether OMADS stays intentionally single-task/global-stop, or whether task ownership should become fully session-bound.
 
 ### Feature: GitHub Integration v2 (OAuth Device Flow + New GUI)
 

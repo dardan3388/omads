@@ -80,6 +80,9 @@ export async function switchProject(projectId) {
     const data = await res.json();
     if (data.ok) {
       appState.activeProjectId = projectId;
+      if (appState.ws) {
+        appState.ws.send(JSON.stringify({ type: "set_session_settings", settings: { target_repo: data.project.path } }));
+      }
       syncSelectedRepo(data.project.path);
       renderProjects();
       el("stream").innerHTML = "";
@@ -173,6 +176,9 @@ export async function createProject() {
   }
   closeNewProject();
   appState.activeProjectId = data.project.id;
+  if (appState.ws) {
+    appState.ws.send(JSON.stringify({ type: "set_session_settings", settings: { target_repo: data.project.path } }));
+  }
   syncSelectedRepo(data.project.path);
   await loadProjects();
   el("stream").innerHTML = `<div class="msg-system">New project: ${esc(name)}. What should I build?</div>`;

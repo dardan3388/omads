@@ -7,6 +7,7 @@ import logging
 import subprocess
 import threading
 from pathlib import Path
+from typing import Any
 
 from fastapi import WebSocket
 
@@ -40,6 +41,7 @@ from .state import (
     _clear_chat_session,
     _get_active_project_id,
     _get_chat_session,
+    _find_project_by_path,
     _get_last_builder,
     _get_setting,
     _get_settings_snapshot,
@@ -53,6 +55,7 @@ from .state import (
 # Active WebSocket connections (lock protects add/remove/iterate)
 _connections_lock = threading.Lock()
 _connections: list[WebSocket] = []
+_connection_settings: dict[WebSocket, dict[str, Any]] = {}
 
 # Running process used for stop handling; lock protects against race conditions
 _process_lock = threading.Lock()
@@ -73,6 +76,53 @@ class _ReservedProcessSlot:
 
 
 _RESERVED_PROCESS_SLOT = _ReservedProcessSlot()
+
+
+def register_connection(ws: WebSocket) -> None:
+    """Register one live WebSocket and seed its session-scoped settings."""
+    snapshot = _get_settings_snapshot()
+    with _connections_lock:
+        _connections.append(ws)
+        _connection_settings[ws] = snapshot
+
+
+def unregister_connection(ws: WebSocket) -> None:
+    """Remove one WebSocket and its session-scoped settings."""
+    with _connections_lock:
+        try:
+            _connections.remove(ws)
+        except ValueError:
+            pass
+        _connection_settings.pop(ws, None)
+
+
+def get_connection_settings_snapshot(ws: WebSocket | None) -> dict[str, Any]:
+    """Return the current session-scoped settings for one WebSocket."""
+    if ws is None:
+        return _get_settings_snapshot()
+    with _connections_lock:
+        snapshot = _connection_settings.get(ws)
+        return dict(snapshot) if snapshot is not None else _get_settings_snapshot()
+
+
+def update_connection_settings(ws: WebSocket | None, patch: dict[str, Any]) -> dict[str, Any]:
+    """Update the session-scoped settings for one WebSocket and return the snapshot."""
+    if ws is None:
+        return _get_settings_snapshot()
+    with _connections_lock:
+        snapshot = dict(_connection_settings.get(ws) or _get_settings_snapshot())
+        snapshot.update(patch)
+        _connection_settings[ws] = snapshot
+        return dict(snapshot)
+
+
+def _project_id_from_settings_snapshot(settings_snapshot: dict[str, Any]) -> str | None:
+    """Resolve the project ID for one task-local settings snapshot."""
+    target_repo = settings_snapshot.get("target_repo", "")
+    if not target_repo:
+        return None
+    project = _find_project_by_path(str(Path(target_repo).resolve()))
+    return project["id"] if project else None
 
 
 def _try_reserve_task_slot() -> bool:
@@ -168,6 +218,7 @@ async def broadcast(msg: dict) -> None:
                     _connections.remove(ws)
                 except ValueError:
                     pass
+                _connection_settings.pop(ws, None)
 
 
 def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
@@ -188,13 +239,39 @@ def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
             pass
 
 
+def send_to_ws_sync(
+    ws: WebSocket | None,
+    msg: dict,
+    *,
+    proj_id_override: str | None = None,
+) -> None:
+    """Send one task-scoped message only to the initiating WebSocket."""
+    if ws is None:
+        broadcast_sync(msg, proj_id_override=proj_id_override)
+        return
+
+    proj_id = proj_id_override or _project_id_from_settings_snapshot(get_connection_settings_snapshot(ws))
+    if proj_id:
+        try:
+            _append_timeline_event(proj_id, dict(msg))
+        except Exception:
+            logging.getLogger("omads").debug("Timeline write failed for %s", proj_id, exc_info=True)
+
+    try:
+        asyncio.run_coroutine_threadsafe(ws.send_json(msg), _loop)
+    except Exception:
+        pass
+
+
 _loop: asyncio.AbstractEventLoop | None = None
 
 
 def _run_builder_session_thread(ws: WebSocket, user_text: str) -> None:
     """Route one chat task to the currently selected primary builder."""
-    builder_agent = _get_setting("builder_agent", "claude")
-    proj_id = _get_active_project_id()
+    settings_snapshot = get_connection_settings_snapshot(ws)
+    builder_agent = settings_snapshot.get("builder_agent", "claude")
+    proj_id = _project_id_from_settings_snapshot(settings_snapshot)
+    target_repo = settings_snapshot.get("target_repo", "")
 
     # Detect builder switch and invalidate the Claude session so the next
     # Claude run starts fresh with the full chat handover context instead
@@ -202,7 +279,6 @@ def _run_builder_session_thread(ws: WebSocket, user_text: str) -> None:
     if proj_id:
         last_builder = _get_last_builder(proj_id)
         if last_builder and last_builder != builder_agent:
-            target_repo = _get_setting("target_repo", "")
             if target_repo:
                 _clear_chat_session(target_repo, scope="builder:claude")
         _set_last_builder(proj_id, builder_agent)
@@ -270,7 +346,10 @@ def _forward_codex_stream_line(
         send({"type": "stream_text", "agent": agent_label, "text": text})
 
 
-def _builder_runtime_context(frozen_proj_id: str | None) -> BuilderRuntimeContext:
+def _builder_runtime_context(
+    frozen_proj_id: str | None,
+    settings_snapshot: dict[str, Any],
+) -> BuilderRuntimeContext:
     """Build the dependency bundle used by builder-specific runtime helpers."""
 
     def process_started(process: subprocess.Popen) -> None:
@@ -305,7 +384,7 @@ def _builder_runtime_context(frozen_proj_id: str | None) -> BuilderRuntimeContex
         forward_codex_stream_line=_forward_codex_stream_line,
         get_active_project_id=get_active_project_id,
         get_chat_session=_get_chat_session,
-        get_settings_snapshot=_get_settings_snapshot,
+        get_settings_snapshot=lambda: dict(settings_snapshot),
         is_task_cancelled=is_task_cancelled,
         load_project_memory=_load_project_memory,
         merge_changed_files=_merge_changed_files,
@@ -324,13 +403,14 @@ def _builder_runtime_context(frozen_proj_id: str | None) -> BuilderRuntimeContex
 
 def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
     """Delegate one Claude builder task to the dedicated builder-flow module."""
-    frozen_proj_id = _get_active_project_id()
+    settings_snapshot = get_connection_settings_snapshot(ws)
+    frozen_proj_id = _project_id_from_settings_snapshot(settings_snapshot)
 
     def send(msg: dict) -> None:
-        broadcast_sync(msg, proj_id_override=frozen_proj_id)
+        send_to_ws_sync(ws, msg, proj_id_override=frozen_proj_id)
 
     return _builder_run_claude_session_thread(
-        _builder_runtime_context(frozen_proj_id),
+        _builder_runtime_context(frozen_proj_id, settings_snapshot),
         ws,
         user_text,
         send,
@@ -339,20 +419,21 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
 
 def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
     """Delegate one Codex builder task to the dedicated builder-flow module."""
-    frozen_proj_id = _get_active_project_id()
+    settings_snapshot = get_connection_settings_snapshot(ws)
+    frozen_proj_id = _project_id_from_settings_snapshot(settings_snapshot)
 
     def send(msg: dict) -> None:
-        broadcast_sync(msg, proj_id_override=frozen_proj_id)
+        send_to_ws_sync(ws, msg, proj_id_override=frozen_proj_id)
 
     return _builder_run_codex_session_thread(
-        _builder_runtime_context(frozen_proj_id),
+        _builder_runtime_context(frozen_proj_id, settings_snapshot),
         ws,
         user_text,
         send,
     )
 
 
-def _review_runtime_context() -> ReviewRuntimeContext:
+def _review_runtime_context(settings_snapshot: dict[str, Any]) -> ReviewRuntimeContext:
     """Build the small dependency bundle used by review-specific helpers."""
 
     def process_started(process: subprocess.Popen) -> None:
@@ -376,7 +457,7 @@ def _review_runtime_context() -> ReviewRuntimeContext:
         build_process_failure_text=_build_process_failure_text,
         forward_claude_stream_line=_forward_claude_stream_line,
         forward_codex_stream_line=_forward_codex_stream_line,
-        get_settings_snapshot=_get_settings_snapshot,
+        get_settings_snapshot=lambda: dict(settings_snapshot),
         is_task_cancelled=is_task_cancelled,
         load_project_memory=_load_project_memory,
         process_started=process_started,
@@ -387,22 +468,26 @@ def _review_runtime_context() -> ReviewRuntimeContext:
 
 def _run_claude_manual_review_step(**kwargs):
     """Delegate one Claude review step to the review-specific runtime module."""
-    return _review_run_claude_manual_review_step(_review_runtime_context(), **kwargs)
+    settings_snapshot = kwargs.pop("settings_snapshot")
+    return _review_run_claude_manual_review_step(_review_runtime_context(settings_snapshot), **kwargs)
 
 
 def _run_codex_manual_review_step(**kwargs):
     """Delegate one Codex review step to the review-specific runtime module."""
-    return _review_run_codex_manual_review_step(_review_runtime_context(), **kwargs)
+    settings_snapshot = kwargs.pop("settings_snapshot")
+    return _review_run_codex_manual_review_step(_review_runtime_context(settings_snapshot), **kwargs)
 
 
 def _run_claude_manual_synthesis_step(**kwargs):
     """Delegate one Claude synthesis step to the review-specific runtime module."""
-    return _review_run_claude_manual_synthesis_step(_review_runtime_context(), **kwargs)
+    settings_snapshot = kwargs.pop("settings_snapshot")
+    return _review_run_claude_manual_synthesis_step(_review_runtime_context(settings_snapshot), **kwargs)
 
 
 def _run_codex_manual_synthesis_step(**kwargs):
     """Delegate one Codex synthesis step to the review-specific runtime module."""
-    return _review_run_codex_manual_synthesis_step(_review_runtime_context(), **kwargs)
+    settings_snapshot = kwargs.pop("settings_snapshot")
+    return _review_run_codex_manual_synthesis_step(_review_runtime_context(settings_snapshot), **kwargs)
 
 
 def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str, custom_focus: str = "") -> None:
@@ -426,7 +511,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                 _active_process = None
             return
 
-    settings_snapshot = _get_settings_snapshot()
+    settings_snapshot = get_connection_settings_snapshot(ws)
     target_repo = settings_snapshot.get("target_repo", str(Path(".").resolve()))
     model = settings_snapshot.get("claude_model", "sonnet")
     effort = settings_snapshot.get("claude_effort", "high")
@@ -441,10 +526,10 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
     pipeline_desc = f"{_review_display_name(review_first)} -> {_review_display_name(review_second)} -> {_review_display_name(review_first)}"
 
     # Freeze the project ID at task start
-    _frozen_proj_id = _get_active_project_id()
+    _frozen_proj_id = _project_id_from_settings_snapshot(settings_snapshot)
 
     def send(msg: dict):
-        broadcast_sync(msg, proj_id_override=_frozen_proj_id)
+        send_to_ws_sync(ws, msg, proj_id_override=_frozen_proj_id)
 
     # Determine scope
     if scope == "last_task" and _last_files_changed:
@@ -498,6 +583,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
         try:
             if review_first == "claude":
                 first_review, first_session_id = _run_claude_manual_review_step(
+                    settings_snapshot=settings_snapshot,
                     target_repo=target_repo,
                     model=model,
                     effort=effort,
@@ -511,6 +597,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                 )
             else:
                 first_review = _run_codex_manual_review_step(
+                    settings_snapshot=settings_snapshot,
                     target_repo=target_repo,
                     focus_desc=focus_desc,
                     review_files=review_files,
@@ -536,6 +623,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
         try:
             if review_second == "claude":
                 second_review, _ = _run_claude_manual_review_step(
+                    settings_snapshot=settings_snapshot,
                     target_repo=target_repo,
                     model=model,
                     effort=effort,
@@ -549,6 +637,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                 )
             else:
                 second_review = _run_codex_manual_review_step(
+                    settings_snapshot=settings_snapshot,
                     target_repo=target_repo,
                     focus_desc=focus_desc,
                     review_files=review_files,
@@ -578,6 +667,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
         try:
             if review_first == "claude":
                 synthesis_text, has_fixes, _ = _run_claude_manual_synthesis_step(
+                    settings_snapshot=settings_snapshot,
                     target_repo=target_repo,
                     model=model,
                     effort=effort,
@@ -591,6 +681,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                 )
             else:
                 synthesis_text, has_fixes = _run_codex_manual_synthesis_step(
+                    settings_snapshot=settings_snapshot,
                     target_repo=target_repo,
                     first_label=_review_display_name(review_first),
                     second_label=_review_display_name(review_second),
@@ -632,8 +723,9 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
 
 def _run_codex_auto_review(ws: WebSocket, target_repo: str, files_changed: list[str], send: callable) -> str | None:
     """Delegate one Codex automatic breaker run to the builder-flow module."""
+    settings_snapshot = get_connection_settings_snapshot(ws)
     return _builder_run_codex_auto_review(
-        _builder_runtime_context(_get_active_project_id()),
+        _builder_runtime_context(_project_id_from_settings_snapshot(settings_snapshot), settings_snapshot),
         ws,
         target_repo,
         files_changed,
@@ -650,8 +742,10 @@ def _run_claude_auto_review(
     effort: str,
 ) -> str | None:
     """Delegate one Claude automatic breaker run to the builder-flow module."""
+    settings_snapshot = _get_settings_snapshot()
+    settings_snapshot["target_repo"] = target_repo
     return _builder_run_claude_auto_review(
-        _builder_runtime_context(_get_active_project_id()),
+        _builder_runtime_context(_project_id_from_settings_snapshot(settings_snapshot), settings_snapshot),
         target_repo,
         files_changed,
         send,

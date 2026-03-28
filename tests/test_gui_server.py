@@ -120,6 +120,14 @@ class DummyAdmissionWebSocket:
         raise AssertionError(f"send_json should not be called: {message}")
 
 
+class RecordingWebSocket:
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    async def send_json(self, message):
+        self.sent.append(message)
+
+
 @pytest.fixture()
 def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     home_dir = tmp_path / "home"
@@ -141,6 +149,7 @@ def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(state, "_gui_status", copy.deepcopy(state._GUI_STATUS_DEFAULTS))
     monkeypatch.setattr(state, "_chat_sessions", {})
     monkeypatch.setattr(runtime, "_connections", [])
+    monkeypatch.setattr(runtime, "_connection_settings", {})
     monkeypatch.setattr(runtime, "_active_process", None)
     monkeypatch.setattr(runtime, "_task_cancelled", False)
     monkeypatch.setattr(runtime, "_last_files_changed", [])
@@ -566,6 +575,85 @@ def test_builder_dispatch_uses_selected_primary_builder(isolated_server, monkeyp
     runtime._run_builder_session_thread(None, "second task")
 
     assert called == [("claude", "first task"), ("codex", "second task")]
+
+
+def test_builder_dispatch_uses_connection_scoped_settings(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    repo_a = isolated_server["home_dir"] / "repo-a"
+    repo_b = isolated_server["home_dir"] / "repo-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    ws_a = object()
+    ws_b = object()
+    runtime.register_connection(ws_a)
+    runtime.register_connection(ws_b)
+    runtime.update_connection_settings(
+        ws_a,
+        {
+            "builder_agent": "claude",
+            "target_repo": str(repo_a.resolve()),
+            "claude_model": "sonnet",
+        },
+    )
+    runtime.update_connection_settings(
+        ws_b,
+        {
+            "builder_agent": "codex",
+            "target_repo": str(repo_b.resolve()),
+            "codex_reasoning": "low",
+            "codex_fast": True,
+        },
+    )
+
+    called: list[tuple[str, str, str, dict]] = []
+    monkeypatch.setattr(
+        runtime,
+        "_run_claude_session_thread",
+        lambda ws, text: called.append(
+            ("claude", text, runtime.get_connection_settings_snapshot(ws)["target_repo"], runtime.get_connection_settings_snapshot(ws))
+        ),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_run_codex_session_thread",
+        lambda ws, text: called.append(
+            ("codex", text, runtime.get_connection_settings_snapshot(ws)["target_repo"], runtime.get_connection_settings_snapshot(ws))
+        ),
+    )
+
+    try:
+        runtime._run_builder_session_thread(ws_a, "task A")
+        runtime._run_builder_session_thread(ws_b, "task B")
+    finally:
+        runtime.unregister_connection(ws_a)
+        runtime.unregister_connection(ws_b)
+
+    assert called[0][0:3] == ("claude", "task A", str(repo_a.resolve()))
+    assert called[0][3]["claude_model"] == "sonnet"
+    assert called[1][0:3] == ("codex", "task B", str(repo_b.resolve()))
+    assert called[1][3]["codex_reasoning"] == "low"
+    assert called[1][3]["codex_fast"] is True
+
+
+def test_send_to_ws_sync_targets_only_the_initiating_connection(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    ws_a = RecordingWebSocket()
+    ws_b = RecordingWebSocket()
+    runtime.register_connection(ws_a)
+    runtime.register_connection(ws_b)
+
+    timeline_events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(runtime, "_append_timeline_event", lambda proj_id, msg: timeline_events.append((proj_id, msg)))
+    monkeypatch.setattr(runtime.asyncio, "run_coroutine_threadsafe", lambda coro, loop: asyncio.run(coro))
+
+    try:
+        runtime.send_to_ws_sync(ws_a, {"type": "stream_text", "agent": "Codex", "text": "hello"}, proj_id_override="proj-a")
+    finally:
+        runtime.unregister_connection(ws_a)
+        runtime.unregister_connection(ws_b)
+
+    assert ws_a.sent == [{"type": "stream_text", "agent": "Codex", "text": "hello"}]
+    assert ws_b.sent == []
+    assert timeline_events == [("proj-a", {"type": "stream_text", "agent": "Codex", "text": "hello"})]
 
 
 def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_server, monkeypatch: pytest.MonkeyPatch):

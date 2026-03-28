@@ -79,6 +79,7 @@ Owns the main `/ws` socket:
 - fix application requests
 - stop requests
 - repo switching from the UI
+- session-scoped runtime setting sync for the connected browser
 
 This module should stay focused on GUI command handling and transport concerns.
 
@@ -102,8 +103,9 @@ If data must survive process restarts or be shared through files, it probably be
 Owns runtime-only state and process orchestration:
 
 - active connections
+- per-connection runtime settings snapshots
 - active subprocess tracking
-- broadcast helpers
+- task-stream delivery helpers (broadcast for global events, unicast for task-local events)
 - builder-task dispatch
 - review pipeline orchestration
 - coordination between the dedicated builder/review helper modules
@@ -202,9 +204,9 @@ Owns frontend bootstrapping and high-level browser orchestration:
 
 1. The browser sends a `chat` message over WebSocket.
 2. `websocket.py` validates the request and starts a background thread.
-3. `runtime.py` routes the task to the selected primary builder from GUI settings.
+3. `runtime.py` freezes the initiating browser session's active repo/builder settings and routes the task to the selected primary builder from that snapshot.
 4. If the user switched builders, OMADS loads the recent conversation from the project timeline and passes it as context to the new builder so it can continue naturally.
-5. The chosen builder subprocess streams readable events back to the browser.
+5. The chosen builder subprocess streams readable events back to the initiating browser session.
 5. If the builder changed files and auto-review is enabled, OMADS starts the current automatic breaker step.
 6. Today that means `Codex` reviews Claude-built changes, while `Claude Review` checks Codex-built changes before findings are handed back to the builder.
 7. If the breaker reports real findings, the active builder receives them for a follow-up fix decision.
@@ -239,6 +241,8 @@ Runtime data is stored below `~/.config/omads/`:
 - `timeline/` for the unified per-project event stream used by the chat view, live log, and compatibility history/log reads
 - `history/` only as a legacy fallback for older local data
 - `memory/`
+
+Persisted settings still live in `gui_settings.json`, but each live WebSocket session also keeps a runtime-only settings snapshot so an in-flight task does not drift when another client switches projects or changes builders.
 
 The browser does not load the full timeline on every project switch anymore. It requests the newest bounded page first and can fetch older pages on demand through the same paged timeline endpoint.
 

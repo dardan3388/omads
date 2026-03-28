@@ -121,7 +121,6 @@ async def update_settings(data: UpdateSettingsRequest):
             settings["ui_theme"] = "dark"
 
     snapshot = _update_settings(apply_updates)
-    await runtime.broadcast({"type": "settings_updated", "settings": snapshot})
 
     # Auto-restart when LAN access changes (CORS middleware is bound at startup)
     lan_after = snapshot.get("lan_access", False)
@@ -132,7 +131,7 @@ async def update_settings(data: UpdateSettingsRequest):
         })
         _schedule_server_restart()
 
-    return {"ok": True}
+    return {"ok": True, "settings": snapshot}
 
 
 @router.get("/api/network-info")
@@ -336,7 +335,6 @@ async def switch_project(data: SwitchProjectRequest):
             _update_settings(lambda settings: settings.__setitem__("target_repo", p["path"]))
             p["last_used"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _save_projects(projects)
-            await runtime.broadcast({"type": "system", "text": p["path"]})
             return {"ok": True, "project": p}
 
     return {"error": "Project not found"}

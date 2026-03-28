@@ -177,7 +177,7 @@ export async function loadSettings() {
 
 export async function saveSettings() {
   const lanNow = el("sLanAccess").value === "true";
-  const data = {
+  const requested = {
     target_repo: el("sRepo").value,
     builder_agent: el("sBuilder").value,
     review_first_reviewer: el("sReviewFirst").value,
@@ -192,19 +192,21 @@ export async function saveSettings() {
     ui_theme: el("sTheme").value,
     lan_access: lanNow,
   };
-  if (appState.ws && data.target_repo) {
-    appState.ws.send(JSON.stringify({ type: "set_repo", path: data.target_repo }));
-  }
-  await fetch("/api/settings", {
+  const res = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify(requested),
   });
-  applyTheme(data.ui_theme);
-  applyBuilderAgent(data.builder_agent);
-  applyReviewPipeline(data.review_first_reviewer, data.review_second_reviewer);
-  applyAutoReviewEnabled(data.auto_review);
-  syncSelectedRepo(data.target_repo);
+  const payload = await res.json();
+  const data = payload.settings || requested;
+  if (appState.ws) {
+    appState.ws.send(JSON.stringify({ type: "set_session_settings", settings: data }));
+  }
+  applyTheme(data.ui_theme || "dark");
+  applyBuilderAgent(data.builder_agent || "claude");
+  applyReviewPipeline(data.review_first_reviewer || "claude", data.review_second_reviewer || "codex");
+  applyAutoReviewEnabled(data.auto_review !== false);
+  syncSelectedRepo(data.target_repo || "");
   const lanGroup = el("lanInfoGroup");
   if (lanGroup) lanGroup.style.display = lanNow ? "block" : "none";
   closeSettings();
