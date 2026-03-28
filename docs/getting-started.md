@@ -126,19 +126,26 @@ pip install -e .
 
 ## 6. Start OMADS
 
+Start the local OMADS server first. Only after that should you open `http://localhost:8080` in your browser.
+
+OMADS does not auto-start just because the URL exists.
+
 ### Easiest local start on Linux or macOS
 
 ```bash
 ./start-omads.sh
 ```
 
-This script creates `.venv` if needed, installs OMADS into it if needed, and starts the GUI.
+This script creates `.venv` if needed, installs OMADS into it if needed, and starts the GUI server.
+Keep that terminal window open while OMADS is running.
 
 ### Windows PowerShell
 
 ```powershell
 .\start-omads.ps1
 ```
+
+Keep that PowerShell window open while OMADS is running.
 
 If your execution policy blocks local scripts:
 
@@ -177,7 +184,43 @@ Custom port:
 omads gui --port 9090
 ```
 
-The default URL is `http://localhost:8080`.
+The default local URL is `http://localhost:8080`.
+
+After the server is running, open:
+
+```text
+http://localhost:8080
+```
+
+## Start OMADS Automatically After Login
+
+The simplest approach is to let your operating system launch the existing start script when you sign in.
+
+### Linux Desktop
+
+Create an autostart entry that runs:
+
+```bash
+/absolute/path/to/omads/start-omads.sh --no-browser
+```
+
+This is the easiest option for normal desktop use because it reuses the same launcher you already use manually.
+
+### Windows
+
+Create a shortcut in your Startup folder that runs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\path\to\omads\start-omads.ps1" --no-browser
+```
+
+This is usually the simplest Windows setup because it requires no service manager.
+
+### More Robust Linux Option
+
+If you want OMADS to behave more like a background app, use a `systemd --user` service later.
+
+For most users, though, an autostart entry that calls the existing OMADS start script is the easiest method.
 
 ## Docker
 

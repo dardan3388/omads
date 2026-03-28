@@ -70,6 +70,8 @@ cd omads
 ./start-omads.sh
 ```
 
+Keep that terminal window open while OMADS is running.
+
 Windows PowerShell:
 
 ```powershell
@@ -78,11 +80,15 @@ cd omads
 .\start-omads.ps1
 ```
 
-Then open `http://localhost:8080`.
+Keep that PowerShell window open while OMADS is running.
+
+Then open `http://localhost:8080` in your browser.
+
+OMADS does not start itself just because you open the URL. The local server must be running first.
 
 Best experience: install and authenticate **both** CLIs so OMADS can use cross-agent review and builder switching without feature gaps.
 
-Full setup, Docker usage, first-launch notes, and troubleshooting live in [docs/getting-started.md](docs/getting-started.md).
+Full setup, auto-start options, Docker usage, first-launch notes, and troubleshooting live in [docs/getting-started.md](docs/getting-started.md).
 
 ## See It In Action
 

@@ -40,6 +40,7 @@ The format is loosely based on Keep a Changelog.
 - Replaced the old static README screenshots with a current animated UI tour and removed outdated GUI stills from `docs/assets/`.
 - Replaced the smoke-test GIF with a real English demo that starts from recorded Codex CLI launch context and then shows the actual OMADS GUI run.
 - Standardized the current backlog and the new smoke-test documentation in English.
+- Clarified the startup documentation so the quick start explains that OMADS must be started manually before opening `localhost`, and added the simplest auto-start-after-login guidance.
 
 ### Fixed
 
