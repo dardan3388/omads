@@ -126,6 +126,8 @@ Use the live Claude builder smoke test before documenting or publishing behavior
 
 ![Animated Claude builder smoke test demo](docs/assets/omads-claude-builder-smoke-test.gif)
 
+This animation starts with the recorded Codex CLI launch context and then switches to the real OMADS GUI for the live English smoke-test run.
+
 The full procedure and the verified March 28, 2026 results live in [docs/live-smoke-tests.md](docs/live-smoke-tests.md).
 
 ---

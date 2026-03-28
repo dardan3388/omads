@@ -4,7 +4,7 @@ This page documents small live checks that validate the running OMADS GUI agains
 
 ## Claude Builder WebSocket Smoke Test
 
-Validated on **March 28, 2026** against the main GUI instance at `http://127.0.0.1:8080`.
+Validated on **March 28, 2026** against a clean local OMADS demo instance at `http://127.0.0.1:8096` with `builder_agent=claude`.
 
 ### Purpose
 
@@ -16,20 +16,20 @@ Validated on **March 28, 2026** against the main GUI instance at `http://127.0.0
 
 ![Animated Claude builder smoke test demo](assets/omads-claude-builder-smoke-test.gif)
 
-This animation is a compact illustration of the successful live run, based on the measured smoke-test transcript.
+This animation starts with the recorded Codex CLI prompt and OMADS startup context, then switches to the real OMADS GUI for the captured live run below.
 
 ### Verified Outcome
 
-Two independent runs succeeded on the same day:
+The clean captured run succeeded end to end:
 
-| Runner | Message 1 | Duration | Message 2 | Duration | Errors |
-| --- | --- | --- | --- | --- | --- |
-| Codex | `Hallo.` | `3.9s` | `Das hat geklappt.` | `3.6s` | none |
-| Claude Code | `Hallo.` | `3.6s` | `Das hat geklappt.` | `6.2s` | none |
+| Prompt | Reply | Duration | Errors |
+| --- | --- | --- | --- |
+| `Reply with only: Hello.` | `Hello.` | `2.8s` | none |
+| `Reply now with only: This worked.` | `This worked.` | `3.5s` | none |
 
 ### Reproduction Steps
 
-1. Start OMADS and keep the main GUI reachable at `http://127.0.0.1:8080`.
+1. Start OMADS and keep the GUI reachable. The captured demo above used `127.0.0.1:8096`; the commands below use the default local port `127.0.0.1:8080`.
 2. Confirm CLI availability:
 
 ```bash
@@ -62,8 +62,8 @@ import websockets
 URI = "ws://127.0.0.1:8080/ws"
 ORIGIN = "http://localhost:8080"
 MESSAGES = [
-    "Antworte bitte nur mit: Hallo.",
-    "Antworte jetzt bitte nur mit: Das hat geklappt.",
+    "Reply with only: Hello.",
+    "Reply now with only: This worked.",
 ]
 
 async def run_message(ws, text):
@@ -108,7 +108,7 @@ PY
 ### Pass Criteria
 
 - `builder_agent` resolves to `claude`.
-- Message 1 returns `Hallo.`.
-- Message 2 returns `Das hat geklappt.`.
+- Message 1 returns `Hello.`.
+- Message 2 returns `This worked.`.
 - Each run emits `unlock`.
 - No `task_error`, `error`, or timeout occurs.
