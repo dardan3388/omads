@@ -122,7 +122,7 @@ async def websocket_endpoint(ws: WebSocket):
                 _last_message_time = now
 
                 # Security: allow only one task at a time
-                if not runtime._try_reserve_task_slot():
+                if not runtime._try_reserve_task_slot(ws):
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
@@ -141,7 +141,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg_type == "review":
                 # Manual review mode: configurable reviewer order
-                if not runtime._try_reserve_task_slot():
+                if not runtime._try_reserve_task_slot(ws):
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
 
@@ -164,7 +164,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg_type == "apply_fixes":
                 # Apply fixes from the stored review result
-                if not runtime._try_reserve_task_slot():
+                if not runtime._try_reserve_task_slot(ws):
                     await ws.send_json({"type": "error", "text": "A task is already running — please wait or stop it"})
                     continue
                 current_settings = runtime.get_connection_settings_snapshot(ws)
@@ -206,17 +206,17 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
             elif msg_type == "stop":
-                # Stop the current session
-                with runtime._process_lock:
-                    runtime._task_cancelled = True
-                    if (
-                        runtime._active_process
-                        and runtime._active_process is not runtime._RESERVED_PROCESS_SLOT
-                        and runtime._active_process.poll() is None
-                    ):
-                        runtime._active_process.kill()
-                        runtime._active_process = None
-                await ws.send_json({"type": "task_stopped", "text": "Stopped."})
+                # Stop only the task owned by this session.
+                stop_result = runtime.stop_active_task_for_connection(ws)
+                if stop_result == "stopped":
+                    await ws.send_json({"type": "task_stopped", "text": "Stopped."})
+                elif stop_result == "not_owner":
+                    await ws.send_json({
+                        "type": "error",
+                        "text": "Another browser session owns the active task, so this stop request was ignored.",
+                    })
+                else:
+                    await ws.send_json({"type": "error", "text": "No running task is available to stop."})
 
             elif msg_type == "set_repo":
                 repo_path = data.get("path", "").strip()

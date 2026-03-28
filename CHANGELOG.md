@@ -47,6 +47,7 @@ The format is loosely based on Keep a Changelog.
 
 - Fixed the most visible multi-tab/LAN session bleed by unicast-delivering task stream events to the initiating client instead of broadcasting them to every connected browser.
 - Fixed settings saves so the active browser session now mirrors the server-sanitized settings snapshot, including builder/reviewer/task-model choices that affect the next run immediately.
+- Fixed `stop` ownership so one browser session can no longer cancel another session's active task just because OMADS still uses one shared task slot.
 - Hardened home-directory path validation across settings, project switching, browsing, and GitHub clone/git endpoints so public users cannot steer OMADS at arbitrary filesystem locations through brittle string-prefix checks.
 - Hardened GitHub clone cleanup so a failed `origin` reset now removes the temporary authenticated remote instead of silently leaving credentials behind in `.git/config`, and saved GitHub tokens now get private file permissions where supported.
 - Manual Codex review and synthesis steps now surface scrubbed stderr-backed failures and treat empty successful exits as visible errors instead of silently continuing with missing review content.

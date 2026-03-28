@@ -24,9 +24,9 @@ The most visible session leak has been reduced:
 
 The remaining follow-up is deeper ownership isolation:
 
-- `stop` is still effectively global because OMADS still tracks one process slot server-wide.
 - Reconnects still rebuild from persisted global settings instead of a durable per-session state store.
 - Project switching still persists one global `target_repo`, even though live task execution now uses the session snapshot.
+- The manual `last task` review scope still relies on one global recent-file list instead of a project- or session-scoped view.
 - A later phase should decide whether OMADS stays intentionally single-task/global-stop, or whether task ownership should become fully session-bound.
 
 ### Feature: GitHub Integration v2 (OAuth Device Flow + New GUI)

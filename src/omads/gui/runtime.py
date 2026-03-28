@@ -60,6 +60,7 @@ _connection_settings: dict[WebSocket, dict[str, Any]] = {}
 # Running process used for stop handling; lock protects against race conditions
 _process_lock = threading.Lock()
 _active_process: subprocess.Popen | None = None
+_active_task_owner: WebSocket | None = None
 _task_cancelled: bool = False
 _last_files_changed: list[str] = []  # Most recently changed files (for "Last task" review scope)
 _pending_review_fixes: dict[str, str] = {}  # {repo_path: fixes_text} per project
@@ -125,23 +126,53 @@ def _project_id_from_settings_snapshot(settings_snapshot: dict[str, Any]) -> str
     return project["id"] if project else None
 
 
-def _try_reserve_task_slot() -> bool:
+def _try_reserve_task_slot(owner_ws: WebSocket | None = None) -> bool:
     """Reserve the global task slot before handing work to a background thread."""
-    global _active_process, _task_cancelled
+    global _active_process, _active_task_owner, _task_cancelled
     with _process_lock:
         if _active_process and _active_process.poll() is None:
             return False
         _task_cancelled = False
         _active_process = _RESERVED_PROCESS_SLOT
+        _active_task_owner = owner_ws
         return True
 
 
 def _release_reserved_task_slot() -> None:
     """Release a reservation that never reached the subprocess start stage."""
-    global _active_process
+    global _active_process, _active_task_owner, _task_cancelled
     with _process_lock:
         if _active_process is _RESERVED_PROCESS_SLOT:
             _active_process = None
+            _active_task_owner = None
+            _task_cancelled = False
+
+
+def stop_active_task_for_connection(ws: WebSocket | None) -> str:
+    """Stop the active task only when the caller owns the current task slot."""
+    global _active_process, _active_task_owner, _task_cancelled
+    with _process_lock:
+        if not _active_process or _active_process.poll() is not None:
+            _active_process = None
+            _active_task_owner = None
+            _task_cancelled = False
+            return "idle"
+
+        if _active_task_owner is not None and ws is not None and _active_task_owner is not ws:
+            return "not_owner"
+
+        _task_cancelled = True
+        if _active_process is _RESERVED_PROCESS_SLOT:
+            _active_process = None
+            _active_task_owner = None
+            return "stopped"
+
+        try:
+            _active_process.kill()
+        finally:
+            _active_process = None
+            _active_task_owner = None
+        return "stopped"
 
 
 def _capture_repo_change_snapshot(target_repo: str) -> dict[str, object]:
@@ -358,9 +389,10 @@ def _builder_runtime_context(
             _active_process = process
 
     def process_finished() -> None:
-        global _active_process
+        global _active_process, _active_task_owner
         with _process_lock:
             _active_process = None
+            _active_task_owner = None
 
     def is_task_cancelled() -> bool:
         return _task_cancelled
@@ -442,9 +474,10 @@ def _review_runtime_context(settings_snapshot: dict[str, Any]) -> ReviewRuntimeC
             _active_process = process
 
     def process_finished() -> None:
-        global _active_process
+        global _active_process, _active_task_owner
         with _process_lock:
             _active_process = None
+            _active_task_owner = None
 
     def is_task_cancelled() -> bool:
         return _task_cancelled
@@ -504,7 +537,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
     """
     import time as _time
 
-    global _active_process, _task_cancelled, _pending_review_fixes
+    global _active_process, _active_task_owner, _task_cancelled, _pending_review_fixes
     with _process_lock:
         if _task_cancelled:
             if _active_process is _RESERVED_PROCESS_SLOT:
@@ -718,6 +751,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
     finally:
         with _process_lock:
             _active_process = None
+            _active_task_owner = None
         send({"type": "unlock"})
 
 

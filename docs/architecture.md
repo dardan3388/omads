@@ -77,7 +77,7 @@ Owns the main `/ws` socket:
 - chat requests
 - review requests
 - fix application requests
-- stop requests
+- stop requests plus task-ownership checks
 - repo switching from the UI
 - session-scoped runtime setting sync for the connected browser
 
@@ -105,6 +105,7 @@ Owns runtime-only state and process orchestration:
 - active connections
 - per-connection runtime settings snapshots
 - active subprocess tracking
+- task ownership for the shared stop slot
 - task-stream delivery helpers (broadcast for global events, unicast for task-local events)
 - builder-task dispatch
 - review pipeline orchestration

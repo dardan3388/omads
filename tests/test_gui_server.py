@@ -78,6 +78,17 @@ class BusyProcess:
         return None
 
 
+class KillableBusyProcess:
+    def __init__(self):
+        self.killed = False
+
+    def poll(self):
+        return None if not self.killed else 0
+
+    def kill(self):
+        self.killed = True
+
+
 class DummyCompletedProcess:
     def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0):
         self.stdout = stdout
@@ -151,6 +162,7 @@ def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(runtime, "_connections", [])
     monkeypatch.setattr(runtime, "_connection_settings", {})
     monkeypatch.setattr(runtime, "_active_process", None)
+    monkeypatch.setattr(runtime, "_active_task_owner", None)
     monkeypatch.setattr(runtime, "_task_cancelled", False)
     monkeypatch.setattr(runtime, "_last_files_changed", [])
     monkeypatch.setattr(runtime, "_pending_review_fixes", {})
@@ -560,6 +572,45 @@ def test_websocket_rejects_new_work_while_task_is_running(client: TestClient, mo
         message = ws_client.receive_json()
         assert message["type"] == "error"
         assert "A task is already running" in message["text"]
+
+
+def test_stop_active_task_for_connection_enforces_owner(isolated_server):
+    owner = object()
+    other = object()
+    process = KillableBusyProcess()
+
+    assert runtime._try_reserve_task_slot(owner) is True
+    runtime._active_process = process
+
+    assert runtime.stop_active_task_for_connection(other) == "not_owner"
+    assert runtime._task_cancelled is False
+    assert process.killed is False
+
+    assert runtime.stop_active_task_for_connection(owner) == "stopped"
+    assert runtime._task_cancelled is True
+    assert process.killed is True
+    assert runtime._active_process is None
+    assert runtime._active_task_owner is None
+
+
+def test_websocket_stop_rejects_non_owner(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(runtime, "stop_active_task_for_connection", lambda ws: "not_owner")
+
+    with client.websocket_connect("/ws") as ws_client:
+        ws_client.send_json({"type": "stop"})
+        message = ws_client.receive_json()
+        assert message["type"] == "error"
+        assert "owns the active task" in message["text"]
+
+
+def test_websocket_stop_reports_when_no_task_is_running(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(runtime, "stop_active_task_for_connection", lambda ws: "idle")
+
+    with client.websocket_connect("/ws") as ws_client:
+        ws_client.send_json({"type": "stop"})
+        message = ws_client.receive_json()
+        assert message["type"] == "error"
+        assert "No running task" in message["text"]
 
 
 def test_builder_dispatch_uses_selected_primary_builder(isolated_server, monkeypatch: pytest.MonkeyPatch):
