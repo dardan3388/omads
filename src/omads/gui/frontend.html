@@ -52,11 +52,13 @@
     --tool-detail-bg: rgba(15,23,42,0.04);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
     background: var(--bg);
     color: var(--text);
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -95,14 +97,15 @@
     display: inline-block;
   }
 
-  /* ─── Main ─── */
-  .main { flex: 1; display: flex; overflow: hidden; }
+  /* ─── App layout ─── */
+  .app-layout { flex: 1; display: flex; overflow: hidden; position: relative; min-width: 0; min-height: 0; }
+  .main { flex: 1; display: flex; overflow: hidden; min-width: 0; min-height: 0; }
 
   /* ─── Project sidebar ─── */
   .sidebar {
     width: 260px; min-width: 260px; background: var(--bg2);
     border-right: 1px solid var(--border); display: flex;
-    flex-direction: column; overflow: hidden;
+    flex-direction: column; overflow: hidden; min-height: 0;
   }
   .sidebar-header {
     padding: 12px 14px; border-bottom: 1px solid var(--border);
@@ -115,7 +118,7 @@
     font-family: inherit; font-size: 11px; font-weight: bold;
   }
   .btn-new-project:hover { opacity: 0.85; }
-  .project-list { flex: 1; overflow-y: auto; }
+  .project-list { flex: 1; overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .project-item {
     padding: 10px 14px; cursor: pointer;
     border-bottom: 1px solid rgba(42,42,74,0.4);
@@ -156,12 +159,12 @@
 
   /* ─── Chat Stream (Hauptbereich) ─── */
   .stream-wrapper {
-    flex: 1; display: flex; overflow: hidden;
+    flex: 1; display: flex; overflow: hidden; min-width: 0; min-height: 0;
   }
   .stream-panel {
     flex: 1; display: flex; flex-direction: column;
     max-width: 900px; margin: 0 auto; width: 100%;
-    min-width: 0;
+    min-width: 0; min-height: 0;
   }
 
   /* ─── Live-Log Panel (rechts, ein-/ausblendbar) ─── */
@@ -195,6 +198,7 @@
   .livelog-content {
     flex: 1; overflow-y: auto; padding: 8px 12px;
     font-size: 11px; line-height: 1.5;
+    min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
   }
   .livelog-content .log-line {
     padding: 2px 0; border-bottom: 1px solid rgba(42,42,74,0.2);
@@ -225,6 +229,8 @@
   .stream-area {
     flex: 1; overflow-y: auto; padding: 20px 24px;
     display: flex; flex-direction: column; gap: 6px;
+    min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    touch-action: pan-y;
   }
 
   /* Messages */
@@ -628,17 +634,34 @@
   .sidebar-overlay { display: none; }
 
   /* ─── Mobile responsive ─── */
-  @media (max-width: 768px) {
+  @media (max-width: 1024px) {
     .btn-mobile-menu {
       display: inline-flex; align-items: center; justify-content: center;
-      background: none; border: 1px solid var(--border); color: var(--text);
-      font-size: 20px; padding: 4px 8px; border-radius: 6px; cursor: pointer;
-      min-height: 36px; line-height: 1;
+      background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+      font-size: 22px; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+      min-height: 44px; min-width: 44px; line-height: 1;
+      position: relative; z-index: 10; -webkit-tap-highlight-color: rgba(255,255,255,0.1);
+      touch-action: manipulation;
     }
-    .sidebar { display: none; position: fixed; top: 0; left: 0; bottom: 0; width: 280px; z-index: 201; }
-    .sidebar.mobile-open { display: flex; }
-    .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 200; }
-    .sidebar-overlay.open { display: block; }
+    .sidebar-overlay {
+      display: block; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease; z-index: 200;
+    }
+    .sidebar-overlay.open { opacity: 1; pointer-events: auto; }
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 280px; max-width: calc(100vw - 48px); min-width: 0; z-index: 201;
+      background: var(--bg2); border-right: 1px solid var(--border);
+      box-shadow: 0 0 24px rgba(0,0,0,0.35);
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      transform: translate3d(-100%, 0, 0); transition: transform 0.25s ease;
+      will-change: transform; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      pointer-events: none;
+    }
+    .sidebar.mobile-open { transform: translate3d(0, 0, 0); pointer-events: auto; }
+    .main { width: 100%; }
     .sidebar-toggle { display: none; }
     .header { padding: 8px 12px; flex-wrap: wrap; gap: 6px; }
     .header-left { gap: 8px; flex-wrap: wrap; }
@@ -715,10 +738,11 @@
   </div>
 </div>
 
-<!-- Main layout with sidebar -->
-<div class="main">
-  <!-- Mobile sidebar overlay -->
-  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMobileSidebar()"></div>
+<!-- Mobile sidebar overlay -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMobileSidebar()"></div>
+
+<!-- App layout -->
+<div class="app-layout">
   <!-- Project sidebar -->
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
@@ -727,37 +751,39 @@
     </div>
     <div class="project-list" id="projectList"></div>
   </div>
-
-  <!-- Chat + Live-Log Wrapper -->
-  <div class="stream-wrapper">
-    <!-- Chat Stream -->
-    <div class="stream-panel">
-      <div class="stream-area" id="stream">
-        <div class="msg-system">Welcome to OMADS. Just start typing — I understand questions and coding tasks.</div>
-        <div id="onboardBanner" style="display:none"></div>
-      </div>
-      <div class="input-area">
-        <textarea class="chat-input" id="input" rows="1"
-          placeholder="Describe what you need..."
-          onkeydown="onKey(event)"></textarea>
-        <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Start the configured manual review pipeline">Review</button>
-        <button class="btn-send" id="btnSend" onclick="send()">Send</button>
-        <button class="btn-stop" id="btnStop" onclick="stop()" style="display:none">Stop</button>
-      </div>
-    </div>
-
-    <!-- Live-Log Panel (rechts, ein-/ausblendbar) -->
-    <div class="livelog-panel" id="livelogPanel">
-      <div class="livelog-header">
-        <div class="livelog-tabs">
-          <button class="livelog-tab active" onclick="switchLogTab('all')" id="logTabAll">All</button>
-          <button class="livelog-tab" onclick="switchLogTab('claude')" id="logTabClaude">Claude Code</button>
-          <button class="livelog-tab" onclick="switchLogTab('codex')" id="logTabCodex">Codex</button>
+  <!-- Main content -->
+  <div class="main">
+    <!-- Chat + Live-Log Wrapper -->
+    <div class="stream-wrapper">
+      <!-- Chat Stream -->
+      <div class="stream-panel">
+        <div class="stream-area" id="stream">
+          <div class="msg-system">Welcome to OMADS. Just start typing — I understand questions and coding tasks.</div>
+          <div id="onboardBanner" style="display:none"></div>
         </div>
-        <button class="livelog-close" onclick="toggleLiveLog()">&times;</button>
+        <div class="input-area">
+          <textarea class="chat-input" id="input" rows="1"
+            placeholder="Describe what you need..."
+            onkeydown="onKey(event)"></textarea>
+          <button class="btn-review" id="btnReview" onclick="openReviewDialog()" title="Start the configured manual review pipeline">Review</button>
+          <button class="btn-send" id="btnSend" onclick="send()">Send</button>
+          <button class="btn-stop" id="btnStop" onclick="stop()" style="display:none">Stop</button>
+        </div>
       </div>
-      <div class="livelog-content" id="livelogContent">
-        <div class="livelog-empty">Waiting for activity...</div>
+
+      <!-- Live-Log Panel (rechts, ein-/ausblendbar) -->
+      <div class="livelog-panel" id="livelogPanel">
+        <div class="livelog-header">
+          <div class="livelog-tabs">
+            <button class="livelog-tab active" onclick="switchLogTab('all')" id="logTabAll">All</button>
+            <button class="livelog-tab" onclick="switchLogTab('claude')" id="logTabClaude">Claude Code</button>
+            <button class="livelog-tab" onclick="switchLogTab('codex')" id="logTabCodex">Codex</button>
+          </div>
+          <button class="livelog-close" onclick="toggleLiveLog()">&times;</button>
+        </div>
+        <div class="livelog-content" id="livelogContent">
+          <div class="livelog-empty">Waiting for activity...</div>
+        </div>
       </div>
     </div>
   </div>

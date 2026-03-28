@@ -82,9 +82,7 @@ export async function switchProject(projectId) {
       renderProjects();
       el("stream").innerHTML = "";
       await loadTimelineWindow(projectId, data.project.name);
-      // Close mobile sidebar after selecting a project
-      el("sidebar").classList.remove("mobile-open");
-      el("sidebarOverlay").classList.remove("open");
+      if (window.closeMobileSidebar) window.closeMobileSidebar();
     }
   } catch {}
 }

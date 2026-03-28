@@ -278,17 +278,48 @@ function exposeGlobals() {
   window.openGitOps = openGitOps;
   window.closeGitOps = closeGitOps;
   window.toggleMobileSidebar = toggleMobileSidebar;
+  window.closeMobileSidebar = closeMobileSidebar;
 }
 
-function toggleMobileSidebar() {
+const MOBILE_MEDIA = "(max-width: 1024px)";
+
+function closeMobileSidebar() {
   const sidebar = el("sidebar");
   const overlay = el("sidebarOverlay");
-  const open = sidebar.classList.toggle("mobile-open");
+  if (!sidebar || !overlay) return;
+  sidebar.classList.remove("mobile-open");
+  overlay.classList.remove("open");
+}
+
+function toggleMobileSidebar(forceOpen) {
+  const sidebar = el("sidebar");
+  const overlay = el("sidebarOverlay");
+  if (!sidebar || !overlay) return;
+
+  if (!window.matchMedia(MOBILE_MEDIA).matches) {
+    closeMobileSidebar();
+    return;
+  }
+
+  const open = typeof forceOpen === "boolean"
+    ? forceOpen
+    : !sidebar.classList.contains("mobile-open");
+
+  sidebar.classList.toggle("mobile-open", open);
   overlay.classList.toggle("open", open);
+}
+
+function bindMobileSidebar() {
+  const sync = () => {
+    if (!window.matchMedia(MOBILE_MEDIA).matches) closeMobileSidebar();
+  };
+  window.addEventListener("resize", sync);
+  window.addEventListener("orientationchange", () => setTimeout(sync, 0));
 }
 
 function init() {
   exposeGlobals();
+  bindMobileSidebar();
   connect();
   checkHealth();
   el("input").focus();
