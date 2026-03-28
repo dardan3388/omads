@@ -232,7 +232,7 @@ export async function loadDiffViewer() {
   btn.disabled = true;
   btn.textContent = "Refreshing...";
   try {
-    const res = await fetch("/api/diff");
+    const res = await fetch(sessionApiUrl("/api/diff"));
     const data = await res.json();
     el("diffTitle").textContent = data.has_changes ? "Current working tree changes" : "Current working tree";
     el("diffSubtitle").textContent = data.repo || "No project selected";

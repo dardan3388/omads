@@ -107,6 +107,7 @@ Owns runtime-only state and process orchestration:
 - per-connection runtime settings snapshots
 - per-browser-session reconnect snapshots
 - per-browser-session `last task` file snapshots for reconnect-safe manual review scope
+- helper updates for browser-session snapshots triggered from REST routes such as project switching
 - active subprocess tracking
 - task ownership for the shared stop slot
 - task-stream delivery helpers (broadcast for global events, unicast for task-local events)
@@ -248,6 +249,8 @@ Runtime data is stored below `~/.config/omads/`:
 - `memory/`
 
 Persisted settings still live in `gui_settings.json`, but each live WebSocket session also keeps a runtime-only settings snapshot so an in-flight task does not drift when another client switches projects or changes builders.
+
+Sidebar-style project switching and repo-opening flows now update that live session snapshot instead of overwriting the global persisted `target_repo`. The persisted repo in `gui_settings.json` is treated as the default for new sessions and restarts, while repo-aware views such as `/api/diff` and `/api/status` prefer the requesting browser session when a `client_session_id` is present.
 
 The manual `last task` review scope is also tracked per browser session at runtime, so reconnecting a tab keeps the correct recent file set instead of borrowing another tab's most recent task.
 

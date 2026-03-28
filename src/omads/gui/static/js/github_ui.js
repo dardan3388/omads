@@ -1,4 +1,4 @@
-import { appState, el, esc } from "./shared.js";
+import { appState, el, esc, sessionApiUrl } from "./shared.js";
 import { loadProjects } from "./projects_ui.js";
 
 // ─── State ───────────────────────────────────────────────────────
@@ -560,7 +560,7 @@ async function doCloneAndReview(fullName, targetDir) {
   info.innerHTML = `<div class="gh-loading">Cloning ${esc(fullName)} for review...</div>`;
 
   try {
-    const res = await fetch("/api/github/clone", {
+    const res = await fetch(sessionApiUrl("/api/github/clone"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ full_name: fullName, target_dir: targetDir }),
@@ -610,7 +610,7 @@ async function doClone(fullName) {
   el("ghCloneStart").disabled = true;
 
   try {
-    const res = await fetch("/api/github/clone", {
+    const res = await fetch(sessionApiUrl("/api/github/clone"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ full_name: fullName, target_dir: targetDir }),

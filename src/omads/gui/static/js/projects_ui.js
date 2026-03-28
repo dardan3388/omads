@@ -72,7 +72,7 @@ export function renderProjects() {
 
 export async function switchProject(projectId) {
   try {
-    const res = await fetch("/api/projects/switch", {
+    const res = await fetch(sessionApiUrl("/api/projects/switch"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: projectId }),
@@ -164,7 +164,7 @@ export async function createProject() {
   }
   if (!path) return;
 
-  const res = await fetch("/api/projects", {
+  const res = await fetch(sessionApiUrl("/api/projects"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, path }),

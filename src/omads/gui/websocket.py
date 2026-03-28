@@ -222,13 +222,12 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg_type == "set_repo":
                 repo_path = data.get("path", "").strip()
-                resolved = Path(repo_path).resolve() if repo_path else None
+                resolved = Path(repo_path).expanduser().resolve() if repo_path else None
                 if resolved and resolved.is_dir() and state.is_path_inside_home(resolved):
-                    persisted = state._update_settings(lambda settings: settings.__setitem__("target_repo", str(resolved)))
-                    runtime.update_connection_settings(ws, {"target_repo": str(resolved)})
+                    snapshot = runtime.update_connection_settings(ws, {"target_repo": str(resolved)})
                     await ws.send_json({
                         "type": "system",
-                        "text": f"Project: {persisted['target_repo']}",
+                        "text": f"Project: {snapshot['target_repo']}",
                     })
                 elif resolved and not resolved.is_dir():
                     await ws.send_json({

@@ -524,8 +524,9 @@ def test_websocket_apply_fixes_and_set_repo_errors(client: TestClient, isolated_
     valid_repo = isolated_server["home_dir"] / "project-b"
     valid_repo.mkdir()
     missing_dir = isolated_server["home_dir"] / "missing-dir"
+    session_id = "browser-session-set-repo"
 
-    with client.websocket_connect("/ws") as ws_client:
+    with client.websocket_connect(f"/ws?client_session_id={session_id}") as ws_client:
         ws_client.send_json({"type": "apply_fixes"})
         message = ws_client.receive_json()
         assert message["type"] == "error"
@@ -534,7 +535,9 @@ def test_websocket_apply_fixes_and_set_repo_errors(client: TestClient, isolated_
         ws_client.send_json({"type": "set_repo", "path": str(valid_repo)})
         message = ws_client.receive_json()
         assert message == {"type": "system", "text": f"Project: {valid_repo.resolve()}"}
-        assert state._get_setting("target_repo") == str(valid_repo.resolve())
+        assert state._get_setting("target_repo") == str(isolated_server["repo_dir"].resolve())
+        session_settings = client.get("/api/session-settings", params={"client_session_id": session_id}).json()
+        assert session_settings["target_repo"] == str(valid_repo.resolve())
 
         ws_client.send_json({"type": "set_repo", "path": str(missing_dir)})
         message = ws_client.receive_json()
@@ -744,6 +747,44 @@ def test_session_settings_endpoint_prefers_runtime_session_snapshot(client: Test
     assert payload["codex_fast"] is True
 
 
+def test_project_create_and_switch_can_update_one_session_without_mutating_global_defaults(
+    client: TestClient,
+    isolated_server,
+):
+    session_id = "browser-session-projects"
+    repo_a = isolated_server["home_dir"] / "repo-a"
+    repo_b = isolated_server["home_dir"] / "repo-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    created = client.post(
+        "/api/projects",
+        params={"client_session_id": session_id},
+        json={"name": "Repo A", "path": str(repo_a)},
+    )
+    assert created.status_code == 200
+    assert created.json()["ok"] is True
+    assert state._get_setting("target_repo") == str(isolated_server["repo_dir"].resolve())
+    assert client.get("/api/session-settings", params={"client_session_id": session_id}).json()["target_repo"] == str(repo_a.resolve())
+
+    created_b = client.post(
+        "/api/projects",
+        json={"name": "Repo B", "path": str(repo_b)},
+    )
+    assert created_b.status_code == 200
+    project_b_id = created_b.json()["project"]["id"]
+
+    switched = client.post(
+        "/api/projects/switch",
+        params={"client_session_id": session_id},
+        json={"id": project_b_id},
+    )
+    assert switched.status_code == 200
+    assert switched.json()["ok"] is True
+    assert state._get_setting("target_repo") == str(repo_b.resolve())
+    assert client.get("/api/session-settings", params={"client_session_id": session_id}).json()["target_repo"] == str(repo_b.resolve())
+
+
 def test_last_task_files_survive_disconnect_for_same_browser_session(isolated_server):
     session_id = "browser-session-12345"
     ws_a = object()
@@ -890,6 +931,60 @@ def test_browse_health_status_and_ledger_endpoints(client: TestClient, isolated_
     assert ledger.json()[-1]["task"] == "two"
 
 
+def test_diff_and_status_endpoints_prefer_session_snapshot_over_global_settings(
+    client: TestClient,
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repo_a = isolated_server["home_dir"] / "repo-a"
+    repo_b = isolated_server["home_dir"] / "repo-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    session_id = "browser-session-diff"
+
+    state._update_settings(lambda settings: settings.__setitem__("target_repo", str(repo_a.resolve())))
+    runtime.update_session_settings_for_session_id(
+        session_id,
+        {"target_repo": str(repo_b.resolve()), "builder_agent": "codex", "auto_review": False},
+    )
+
+    seen_cwds: list[str] = []
+
+    def fake_run(cmd, capture_output=True, text=True, cwd=None, timeout=20):
+        if cwd is not None:
+            seen_cwds.append(cwd)
+        if cmd[:3] == ["git", "rev-parse", "--is-inside-work-tree"]:
+            return DummyCompletedProcess(stdout="true\n")
+        if cmd[:4] == ["git", "rev-parse", "--verify", "HEAD"]:
+            return DummyCompletedProcess(stdout="deadbeef\n")
+        if cmd[:3] == ["git", "status", "--short"]:
+            return DummyCompletedProcess(stdout=" M session.txt\n")
+        if cmd[:6] == ["git", "diff", "--no-ext-diff", "--submodule=diff", "HEAD", "--"]:
+            return DummyCompletedProcess(stdout="diff --git a/session.txt b/session.txt\n+session\n")
+        raise AssertionError(f"Unexpected git command: {cmd}")
+
+    class DummyPhase:
+        value = "builder"
+
+    monkeypatch.setattr(routes.subprocess, "run", fake_run)
+    monkeypatch.setattr(routes, "get_data_dir", lambda: isolated_server["home_dir"] / "data")
+    monkeypatch.setattr(routes, "get_dna_dir", lambda: isolated_server["home_dir"] / "dna")
+    monkeypatch.setattr("omads.dna.cold_start.get_current_phase", lambda path: DummyPhase())
+
+    diff = client.get("/api/diff", params={"client_session_id": session_id})
+    status = client.get("/api/status", params={"client_session_id": session_id})
+    fallback_status = client.get("/api/status")
+
+    assert diff.status_code == 200
+    assert diff.json()["repo"] == str(repo_b.resolve())
+    assert status.status_code == 200
+    assert status.json()["target_repo"] == str(repo_b.resolve())
+    assert status.json()["builder_agent"] == "codex"
+    assert status.json()["auto_review"] is False
+    assert fallback_status.json()["target_repo"] == str(repo_a.resolve())
+    assert str(repo_b.resolve()) in seen_cwds
+
+
 def test_github_clone_endpoint_rejects_targets_outside_home(client: TestClient, isolated_server):
     response = client.post(
         "/api/github/clone",
@@ -901,6 +996,33 @@ def test_github_clone_endpoint_rejects_targets_outside_home(client: TestClient, 
 
     assert response.status_code == 200
     assert "home directory" in response.json()["error"]
+
+
+def test_github_clone_with_session_id_updates_only_the_requesting_session(
+    client: TestClient,
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    session_id = "browser-session-clone"
+    clone_target = isolated_server["home_dir"] / "clones"
+    cloned_repo = clone_target / "owner-repo"
+    clone_target.mkdir()
+    cloned_repo.mkdir()
+
+    monkeypatch.setattr(github, "clone_repo", lambda full_name, target_dir: {"path": str(cloned_repo.resolve())})
+    monkeypatch.setattr(github, "get_auth_status", lambda: {"username": "octocat"})
+    monkeypatch.setattr(runtime, "broadcast", lambda msg: asyncio.sleep(0))
+
+    response = client.post(
+        "/api/github/clone",
+        params={"client_session_id": session_id},
+        json={"full_name": "owner/repo", "target_dir": str(clone_target)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert state._get_setting("target_repo") == str(isolated_server["repo_dir"].resolve())
+    assert client.get("/api/session-settings", params={"client_session_id": session_id}).json()["target_repo"] == str(cloned_repo.resolve())
 
 
 

@@ -40,6 +40,12 @@ from .state import (
 
 router = APIRouter()
 
+
+def _get_request_settings_snapshot(client_session_id: str | None = None) -> dict[str, Any]:
+    """Return the active settings snapshot for one request, preferring session scope."""
+    return runtime.get_session_settings_snapshot(client_session_id)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index():
     """Serve the frontend."""
@@ -178,9 +184,10 @@ def _run_git_command(repo_path: Path, args: list[str]) -> subprocess.CompletedPr
 
 
 @router.get("/api/diff")
-async def get_repo_diff():
+async def get_repo_diff(client_session_id: str | None = None):
     """Return a unified Git diff for the active project."""
-    repo_path = Path(_get_setting("target_repo", str(Path(".").resolve()))).expanduser().resolve()
+    settings_snapshot = _get_request_settings_snapshot(client_session_id)
+    repo_path = Path(settings_snapshot.get("target_repo", str(Path(".").resolve()))).expanduser().resolve()
     if not repo_path.is_dir():
         return {
             "error": f"Project directory does not exist: {repo_path}",
@@ -284,7 +291,7 @@ async def list_projects():
 
 
 @router.post("/api/projects")
-async def create_project(data: CreateProjectRequest):
+async def create_project(data: CreateProjectRequest, client_session_id: str | None = None):
     """Create a new project."""
     from datetime import datetime
     import hashlib
@@ -318,14 +325,16 @@ async def create_project(data: CreateProjectRequest):
     projects.append(project)
     _save_projects(projects)
 
-    # Switch to this project immediately
-    _update_settings(lambda settings: settings.__setitem__("target_repo", resolved))
+    if runtime.normalize_client_session_id(client_session_id):
+        runtime.update_session_settings_for_session_id(client_session_id, {"target_repo": resolved})
+    else:
+        _update_settings(lambda settings: settings.__setitem__("target_repo", resolved))
 
     return {"ok": True, "project": project}
 
 
 @router.post("/api/projects/switch")
-async def switch_project(data: SwitchProjectRequest):
+async def switch_project(data: SwitchProjectRequest, client_session_id: str | None = None):
     """Switch to the requested project."""
     from datetime import datetime
 
@@ -338,7 +347,10 @@ async def switch_project(data: SwitchProjectRequest):
             proj_path = Path(p["path"])
             if not proj_path.is_dir():
                 return {"error": f"Directory no longer exists: {p['path']}"}
-            _update_settings(lambda settings: settings.__setitem__("target_repo", p["path"]))
+            if runtime.normalize_client_session_id(client_session_id):
+                runtime.update_session_settings_for_session_id(client_session_id, {"target_repo": p["path"]})
+            else:
+                _update_settings(lambda settings: settings.__setitem__("target_repo", p["path"]))
             p["last_used"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _save_projects(projects)
             return {"ok": True, "project": p}
@@ -434,7 +446,7 @@ async def get_health():
 
 
 @router.get("/api/status")
-async def get_status():
+async def get_status(client_session_id: str | None = None):
     """Return OMADS system status."""
     from omads.dna.cold_start import get_current_phase
     phase = "unknown"
@@ -449,12 +461,14 @@ async def get_status():
     if ledger_path.exists():
         ledger_count = sum(1 for _ in ledger_path.open())
 
+    settings_snapshot = _get_request_settings_snapshot(client_session_id)
+
     return {
         "phase": phase,
         "total_tasks": ledger_count,
-        "target_repo": _get_setting("target_repo", str(Path(".").resolve())),
-        "builder_agent": _get_setting("builder_agent", "claude"),
-        "auto_review": _get_setting("auto_review", True),
+        "target_repo": settings_snapshot.get("target_repo", str(Path(".").resolve())),
+        "builder_agent": settings_snapshot.get("builder_agent", "claude"),
+        "auto_review": settings_snapshot.get("auto_review", True),
     }
 
 
@@ -604,7 +618,7 @@ async def github_repo_info(full_name: str):
 
 
 @router.post("/api/github/clone")
-async def github_clone_repo(data: GitHubCloneRequest):
+async def github_clone_repo(data: GitHubCloneRequest, client_session_id: str | None = None):
     """Clone a GitHub repo and register it as an OMADS project."""
     from datetime import datetime
     import hashlib
@@ -643,8 +657,10 @@ async def github_clone_repo(data: GitHubCloneRequest):
     projects.append(project)
     _save_projects(projects)
 
-    # Switch to the newly cloned project
-    _update_settings(lambda settings: settings.__setitem__("target_repo", cloned_path))
+    if runtime.normalize_client_session_id(client_session_id):
+        runtime.update_session_settings_for_session_id(client_session_id, {"target_repo": cloned_path})
+    else:
+        _update_settings(lambda settings: settings.__setitem__("target_repo", cloned_path))
     await runtime.broadcast({"type": "github_connected", "username": github.get_auth_status().get("username", "")})
 
     return {"ok": True, "project": project, "cloned": True}

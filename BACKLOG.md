@@ -24,7 +24,6 @@ The most visible session leak has been reduced:
 
 The remaining follow-up is deeper ownership isolation:
 
-- Project switching still persists one global `target_repo`, even though live task execution now uses the session snapshot.
 - A later phase should decide whether OMADS stays intentionally single-task/global-stop, or whether task ownership should become fully session-bound.
 
 ### Feature: GitHub Integration v2 (OAuth Device Flow + New GUI)

@@ -51,6 +51,7 @@ The format is loosely based on Keep a Changelog.
 - Fixed `stop` ownership so one browser session can no longer cancel another session's active task just because OMADS still uses one shared task slot.
 - Fixed reconnect drift so one browser tab no longer comes back on another tab's repo/builder after a disconnect or page reload while the server stays up.
 - Fixed manual `last task` review scope leakage so a browser tab now reviews its own most recent changed files, including after reconnect, instead of reusing another session's global file list.
+- Fixed project-switch repo leakage so sidebar project changes, `set_repo`, and GitHub clone-open flows now stay session-local, while repo-aware REST views such as diff/status follow the requesting browser session instead of the last globally persisted repo.
 - Hardened home-directory path validation across settings, project switching, browsing, and GitHub clone/git endpoints so public users cannot steer OMADS at arbitrary filesystem locations through brittle string-prefix checks.
 - Hardened GitHub clone cleanup so a failed `origin` reset now removes the temporary authenticated remote instead of silently leaving credentials behind in `.git/config`, and saved GitHub tokens now get private file permissions where supported.
 - Manual Codex review and synthesis steps now surface scrubbed stderr-backed failures and treat empty successful exits as visible errors instead of silently continuing with missing review content.

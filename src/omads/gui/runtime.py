@@ -140,6 +140,24 @@ def get_session_settings_snapshot(client_session_id: str | None) -> dict[str, An
         return dict(snapshot) if snapshot is not None else _get_settings_snapshot()
 
 
+def update_session_settings_for_session_id(
+    client_session_id: str | None,
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    """Update one browser-session snapshot without requiring a WebSocket handle."""
+    normalized_session_id = normalize_client_session_id(client_session_id)
+    if not normalized_session_id:
+        return _get_settings_snapshot()
+    with _connections_lock:
+        snapshot = dict(_session_settings_store.get(normalized_session_id) or _get_settings_snapshot())
+        snapshot.update(patch)
+        _session_settings_store[normalized_session_id] = dict(snapshot)
+        for ws, session_id in _connection_session_ids.items():
+            if session_id == normalized_session_id:
+                _connection_settings[ws] = dict(snapshot)
+        return dict(snapshot)
+
+
 def get_last_task_files_snapshot(ws: WebSocket | None) -> list[str]:
     """Return the last completed task file list for one browser session."""
     if ws is None:
