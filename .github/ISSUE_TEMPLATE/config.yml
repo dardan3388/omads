@@ -3,3 +3,6 @@ contact_links:
   - name: OMADS README
     url: https://github.com/dardan3388/omads/blob/main/README.md
     about: Read the setup and troubleshooting guide before opening an issue.
+  - name: OMADS Security Policy
+    url: https://github.com/dardan3388/omads/blob/main/SECURITY.md
+    about: Report security vulnerabilities privately instead of opening a public issue.

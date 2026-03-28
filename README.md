@@ -112,12 +112,15 @@ Review only src/omads/gui/runtime.py and src/omads/gui/websocket.py. Focus on ra
 - [Architecture](docs/architecture.md)
 - [Live Smoke Tests](docs/live-smoke-tests.md)
 - [Public Release Checklist](docs/public-release-checklist.md)
+- [Security Policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Help
 
 - Questions, bugs, or release feedback: [GitHub Issues](https://github.com/dardan3388/omads/issues)
+- Security issues: [SECURITY.md](SECURITY.md)
 - Contributor workflow and validation expectations: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Architectural boundaries and module ownership: [docs/architecture.md](docs/architecture.md)
 
