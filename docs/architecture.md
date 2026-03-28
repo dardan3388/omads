@@ -106,6 +106,7 @@ Owns runtime-only state and process orchestration:
 - active connections
 - per-connection runtime settings snapshots
 - per-browser-session reconnect snapshots
+- per-browser-session `last task` file snapshots for reconnect-safe manual review scope
 - active subprocess tracking
 - task ownership for the shared stop slot
 - task-stream delivery helpers (broadcast for global events, unicast for task-local events)
@@ -247,6 +248,8 @@ Runtime data is stored below `~/.config/omads/`:
 - `memory/`
 
 Persisted settings still live in `gui_settings.json`, but each live WebSocket session also keeps a runtime-only settings snapshot so an in-flight task does not drift when another client switches projects or changes builders.
+
+The manual `last task` review scope is also tracked per browser session at runtime, so reconnecting a tab keeps the correct recent file set instead of borrowing another tab's most recent task.
 
 The browser does not load the full timeline on every project switch anymore. It requests the newest bounded page first and can fetch older pages on demand through the same paged timeline endpoint.
 

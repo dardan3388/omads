@@ -59,13 +59,15 @@ _connections: list[WebSocket] = []
 _connection_settings: dict[WebSocket, dict[str, Any]] = {}
 _connection_session_ids: dict[WebSocket, str] = {}
 _session_settings_store: dict[str, dict[str, Any]] = {}
+_connection_last_task_files: dict[WebSocket, list[str]] = {}
+_session_last_task_files: dict[str, list[str]] = {}
 
 # Running process used for stop handling; lock protects against race conditions
 _process_lock = threading.Lock()
 _active_process: subprocess.Popen | None = None
 _active_task_owner: WebSocket | None = None
 _task_cancelled: bool = False
-_last_files_changed: list[str] = []  # Most recently changed files (for "Last task" review scope)
+_last_files_changed: list[str] = []  # Legacy/global fallback for ws-less task runners
 _pending_review_fixes: dict[str, str] = {}  # {repo_path: fixes_text} per project
 
 
@@ -102,6 +104,9 @@ def register_connection(ws: WebSocket, client_session_id: str | None = None) -> 
         if normalized_session_id:
             _connection_session_ids[ws] = normalized_session_id
             _session_settings_store[normalized_session_id] = dict(snapshot)
+            session_last_task_files = _session_last_task_files.get(normalized_session_id)
+            if session_last_task_files is not None:
+                _connection_last_task_files[ws] = list(session_last_task_files)
 
 
 def unregister_connection(ws: WebSocket) -> None:
@@ -113,6 +118,7 @@ def unregister_connection(ws: WebSocket) -> None:
             pass
         _connection_settings.pop(ws, None)
         _connection_session_ids.pop(ws, None)
+        _connection_last_task_files.pop(ws, None)
 
 
 def get_connection_settings_snapshot(ws: WebSocket | None) -> dict[str, Any]:
@@ -132,6 +138,34 @@ def get_session_settings_snapshot(client_session_id: str | None) -> dict[str, An
     with _connections_lock:
         snapshot = _session_settings_store.get(normalized_session_id)
         return dict(snapshot) if snapshot is not None else _get_settings_snapshot()
+
+
+def get_last_task_files_snapshot(ws: WebSocket | None) -> list[str]:
+    """Return the last completed task file list for one browser session."""
+    if ws is None:
+        return list(_last_files_changed)
+    with _connections_lock:
+        files = _connection_last_task_files.get(ws)
+        if files is not None:
+            return list(files)
+        session_id = _connection_session_ids.get(ws)
+        if session_id and session_id in _session_last_task_files:
+            return list(_session_last_task_files[session_id])
+    return []
+
+
+def record_last_task_files(ws: WebSocket | None, files: list[str]) -> None:
+    """Store the latest changed-file set for one browser session."""
+    global _last_files_changed
+    file_list = list(files)
+    _last_files_changed = file_list
+    if ws is None:
+        return
+    with _connections_lock:
+        _connection_last_task_files[ws] = list(file_list)
+        session_id = _connection_session_ids.get(ws)
+        if session_id:
+            _session_last_task_files[session_id] = list(file_list)
 
 
 def update_connection_settings(ws: WebSocket | None, patch: dict[str, Any]) -> dict[str, Any]:
@@ -282,6 +316,7 @@ async def broadcast(msg: dict) -> None:
                     pass
                 _connection_settings.pop(ws, None)
                 _connection_session_ids.pop(ws, None)
+                _connection_last_task_files.pop(ws, None)
 
 
 def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
@@ -412,6 +447,7 @@ def _forward_codex_stream_line(
 def _builder_runtime_context(
     frozen_proj_id: str | None,
     settings_snapshot: dict[str, Any],
+    owner_ws: WebSocket | None,
 ) -> BuilderRuntimeContext:
     """Build the dependency bundle used by builder-specific runtime helpers."""
 
@@ -436,8 +472,7 @@ def _builder_runtime_context(
         _set_chat_session(repo_key, session_id, scope=scope)
 
     def set_last_files_changed(files: list[str]) -> None:
-        global _last_files_changed
-        _last_files_changed = list(files)
+        record_last_task_files(owner_ws, files)
 
     return BuilderRuntimeContext(
         append_timeline_event=_append_timeline_event,
@@ -474,7 +509,7 @@ def _run_claude_session_thread(ws: WebSocket, user_text: str) -> None:
         send_to_ws_sync(ws, msg, proj_id_override=frozen_proj_id)
 
     return _builder_run_claude_session_thread(
-        _builder_runtime_context(frozen_proj_id, settings_snapshot),
+        _builder_runtime_context(frozen_proj_id, settings_snapshot, ws),
         ws,
         user_text,
         send,
@@ -490,7 +525,7 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
         send_to_ws_sync(ws, msg, proj_id_override=frozen_proj_id)
 
     return _builder_run_codex_session_thread(
-        _builder_runtime_context(frozen_proj_id, settings_snapshot),
+        _builder_runtime_context(frozen_proj_id, settings_snapshot, ws),
         ws,
         user_text,
         send,
@@ -597,8 +632,9 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
         send_to_ws_sync(ws, msg, proj_id_override=_frozen_proj_id)
 
     # Determine scope
-    if scope == "last_task" and _last_files_changed:
-        review_files = _last_files_changed
+    last_task_files = get_last_task_files_snapshot(ws)
+    if scope == "last_task" and last_task_files:
+        review_files = last_task_files
         scope_desc = f"Last task ({len(review_files)} files)"
     elif scope == "custom" and custom_scope.strip():
         review_files = [f.strip() for f in custom_scope.split(",") if f.strip()]
@@ -791,7 +827,7 @@ def _run_codex_auto_review(ws: WebSocket, target_repo: str, files_changed: list[
     """Delegate one Codex automatic breaker run to the builder-flow module."""
     settings_snapshot = get_connection_settings_snapshot(ws)
     return _builder_run_codex_auto_review(
-        _builder_runtime_context(_project_id_from_settings_snapshot(settings_snapshot), settings_snapshot),
+        _builder_runtime_context(_project_id_from_settings_snapshot(settings_snapshot), settings_snapshot, ws),
         ws,
         target_repo,
         files_changed,
@@ -811,7 +847,7 @@ def _run_claude_auto_review(
     settings_snapshot = _get_settings_snapshot()
     settings_snapshot["target_repo"] = target_repo
     return _builder_run_claude_auto_review(
-        _builder_runtime_context(_project_id_from_settings_snapshot(settings_snapshot), settings_snapshot),
+        _builder_runtime_context(_project_id_from_settings_snapshot(settings_snapshot), settings_snapshot, None),
         target_repo,
         files_changed,
         send,

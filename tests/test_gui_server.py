@@ -163,6 +163,8 @@ def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(runtime, "_connection_settings", {})
     monkeypatch.setattr(runtime, "_connection_session_ids", {})
     monkeypatch.setattr(runtime, "_session_settings_store", {})
+    monkeypatch.setattr(runtime, "_connection_last_task_files", {})
+    monkeypatch.setattr(runtime, "_session_last_task_files", {})
     monkeypatch.setattr(runtime, "_active_process", None)
     monkeypatch.setattr(runtime, "_active_task_owner", None)
     monkeypatch.setattr(runtime, "_task_cancelled", False)
@@ -740,6 +742,74 @@ def test_session_settings_endpoint_prefers_runtime_session_snapshot(client: Test
     assert payload["builder_agent"] == "codex"
     assert payload["target_repo"] == str(repo_a.resolve())
     assert payload["codex_fast"] is True
+
+
+def test_last_task_files_survive_disconnect_for_same_browser_session(isolated_server):
+    session_id = "browser-session-12345"
+    ws_a = object()
+    ws_b = object()
+
+    runtime.register_connection(ws_a, session_id)
+    runtime.record_last_task_files(ws_a, ["repo-a/file_a.py"])
+    runtime.unregister_connection(ws_a)
+
+    runtime.register_connection(ws_b, session_id)
+    try:
+        restored = runtime.get_last_task_files_snapshot(ws_b)
+    finally:
+        runtime.unregister_connection(ws_b)
+
+    assert restored == ["repo-a/file_a.py"]
+
+
+def test_last_task_review_scope_uses_requesting_session_files(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    repo_dir = isolated_server["repo_dir"]
+    session_a = "browser-session-a"
+    session_b = "browser-session-b"
+    ws_a = RecordingWebSocket()
+    ws_b = RecordingWebSocket()
+    codex_review_calls: list[list[str]] = []
+
+    monkeypatch.setattr(runtime.asyncio, "run_coroutine_threadsafe", lambda coro, loop: asyncio.run(coro))
+    monkeypatch.setattr(runtime, "_append_timeline_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_get_chat_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_run_codex_manual_review_step", lambda **kwargs: codex_review_calls.append(list(kwargs["review_files"])) or "Step review")
+    monkeypatch.setattr(runtime, "_run_claude_manual_review_step", lambda **kwargs: ("Second review", "review-session-1"))
+    monkeypatch.setattr(runtime, "_run_codex_manual_synthesis_step", lambda **kwargs: ("All clear", False))
+
+    runtime.register_connection(ws_a, session_a)
+    runtime.register_connection(ws_b, session_b)
+    runtime.update_connection_settings(
+        ws_a,
+        {
+            "target_repo": str(repo_dir.resolve()),
+            "review_first_reviewer": "codex",
+            "review_second_reviewer": "claude",
+        },
+    )
+    runtime.update_connection_settings(
+        ws_b,
+        {
+            "target_repo": str(repo_dir.resolve()),
+            "review_first_reviewer": "codex",
+            "review_second_reviewer": "claude",
+        },
+    )
+    runtime.record_last_task_files(ws_a, ["repo-a/file_a.py"])
+    runtime.record_last_task_files(ws_b, ["repo-b/file_b.py"])
+
+    try:
+        runtime._run_review_thread(ws_a, "last_task", "all", "")
+    finally:
+        runtime.unregister_connection(ws_a)
+        runtime.unregister_connection(ws_b)
+
+    assert codex_review_calls == [["repo-a/file_a.py"]]
+    assert any(
+        msg["type"] == "stream_text" and "Scope: Last task (1 files)" in msg["text"]
+        for msg in ws_a.sent
+    )
+    assert all("repo-b/file_b.py" not in msg.get("text", "") for msg in ws_a.sent)
 
 
 def test_send_to_ws_sync_targets_only_the_initiating_connection(isolated_server, monkeypatch: pytest.MonkeyPatch):
