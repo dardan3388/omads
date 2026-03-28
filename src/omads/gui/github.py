@@ -281,9 +281,8 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
             raise RuntimeError(stderr or "git commit failed")
         return {"committed": True, "output": result.stdout.strip()}
 
-    if operation == "push":
-        if not _has_commits():
-            raise RuntimeError("Nothing to push — create a commit first.")
+    def _resolve_remote() -> tuple[str, str]:
+        """Return (auth_url, branch) for the current repo."""
         origin_result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             capture_output=True, text=True, cwd=str(repo),
@@ -292,13 +291,31 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         origin_url = origin_result.stdout.strip()
         full_name = _extract_full_name(origin_url)
         auth_url = _auth_remote_url(full_name)
-
         branch_result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True, text=True, cwd=str(repo),
             timeout=5, env=env,
         )
         branch = branch_result.stdout.strip() or "main"
+        return auth_url, branch
+
+    def _friendly_git_error(stderr: str, op: str) -> str:
+        """Turn common git errors into actionable user messages."""
+        cleaned = _scrub_token(stderr.strip())
+        if "403" in cleaned or "Permission" in cleaned.lower() or "denied" in cleaned.lower():
+            return (
+                f"Permission denied — your GitHub token doesn't have access to this repo. "
+                f"Go to github.com/settings/tokens, edit your token, "
+                f"and add this repository to the allowed list."
+            )
+        if "could not read Username" in cleaned:
+            return "GitHub authentication failed — reconnect your account in the GitHub menu."
+        return cleaned or f"git {op} failed"
+
+    if operation == "push":
+        if not _has_commits():
+            raise RuntimeError("Nothing to push — create a commit first.")
+        auth_url, branch = _resolve_remote()
 
         result = subprocess.run(
             ["git", "push", auth_url, branch],
@@ -306,27 +323,13 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
             timeout=60, env=env,
         )
         if result.returncode != 0:
-            raise RuntimeError(_scrub_token(result.stderr.strip() or "git push failed"))
+            raise RuntimeError(_friendly_git_error(result.stderr, "push"))
         return {"pushed": True, "output": _scrub_token(result.stdout.strip() + "\n" + result.stderr.strip()).strip()}
 
     if operation == "pull":
         if not _has_commits():
             raise RuntimeError("Nothing to pull — the repository has no commits yet.")
-        origin_result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True, text=True, cwd=str(repo),
-            timeout=10, env=env,
-        )
-        origin_url = origin_result.stdout.strip()
-        full_name = _extract_full_name(origin_url)
-        auth_url = _auth_remote_url(full_name)
-
-        branch_result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, cwd=str(repo),
-            timeout=5, env=env,
-        )
-        branch = branch_result.stdout.strip() or "main"
+        auth_url, branch = _resolve_remote()
 
         result = subprocess.run(
             ["git", "pull", auth_url, branch],
@@ -334,7 +337,7 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
             timeout=60, env=env,
         )
         if result.returncode != 0:
-            raise RuntimeError(_scrub_token(result.stderr.strip() or "git pull failed"))
+            raise RuntimeError(_friendly_git_error(result.stderr, "pull"))
         return {"pulled": True, "output": _scrub_token(result.stdout.strip())}
 
     raise ValueError(f"Unknown Git operation: {operation}")
