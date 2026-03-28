@@ -33,6 +33,7 @@ The format is loosely based on Keep a Changelog.
 
 - Builder sessions are now scoped per builder (`builder:claude`) instead of per repo, preventing stale session resumption when switching builders.
 - Added `SUPPORT.md`, a pull request template, and direct commercial/support contact paths for the public launch.
+- Added the direct support email to the README help section so public visitors can find contact details faster.
 - Added `SECURITY.md`, `CODE_OF_CONDUCT.md`, and a security-policy contact link in the GitHub issue template config for the upcoming public release.
 - Added a public release checklist and tightened the GitHub repository description/topics for the upcoming public launch.
 - Reworked the README into a shorter public-facing landing page and moved the long setup instructions into `docs/getting-started.md`.

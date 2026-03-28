@@ -122,7 +122,8 @@ Review only src/omads/gui/runtime.py and src/omads/gui/websocket.py. Focus on ra
 
 - Questions, bugs, or release feedback: [GitHub Issues](https://github.com/dardan3388/omads/issues)
 - Security issues: [SECURITY.md](SECURITY.md)
-- Commercial or direct contact: [SUPPORT.md](SUPPORT.md)
+- Commercial or direct contact: `ceo@shala-mail.de`
+- Support routing and contact options: [SUPPORT.md](SUPPORT.md)
 - Contributor workflow and validation expectations: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Architectural boundaries and module ownership: [docs/architecture.md](docs/architecture.md)
 
