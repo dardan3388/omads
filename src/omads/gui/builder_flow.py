@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import select
+import re
 import subprocess
 import threading
 import time
@@ -21,6 +22,129 @@ def _validate_target_repo(target_repo: str) -> None:
         raise FileNotFoundError(
             f"Project directory not found: {target_repo}"
         )
+
+
+_CODEX_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?i)(authorization:\s*bearer\s+)[^\s]+"), r"\1***"),
+    (re.compile(r"(?i)(bearer\s+)[^\s]+"), r"\1***"),
+    (re.compile(r"(?i)(x-access-token:)[^@\s]+"), r"\1***"),
+    (re.compile(r"\b(sk-[A-Za-z0-9_-]{8,}|sess-[A-Za-z0-9_-]{8,}|github_pat_[A-Za-z0-9_]{20,})\b"), "***"),
+    (re.compile(r"(?i)\b(api[_-]?key|token|secret|password)(\s*[:=]\s*)([^\s,;\"']{6,})"), r"\1\2***"),
+)
+
+
+def _scrub_token_errors(text: str) -> str:
+    """Redact likely credentials before stderr is surfaced to the GUI."""
+    scrubbed = text
+    for pattern, replacement in _CODEX_SECRET_PATTERNS:
+        scrubbed = pattern.sub(replacement, scrubbed)
+    return scrubbed
+
+
+def _summarize_codex_stderr(stderr_lines: list[str], *, limit: int = 6) -> str:
+    """Return one compact, already-scrubbed stderr summary."""
+    cleaned = [line.strip() for line in stderr_lines if line and line.strip()]
+    if not cleaned:
+        return ""
+    return " ".join(cleaned[-limit:])[:400]
+
+
+def _build_codex_failure_detail(*, stdout_text: str, stderr_lines: list[str]) -> str:
+    """Combine stdout/stderr into one compact failure detail string."""
+    detail_parts: list[str] = []
+    stderr_summary = _summarize_codex_stderr(stderr_lines)
+    if stderr_summary:
+        detail_parts.append(f"stderr: {stderr_summary}")
+    stdout_summary = " ".join(stdout_text.split()).strip()
+    if stdout_summary:
+        detail_parts.append(f"stdout: {stdout_summary[:220]}")
+    return " | ".join(detail_parts)
+
+
+def _build_codex_empty_output_warning(
+    *,
+    run_label: str,
+    raw_stdout_lines: int,
+    stderr_lines: list[str],
+) -> str:
+    """Explain why a Codex run ended without any user-visible text."""
+    text = f"{run_label} finished without any user-visible response."
+    if raw_stdout_lines:
+        text += " Codex emitted JSON events, but none contained assistant text that OMADS could forward."
+    stderr_summary = _summarize_codex_stderr(stderr_lines)
+    if stderr_summary:
+        text += f" Last stderr: {stderr_summary}"
+    return text
+
+
+def _stream_codex_process(
+    process: subprocess.Popen,
+    *,
+    ctx: "BuilderRuntimeContext",
+    send: Callable[[dict], None],
+    agent_label: str,
+    text_buffer: list[str],
+    inactivity_error_text: str,
+    emit_stop_message: bool = False,
+    inactivity_limit: int = 900,
+) -> tuple[bool, int, list[str]]:
+    """Drain one Codex process until completion while reading stdout and stderr."""
+    raw_stdout_lines = 0
+    stderr_lines: list[str] = []
+    open_streams: dict[object, str] = {}
+    if process.stdout is not None:
+        open_streams[process.stdout] = "stdout"
+    if process.stderr is not None:
+        open_streams[process.stderr] = "stderr"
+
+    last_activity_time = time.time()
+    while open_streams:
+        if ctx.is_task_cancelled():
+            process.kill()
+            process.wait()
+            if emit_stop_message:
+                send({"type": "task_stopped", "text": "Stopped."})
+            return False, raw_stdout_lines, stderr_lines
+
+        if time.time() - last_activity_time > inactivity_limit:
+            process.kill()
+            process.wait()
+            timeout_text = inactivity_error_text
+            stderr_summary = _summarize_codex_stderr(stderr_lines)
+            if stderr_summary:
+                timeout_text += f" Last stderr: {stderr_summary}"
+            send({"type": "task_error", "text": timeout_text})
+            return False, raw_stdout_lines, stderr_lines
+
+        ready, _, _ = select.select(list(open_streams.keys()), [], [], 5.0)
+        if not ready:
+            continue
+
+        for stream in ready:
+            stream_kind = open_streams.get(stream)
+            if not stream_kind:
+                continue
+
+            line = stream.readline()
+            if not line:
+                open_streams.pop(stream, None)
+                continue
+
+            last_activity_time = time.time()
+            if stream_kind == "stdout":
+                raw_stdout_lines += 1
+                ctx.forward_codex_stream_line(
+                    line,
+                    agent_label=agent_label,
+                    send=send,
+                    text_buffer=text_buffer,
+                )
+            else:
+                cleaned = _scrub_token_errors(line.strip())
+                if cleaned:
+                    stderr_lines.append(cleaned)
+
+    return True, raw_stdout_lines, stderr_lines
 
 
 @dataclass(slots=True)
@@ -457,7 +581,7 @@ def run_codex_session_thread(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             cwd=str(target_repo),
             env=env,
@@ -467,32 +591,17 @@ def run_codex_session_thread(
         process.stdin.write(prompt)
         process.stdin.close()
 
-        inactivity_limit = 900
-        last_output_time = time.time()
-        while True:
-            if ctx.is_task_cancelled():
-                process.kill()
-                process.wait()
-                send({"type": "task_stopped", "text": "Stopped."})
-                return
-            if time.time() - last_output_time > inactivity_limit:
-                process.kill()
-                process.wait()
-                send({"type": "task_error", "text": "Codex task timed out after 15 minutes without output."})
-                return
-            ready, _, _ = select.select([process.stdout], [], [], 5.0)
-            if not ready:
-                continue
-            line = process.stdout.readline()
-            if not line:
-                break
-            last_output_time = time.time()
-            ctx.forward_codex_stream_line(
-                line,
-                agent_label=agent_label,
-                send=send,
-                text_buffer=output_lines,
-            )
+        completed, raw_stdout_lines, stderr_lines = _stream_codex_process(
+            process,
+            ctx=ctx,
+            send=send,
+            agent_label=agent_label,
+            text_buffer=output_lines,
+            inactivity_error_text="Codex task timed out after 15 minutes without output.",
+            emit_stop_message=True,
+        )
+        if not completed:
+            return
 
         process.wait(timeout=10)
         ctx.process_finished()
@@ -500,13 +609,17 @@ def run_codex_session_thread(
         elapsed = round(time.time() - start_time)
         result_text = "\n".join(output_lines).strip()
         if process.returncode != 0 and not ctx.is_task_cancelled():
+            failure_detail = _build_codex_failure_detail(
+                stdout_text=result_text,
+                stderr_lines=stderr_lines,
+            )
             send(
                 {
                     "type": "task_error",
                     "text": ctx.build_process_failure_text(
                         "Codex Task",
                         process.returncode,
-                        result_text=result_text,
+                        result_text=failure_detail,
                         output_lines=output_lines,
                     ),
                 }
@@ -522,10 +635,22 @@ def run_codex_session_thread(
         if files_changed:
             ctx.set_last_files_changed(list(files_changed))
 
-        if result_text and not output_lines:
-            send({"type": "chat_response", "agent": agent_label, "text": result_text})
+        status_text = f"Done ({elapsed}s)"
+        if not output_lines:
+            status_text = f"Finished without response ({elapsed}s)"
+            send(
+                {
+                    "type": "chat_response",
+                    "agent": "System",
+                    "text": _build_codex_empty_output_warning(
+                        run_label="Codex task",
+                        raw_stdout_lines=raw_stdout_lines,
+                        stderr_lines=stderr_lines,
+                    ),
+                }
+            )
 
-        send({"type": "agent_status", "agent": agent_label, "status": f"Done ({elapsed}s)"})
+        send({"type": "agent_status", "agent": agent_label, "status": status_text})
 
         if result_text:
             summary_parts = []
@@ -577,7 +702,7 @@ def run_codex_session_thread(
                     fix_cmd,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
                     text=True,
                     cwd=str(target_repo),
                     env=env,
@@ -588,49 +713,52 @@ def run_codex_session_thread(
                 fix_process.stdin.write(fix_prompt)
                 fix_process.stdin.close()
 
-                inactivity_limit = 900
-                last_fix_output_time = time.time()
-                while True:
-                    if ctx.is_task_cancelled():
-                        fix_process.kill()
-                        fix_process.wait()
-                        return
-                    if time.time() - last_fix_output_time > inactivity_limit:
-                        fix_process.kill()
-                        fix_process.wait()
-                        send({"type": "task_error", "text": "Codex fix run timed out after 15 minutes without output."})
-                        return
-                    ready, _, _ = select.select([fix_process.stdout], [], [], 5.0)
-                    if not ready:
-                        continue
-                    line = fix_process.stdout.readline()
-                    if not line:
-                        break
-                    last_fix_output_time = time.time()
-                    ctx.forward_codex_stream_line(
-                        line,
-                        agent_label=agent_label,
-                        send=send,
-                        text_buffer=fix_output_lines,
-                    )
+                fix_completed, fix_raw_stdout_lines, fix_stderr_lines = _stream_codex_process(
+                    fix_process,
+                    ctx=ctx,
+                    send=send,
+                    agent_label=agent_label,
+                    text_buffer=fix_output_lines,
+                    inactivity_error_text="Codex fix run timed out after 15 minutes without output.",
+                )
+                if not fix_completed:
+                    return
 
                 fix_process.wait(timeout=10)
                 ctx.process_finished()
 
                 if fix_process.returncode != 0 and not ctx.is_task_cancelled():
+                    fix_failure_detail = _build_codex_failure_detail(
+                        stdout_text="\n".join(fix_output_lines).strip(),
+                        stderr_lines=fix_stderr_lines,
+                    )
                     send(
                         {
                             "type": "task_error",
                             "text": ctx.build_process_failure_text(
                                 "Codex fix run",
                                 fix_process.returncode,
-                                result_text="\n".join(fix_output_lines).strip(),
+                                result_text=fix_failure_detail,
                                 output_lines=fix_output_lines,
                             ),
                         }
                     )
                 else:
-                    send({"type": "agent_status", "agent": "Codex", "status": "Fixes applied"})
+                    if not fix_output_lines:
+                        send(
+                            {
+                                "type": "chat_response",
+                                "agent": "System",
+                                "text": _build_codex_empty_output_warning(
+                                    run_label="Codex fix run",
+                                    raw_stdout_lines=fix_raw_stdout_lines,
+                                    stderr_lines=fix_stderr_lines,
+                                ),
+                            }
+                        )
+                        send({"type": "agent_status", "agent": "Codex", "status": "Fix run finished (no response)"})
+                    else:
+                        send({"type": "agent_status", "agent": "Codex", "status": "Fixes applied"})
 
     except FileNotFoundError:
         send(

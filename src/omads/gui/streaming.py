@@ -101,16 +101,42 @@ def parse_codex_jsonl_line(line: str) -> list[str]:
 
     etype = event.get("type", "")
 
+    def _normalize_codex_message(value: Any) -> str:
+        if not isinstance(value, str):
+            return ""
+        text = value.strip()
+        if not text:
+            return ""
+        if text[:1] not in {"{", "["}:
+            return text
+        try:
+            embedded = json.loads(text)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return text
+        if isinstance(embedded, dict):
+            for key in ("detail", "message", "error"):
+                detail = embedded.get(key)
+                if isinstance(detail, str) and detail.strip():
+                    return detail.strip()
+        if isinstance(embedded, str) and embedded.strip():
+            return embedded.strip()
+        return text
+
     # Surface error messages (e.g. rate-limit, auth failures).
     # Codex emits both "error" and "turn.failed" with the same text; only use "error".
     if etype == "error":
-        msg = event.get("message", "")
+        msg = _normalize_codex_message(event.get("message", ""))
         return [msg] if msg else []
 
     if etype != "item.completed":
         return []
 
-    text = event.get("item", {}).get("text", "")
+    item = event.get("item", {})
+    if item.get("type") == "error":
+        msg = _normalize_codex_message(item.get("message", ""))
+        return [msg] if msg else []
+
+    text = item.get("text", "")
     text = text.strip() if isinstance(text, str) else ""
     return [text] if text else []
 

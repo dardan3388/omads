@@ -36,6 +36,7 @@ The format is loosely based on Keep a Changelog.
 
 - Codex CLI error messages (e.g. rate-limit with retry time) are now surfaced in the chat instead of showing only a generic "exit code 1" failure.
 - Fixed duplicate Codex error display caused by both `error` and `turn.failed` JSONL events being forwarded.
+- Fixed Codex builder runs that previously hung silently when `stdout` stayed empty: OMADS now reads and scrubs `stderr`, surfaces stderr-backed task failures, and warns when Codex exits without any user-visible response.
 
 ### Changed
 

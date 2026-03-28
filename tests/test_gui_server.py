@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from omads.gui import routes, runtime, server, state, websocket
+from omads.gui import routes, runtime, server, state, streaming, websocket
 
 
 class DummyStream:
@@ -51,8 +51,14 @@ class DummyStdin:
 
 
 class DummyProcess:
-    def __init__(self, lines: list[str] | None = None, returncode: int = 0):
+    def __init__(
+        self,
+        lines: list[str] | None = None,
+        returncode: int = 0,
+        stderr_lines: list[str] | None = None,
+    ):
         self.stdout = DummyStream(lines)
+        self.stderr = DummyStream(stderr_lines)
         self.stdin = DummyStdin()
         self.returncode = returncode
         self.killed = False
@@ -689,6 +695,83 @@ def test_codex_builder_task_emits_output_and_unlock(isolated_server, monkeypatch
 
     assert any(msg["type"] == "agent_status" and msg.get("agent") == "Codex" for msg in messages)
     assert any(msg["type"] == "stream_text" and msg.get("text") == "Implemented the requested change." for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_parse_codex_jsonl_line_handles_real_error_shapes():
+    item_error_line = json.dumps({
+        "type": "item.completed",
+        "item": {
+            "id": "item_0",
+            "type": "error",
+            "message": "Model metadata for `definitely-not-a-real-model` not found.",
+        },
+    })
+    top_level_error_line = json.dumps({
+        "type": "error",
+        "message": '{"detail":"The model is not supported when using Codex with a ChatGPT account."}',
+    })
+
+    assert streaming.parse_codex_jsonl_line(item_error_line) == [
+        "Model metadata for `definitely-not-a-real-model` not found."
+    ]
+    assert streaming.parse_codex_jsonl_line(top_level_error_line) == [
+        "The model is not supported when using Codex with a ChatGPT account."
+    ]
+
+
+def test_codex_builder_task_surfaces_scrubbed_stderr_failure(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    process = DummyProcess(
+        returncode=1,
+        stderr_lines=[
+            "Error loading config.toml: token=sk-secret-1234567890\n",
+        ],
+    )
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_codex_session_thread(None, "Implement a small feature")
+
+    task_errors = [msg for msg in messages if msg["type"] == "task_error"]
+    assert task_errors
+    assert "***" in task_errors[0]["text"]
+    assert "sk-secret-1234567890" not in task_errors[0]["text"]
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_codex_builder_task_warns_when_json_events_have_no_visible_text(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    process = DummyProcess(lines=[
+        json.dumps({"type": "thread.started", "thread_id": "abc"}) + "\n",
+        json.dumps({"type": "turn.started"}) + "\n",
+        json.dumps({"type": "turn.completed", "usage": {"output_tokens": 1}}) + "\n",
+    ])
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+
+    runtime._run_codex_session_thread(None, "Implement a small feature")
+
+    warning_messages = [
+        msg for msg in messages
+        if msg["type"] == "chat_response" and "without any user-visible response" in msg.get("text", "")
+    ]
+    assert warning_messages
+    assert "emitted JSON events" in warning_messages[0]["text"]
+    assert any(
+        msg["type"] == "agent_status" and msg.get("status") == "Finished without response (0s)"
+        for msg in messages
+    )
     assert any(msg["type"] == "unlock" for msg in messages)
 
 
