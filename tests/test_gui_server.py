@@ -733,6 +733,27 @@ def test_parse_codex_jsonl_line_handles_real_error_shapes():
     ]
 
 
+def test_extract_codex_changed_files_reads_file_change_events():
+    changed_file = "/tmp/example/schema_probe.txt"
+    lines = [
+        json.dumps({"type": "thread.started", "thread_id": "abc"}) + "\n",
+        json.dumps({
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "file_change",
+                "changes": [
+                    {"path": changed_file, "kind": "add"},
+                    {"path": changed_file, "kind": "modify"},
+                ],
+                "status": "completed",
+            },
+        }) + "\n",
+    ]
+
+    assert streaming.extract_codex_changed_files(lines) == [changed_file]
+
+
 def test_codex_builder_task_surfaces_scrubbed_stderr_failure(isolated_server, monkeypatch: pytest.MonkeyPatch):
     messages: list[dict] = []
     process = DummyProcess(
@@ -1227,4 +1248,52 @@ def test_codex_task_runs_claude_breaker_and_fix_pass(
         for msg in messages
     )
     assert any(msg["type"] == "agent_status" and msg.get("status") == "Fixes applied" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_codex_task_runs_claude_breaker_from_file_change_events_without_git_repo(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    changed_file = str((isolated_server["repo_dir"] / "standalone.html").resolve())
+    process = DummyProcess(lines=[
+        json.dumps({"type": "thread.started", "thread_id": "abc"}) + "\n",
+        json.dumps({
+            "type": "item.completed",
+            "item": {"id": "item_0", "type": "agent_message", "text": "Implemented the requested change."},
+        }) + "\n",
+        json.dumps({
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "file_change",
+                "changes": [{"path": changed_file, "kind": "add"}],
+                "status": "completed",
+            },
+        }) + "\n",
+        json.dumps({"type": "turn.completed", "usage": {"output_tokens": 42}}) + "\n",
+    ])
+    review_calls: list[list[str]] = []
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "_capture_repo_change_snapshot",
+        lambda *args, **kwargs: {"status_lines": [], "changed_files": [], "diff_text": ""},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_run_claude_auto_review",
+        lambda target_repo, files_changed, send, model, effort: review_calls.append(list(files_changed)) or None,
+    )
+
+    runtime._run_codex_session_thread(None, "Implement a Codex feature")
+
+    assert review_calls == [[changed_file]]
+    assert runtime._last_files_changed == [changed_file]
     assert any(msg["type"] == "unlock" for msg in messages)

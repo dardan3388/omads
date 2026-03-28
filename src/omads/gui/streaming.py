@@ -141,6 +141,39 @@ def parse_codex_jsonl_line(line: str) -> list[str]:
     return [text] if text else []
 
 
+def extract_codex_changed_files(lines: list[str]) -> list[str]:
+    """Extract changed file paths from Codex JSONL output while preserving order."""
+    changed_files: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            event = json.loads(stripped)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+
+        if event.get("type") != "item.completed":
+            continue
+
+        item = event.get("item", {})
+        if item.get("type") != "file_change":
+            continue
+
+        changes = item.get("changes", [])
+        if not isinstance(changes, list):
+            continue
+
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+            path = change.get("path", "")
+            if isinstance(path, str) and path and path not in changed_files:
+                changed_files.append(path)
+
+    return changed_files
+
+
 def strip_fixes_needed_marker(text: str) -> tuple[str, bool]:
     """Remove the trailing FIXES_NEEDED marker and return whether fixes exist."""
     cleaned_lines: list[str] = []

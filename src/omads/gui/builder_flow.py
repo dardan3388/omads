@@ -13,7 +13,7 @@ from typing import Callable
 
 from fastapi import WebSocket
 
-from .streaming import parse_claude_stream_line
+from .streaming import extract_codex_changed_files, parse_claude_stream_line
 
 _REAL_THREAD = threading.Thread
 
@@ -109,6 +109,7 @@ def _stream_codex_process(
     send: Callable[[dict], None],
     agent_label: str,
     text_buffer: list[str],
+    raw_stdout_buffer: list[str] | None = None,
     inactivity_error_text: str,
     emit_stop_message: bool = False,
     inactivity_limit: int = 900,
@@ -160,6 +161,8 @@ def _stream_codex_process(
         last_activity_time = time.monotonic()
         if stream_kind == "stdout":
             raw_stdout_lines += 1
+            if raw_stdout_buffer is not None:
+                raw_stdout_buffer.append(line)
             ctx.forward_codex_stream_line(
                 line,
                 agent_label=agent_label,
@@ -618,12 +621,14 @@ def run_codex_session_thread(
         process.stdin.write(prompt)
         process.stdin.close()
 
+        raw_stdout_buffer: list[str] = []
         completed, raw_stdout_lines, stderr_lines = _stream_codex_process(
             process,
             ctx=ctx,
             send=send,
             agent_label=agent_label,
             text_buffer=output_lines,
+            raw_stdout_buffer=raw_stdout_buffer,
             inactivity_error_text="Codex task timed out after 15 minutes without output.",
             emit_stop_message=True,
         )
@@ -654,11 +659,13 @@ def run_codex_session_thread(
             return
 
         after_snapshot = ctx.capture_repo_change_snapshot(target_repo)
-        files_changed = (
+        stream_files_changed = extract_codex_changed_files(raw_stdout_buffer)
+        snapshot_files_changed = (
             after_snapshot.get("changed_files", [])
             if ctx.repo_snapshot_changed(before_snapshot, after_snapshot)
             else []
         )
+        files_changed = ctx.merge_changed_files(stream_files_changed, snapshot_files_changed)
         if files_changed:
             ctx.set_last_files_changed(list(files_changed))
 
