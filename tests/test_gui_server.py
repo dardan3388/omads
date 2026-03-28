@@ -161,6 +161,8 @@ def isolated_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(state, "_chat_sessions", {})
     monkeypatch.setattr(runtime, "_connections", [])
     monkeypatch.setattr(runtime, "_connection_settings", {})
+    monkeypatch.setattr(runtime, "_connection_session_ids", {})
+    monkeypatch.setattr(runtime, "_session_settings_store", {})
     monkeypatch.setattr(runtime, "_active_process", None)
     monkeypatch.setattr(runtime, "_active_task_owner", None)
     monkeypatch.setattr(runtime, "_task_cancelled", False)
@@ -684,6 +686,60 @@ def test_builder_dispatch_uses_connection_scoped_settings(isolated_server, monke
     assert called[1][0:3] == ("codex", "task B", str(repo_b.resolve()))
     assert called[1][3]["codex_reasoning"] == "low"
     assert called[1][3]["codex_fast"] is True
+
+
+def test_session_settings_survive_disconnect_for_same_browser_session(isolated_server):
+    repo_a = isolated_server["home_dir"] / "repo-a"
+    repo_a.mkdir()
+    session_id = "browser-session-12345"
+    ws_a = object()
+    ws_b = object()
+
+    runtime.register_connection(ws_a, session_id)
+    runtime.update_connection_settings(
+        ws_a,
+        {
+            "builder_agent": "codex",
+            "target_repo": str(repo_a.resolve()),
+            "codex_reasoning": "low",
+        },
+    )
+    runtime.unregister_connection(ws_a)
+
+    runtime.register_connection(ws_b, session_id)
+    try:
+        restored = runtime.get_connection_settings_snapshot(ws_b)
+    finally:
+        runtime.unregister_connection(ws_b)
+
+    assert restored["builder_agent"] == "codex"
+    assert restored["target_repo"] == str(repo_a.resolve())
+    assert restored["codex_reasoning"] == "low"
+
+
+def test_session_settings_endpoint_prefers_runtime_session_snapshot(client: TestClient, isolated_server):
+    repo_a = isolated_server["home_dir"] / "repo-a"
+    repo_a.mkdir()
+    session_id = "browser-session-12345"
+    ws = object()
+
+    runtime.register_connection(ws, session_id)
+    runtime.update_connection_settings(
+        ws,
+        {
+            "builder_agent": "codex",
+            "target_repo": str(repo_a.resolve()),
+            "codex_fast": True,
+        },
+    )
+    runtime.unregister_connection(ws)
+
+    response = client.get("/api/session-settings", params={"client_session_id": session_id})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["builder_agent"] == "codex"
+    assert payload["target_repo"] == str(repo_a.resolve())
+    assert payload["codex_fast"] is True
 
 
 def test_send_to_ws_sync_targets_only_the_initiating_connection(isolated_server, monkeypatch: pytest.MonkeyPatch):

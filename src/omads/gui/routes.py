@@ -55,6 +55,12 @@ async def get_settings():
     return _get_settings_snapshot()
 
 
+@router.get("/api/session-settings")
+async def get_session_settings(client_session_id: str | None = None):
+    """Return the runtime settings snapshot for one browser session when available."""
+    return runtime.get_session_settings_snapshot(client_session_id)
+
+
 _ALLOWED_SETTINGS = {
     "target_repo": str,
     "builder_agent": str,

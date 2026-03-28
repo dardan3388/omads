@@ -1,6 +1,7 @@
 export const appState = {
   ws: null,
   busy: false,
+  clientSessionId: "",
   fpPath: "~",
   npFpPath: "~",
   logFilter: "all",
@@ -22,6 +23,42 @@ export const appState = {
 
 export function el(id) {
   return document.getElementById(id);
+}
+
+function generateClientSessionId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return `session-${Date.now().toString(36)}-${Math.floor(performance.now()).toString(36)}`;
+}
+
+export function getClientSessionId() {
+  if (appState.clientSessionId) return appState.clientSessionId;
+  try {
+    const storageKey = "omads-client-session-id";
+    const stored = sessionStorage.getItem(storageKey);
+    if (stored) {
+      appState.clientSessionId = stored;
+      return stored;
+    }
+    const generated = generateClientSessionId();
+    sessionStorage.setItem(storageKey, generated);
+    appState.clientSessionId = generated;
+    return generated;
+  } catch {
+    const generated = generateClientSessionId();
+    appState.clientSessionId = generated;
+    return generated;
+  }
+}
+
+export function sessionApiUrl(path) {
+  const sessionId = encodeURIComponent(getClientSessionId());
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}client_session_id=${sessionId}`;
 }
 
 export function scrollDown() {

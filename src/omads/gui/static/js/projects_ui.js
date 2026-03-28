@@ -1,4 +1,4 @@
-import { appState, el, esc, formatMsg, agentClass, truncate, scrollDown } from "./shared.js";
+import { appState, el, esc, formatMsg, agentClass, sessionApiUrl, truncate, scrollDown } from "./shared.js";
 import { addSystem, logEvent, renderChatEvent } from "./chat_ui.js";
 import { openGitOps } from "./github_ui.js";
 import { syncSelectedRepo } from "./settings_ui.js";
@@ -9,7 +9,7 @@ export async function loadProjects() {
     appState.projects = await res.json();
     renderProjects();
 
-    const settings = await (await fetch("/api/settings")).json();
+    const settings = await (await fetch(sessionApiUrl("/api/session-settings"))).json();
     const repo = settings.target_repo || "";
     const active = appState.projects.find((project) => project.path === repo);
     if (active) {

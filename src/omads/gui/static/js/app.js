@@ -1,4 +1,4 @@
-import { appState, el, esc, formatMsg } from "./shared.js";
+import { appState, el, esc, formatMsg, getClientSessionId } from "./shared.js";
 import {
   addSystem,
   lock,
@@ -60,7 +60,8 @@ function handle(msg) {
 
 function connect() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
-  appState.ws = new WebSocket(`${protocol}://${location.host}/ws`);
+  const clientSessionId = encodeURIComponent(getClientSessionId());
+  appState.ws = new WebSocket(`${protocol}://${location.host}/ws?client_session_id=${clientSessionId}`);
   appState.ws.onopen = () => {
     appState.reconnectDelay = 2000;
     el("connBadge").textContent = "Connected";

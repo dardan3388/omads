@@ -1,4 +1,4 @@
-import { appState, el, esc, shortPath } from "./shared.js";
+import { appState, el, esc, sessionApiUrl, shortPath } from "./shared.js";
 
 export function switchTab(tabId) {
   document.querySelectorAll(".tab-content").forEach((tab) => tab.classList.remove("active"));
@@ -150,7 +150,7 @@ export function pickFolder() {
 
 export async function loadSettings() {
   try {
-    const res = await fetch("/api/settings");
+    const res = await fetch(sessionApiUrl("/api/session-settings"));
     const settings = await res.json();
     appState.savedSettings = settings;
     syncSelectedRepo(settings.target_repo || "");

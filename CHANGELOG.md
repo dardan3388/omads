@@ -33,6 +33,7 @@ The format is loosely based on Keep a Changelog.
 
 - Builder sessions are now scoped per builder (`builder:claude`) instead of per repo, preventing stale session resumption when switching builders.
 - Builder and manual-review runs now freeze their active repo/builder/reviewer settings from the initiating WebSocket session, so live tasks no longer follow whichever project another browser tab selected last.
+- Browser reconnects now reuse a stable per-tab session ID plus runtime session snapshots, so a reconnect restores that tab's last repo/builder context instead of inheriting the latest persisted global GUI settings.
 - Added `SUPPORT.md`, a pull request template, and direct commercial/support contact paths for the public launch.
 - Added the direct support email to the README help section so public visitors can find contact details faster.
 - Added `SECURITY.md`, `CODE_OF_CONDUCT.md`, and a security-policy contact link in the GitHub issue template config for the upcoming public release.
@@ -48,6 +49,7 @@ The format is loosely based on Keep a Changelog.
 - Fixed the most visible multi-tab/LAN session bleed by unicast-delivering task stream events to the initiating client instead of broadcasting them to every connected browser.
 - Fixed settings saves so the active browser session now mirrors the server-sanitized settings snapshot, including builder/reviewer/task-model choices that affect the next run immediately.
 - Fixed `stop` ownership so one browser session can no longer cancel another session's active task just because OMADS still uses one shared task slot.
+- Fixed reconnect drift so one browser tab no longer comes back on another tab's repo/builder after a disconnect or page reload while the server stays up.
 - Hardened home-directory path validation across settings, project switching, browsing, and GitHub clone/git endpoints so public users cannot steer OMADS at arbitrary filesystem locations through brittle string-prefix checks.
 - Hardened GitHub clone cleanup so a failed `origin` reset now removes the temporary authenticated remote instead of silently leaving credentials behind in `.git/config`, and saved GitHub tokens now get private file permissions where supported.
 - Manual Codex review and synthesis steps now surface scrubbed stderr-backed failures and treat empty successful exits as visible errors instead of silently continuing with missing review content.

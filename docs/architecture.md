@@ -60,6 +60,7 @@ Owns:
 Owns REST endpoints for:
 
 - settings
+- session-aware settings reads for reconnect-safe browser restores
 - project registration and switching
 - Git diff inspection for the active repository
 - runtime status refresh
@@ -104,6 +105,7 @@ Owns runtime-only state and process orchestration:
 
 - active connections
 - per-connection runtime settings snapshots
+- per-browser-session reconnect snapshots
 - active subprocess tracking
 - task ownership for the shared stop slot
 - task-stream delivery helpers (broadcast for global events, unicast for task-local events)
@@ -158,6 +160,7 @@ Owns local startup behavior:
 Owns frontend-wide state and DOM helpers:
 
 - current UI state such as theme, builder selection, and reconnect delay
+- the stable per-tab browser session ID used for reconnect-safe runtime state
 - generic DOM helpers
 - message formatting and escaping
 - shared path/agent utility helpers

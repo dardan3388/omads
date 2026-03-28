@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -56,6 +57,8 @@ from .state import (
 _connections_lock = threading.Lock()
 _connections: list[WebSocket] = []
 _connection_settings: dict[WebSocket, dict[str, Any]] = {}
+_connection_session_ids: dict[WebSocket, str] = {}
+_session_settings_store: dict[str, dict[str, Any]] = {}
 
 # Running process used for stop handling; lock protects against race conditions
 _process_lock = threading.Lock()
@@ -77,14 +80,28 @@ class _ReservedProcessSlot:
 
 
 _RESERVED_PROCESS_SLOT = _ReservedProcessSlot()
+_CLIENT_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+
+def normalize_client_session_id(raw: str | None) -> str | None:
+    """Validate one browser-provided session identifier."""
+    if not raw or not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    if not _CLIENT_SESSION_ID_RE.match(value):
+        return None
+    return value
 
 
-def register_connection(ws: WebSocket) -> None:
+def register_connection(ws: WebSocket, client_session_id: str | None = None) -> None:
     """Register one live WebSocket and seed its session-scoped settings."""
-    snapshot = _get_settings_snapshot()
+    normalized_session_id = normalize_client_session_id(client_session_id)
+    snapshot = dict(_session_settings_store.get(normalized_session_id) or _get_settings_snapshot())
     with _connections_lock:
         _connections.append(ws)
         _connection_settings[ws] = snapshot
+        if normalized_session_id:
+            _connection_session_ids[ws] = normalized_session_id
+            _session_settings_store[normalized_session_id] = dict(snapshot)
 
 
 def unregister_connection(ws: WebSocket) -> None:
@@ -95,6 +112,7 @@ def unregister_connection(ws: WebSocket) -> None:
         except ValueError:
             pass
         _connection_settings.pop(ws, None)
+        _connection_session_ids.pop(ws, None)
 
 
 def get_connection_settings_snapshot(ws: WebSocket | None) -> dict[str, Any]:
@@ -106,6 +124,16 @@ def get_connection_settings_snapshot(ws: WebSocket | None) -> dict[str, Any]:
         return dict(snapshot) if snapshot is not None else _get_settings_snapshot()
 
 
+def get_session_settings_snapshot(client_session_id: str | None) -> dict[str, Any]:
+    """Return the runtime settings snapshot for one browser session if known."""
+    normalized_session_id = normalize_client_session_id(client_session_id)
+    if not normalized_session_id:
+        return _get_settings_snapshot()
+    with _connections_lock:
+        snapshot = _session_settings_store.get(normalized_session_id)
+        return dict(snapshot) if snapshot is not None else _get_settings_snapshot()
+
+
 def update_connection_settings(ws: WebSocket | None, patch: dict[str, Any]) -> dict[str, Any]:
     """Update the session-scoped settings for one WebSocket and return the snapshot."""
     if ws is None:
@@ -114,6 +142,9 @@ def update_connection_settings(ws: WebSocket | None, patch: dict[str, Any]) -> d
         snapshot = dict(_connection_settings.get(ws) or _get_settings_snapshot())
         snapshot.update(patch)
         _connection_settings[ws] = snapshot
+        session_id = _connection_session_ids.get(ws)
+        if session_id:
+            _session_settings_store[session_id] = dict(snapshot)
         return dict(snapshot)
 
 
@@ -250,6 +281,7 @@ async def broadcast(msg: dict) -> None:
                 except ValueError:
                     pass
                 _connection_settings.pop(ws, None)
+                _connection_session_ids.pop(ws, None)
 
 
 def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:

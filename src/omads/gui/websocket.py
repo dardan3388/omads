@@ -91,8 +91,10 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=1008, reason="Origin not allowed")
         return
 
+    query_params = getattr(ws, "query_params", {}) or {}
+    client_session_id = runtime.normalize_client_session_id(query_params.get("client_session_id"))
     await ws.accept()
-    runtime.register_connection(ws)
+    runtime.register_connection(ws, client_session_id)
     runtime._loop = asyncio.get_event_loop()
 
     _MAX_MESSAGE_LENGTH = 50000
