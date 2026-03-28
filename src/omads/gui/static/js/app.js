@@ -277,6 +277,14 @@ function exposeGlobals() {
   window.closeGitHub = closeGitHub;
   window.openGitOps = openGitOps;
   window.closeGitOps = closeGitOps;
+  window.toggleMobileSidebar = toggleMobileSidebar;
+}
+
+function toggleMobileSidebar() {
+  const sidebar = el("sidebar");
+  const overlay = el("sidebarOverlay");
+  const open = sidebar.classList.toggle("mobile-open");
+  overlay.classList.toggle("open", open);
 }
 
 function init() {

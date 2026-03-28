@@ -623,9 +623,22 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+  /* ─── Mobile sidebar overlay ─── */
+  .btn-mobile-menu { display: none; }
+  .sidebar-overlay { display: none; }
+
   /* ─── Mobile responsive ─── */
   @media (max-width: 768px) {
-    .sidebar { display: none; }
+    .btn-mobile-menu {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: none; border: 1px solid var(--border); color: var(--text);
+      font-size: 20px; padding: 4px 8px; border-radius: 6px; cursor: pointer;
+      min-height: 36px; line-height: 1;
+    }
+    .sidebar { display: none; position: fixed; top: 0; left: 0; bottom: 0; width: 280px; z-index: 201; }
+    .sidebar.mobile-open { display: flex; }
+    .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 200; }
+    .sidebar-overlay.open { display: block; }
     .sidebar-toggle { display: none; }
     .header { padding: 8px 12px; flex-wrap: wrap; gap: 6px; }
     .header-left { gap: 8px; flex-wrap: wrap; }
@@ -687,6 +700,7 @@
 <!-- Header -->
 <div class="header">
   <div class="header-left">
+    <button class="btn-mobile-menu" onclick="toggleMobileSidebar()" title="Projects">&#9776;</button>
     <span class="logo">OMADS</span>
     <span class="badge" id="connBadge">Connecting...</span>
     <span class="badge" id="builderBadge" title="Selected builder">Builder: Claude</span>
@@ -703,6 +717,8 @@
 
 <!-- Main layout with sidebar -->
 <div class="main">
+  <!-- Mobile sidebar overlay -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMobileSidebar()"></div>
   <!-- Project sidebar -->
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
