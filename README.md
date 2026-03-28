@@ -11,7 +11,9 @@ No API keys are required. OMADS works with the CLIs you already use, such as Cla
 
 ![Port](https://img.shields.io/badge/Port-8080-blue) ![Python](https://img.shields.io/badge/Python-3.11+-green) ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-![OMADS overview](docs/assets/omads-overview.png)
+![OMADS UI tour](docs/assets/omads-ui-tour.gif)
+
+A short tour of the current OMADS interface: workspace, project settings, manual review configuration, review dialog, and built-in diff viewer.
 
 ## Why OMADS
 
@@ -31,16 +33,6 @@ The normal coding loop is:
 5. Send the findings back to the builder for the final decision
 
 The **Review** button is intentionally separate. It exists for manual inspections of an existing local project, a specific path, or a deliberate full-project review outside the normal coding loop.
-
-## Screenshots
-
-| Overview | Manual review pipeline |
-| --- | --- |
-| ![OMADS overview](docs/assets/omads-overview.png) | ![Review settings](docs/assets/omads-review-settings.png) |
-
-| Manual review dialog | Built-in diff viewer |
-| --- | --- |
-| ![Manual review](docs/assets/omads-manual-review.png) | ![Diff viewer](docs/assets/omads-diff-viewer.png) |
 
 ## What You Can Do With OMADS
 
