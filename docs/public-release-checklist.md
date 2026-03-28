@@ -23,6 +23,7 @@ Use this checklist before changing the GitHub repository from private to public.
 - `LICENSE` is present and correct.
 - [CONTRIBUTING](../CONTRIBUTING.md) explains how contributors should work in the repo.
 - [SECURITY](../SECURITY.md) explains how private vulnerability reports should be sent.
+- [SUPPORT](../SUPPORT.md) gives users a clear path for general, commercial, or direct contact.
 - [CODE_OF_CONDUCT](../CODE_OF_CONDUCT.md) defines the community standard for public collaboration.
 - GitHub issue templates are present and useful.
 - The repository has a clear description and topics on GitHub.
