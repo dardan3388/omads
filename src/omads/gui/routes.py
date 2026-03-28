@@ -482,7 +482,7 @@ async def get_ledger():
 
 @router.post("/api/github/auth/connect")
 async def github_auth_connect(data: dict[str, Any]):
-    """Connect to GitHub with a Personal Access Token."""
+    """Connect to GitHub with a Personal Access Token (fallback)."""
     from . import github
 
     token = (data.get("token") or "").strip()
@@ -496,6 +496,38 @@ async def github_auth_connect(data: dict[str, Any]):
         return {"error": str(exc)}
     except Exception as exc:
         return {"error": f"Connection failed: {exc}"}
+
+
+@router.post("/api/github/auth/device/start")
+async def github_auth_device_start():
+    """Start the GitHub OAuth Device Flow."""
+    from . import github
+
+    try:
+        result = github.start_device_flow()
+        return {"ok": True, **result}
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": f"Device flow failed: {exc}"}
+
+
+@router.post("/api/github/auth/device/poll")
+async def github_auth_device_poll(data: dict[str, Any]):
+    """Poll for GitHub OAuth Device Flow completion."""
+    from . import github
+
+    device_code = (data.get("device_code") or "").strip()
+    if not device_code:
+        return {"error": "device_code is required"}
+
+    try:
+        result = github.poll_device_flow(device_code)
+        if result.get("status") == "complete":
+            await runtime.broadcast({"type": "github_connected", "username": result.get("username", "")})
+        return result
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
 
 
 @router.delete("/api/github/auth")
@@ -513,21 +545,60 @@ async def github_auth_status():
     """Return current GitHub auth status (no token exposed)."""
     from . import github
 
-    return github.get_auth_status()
+    return {**github.get_auth_status(), "has_client_id": github.has_client_id()}
 
 
 @router.get("/api/github/repos")
-async def github_list_repos(page: int = 1, per_page: int = 30):
-    """List the authenticated user's GitHub repos."""
+async def github_list_repos(page: int = 1, per_page: int = 30, search: str = ""):
+    """List the authenticated user's GitHub repos with optional search."""
     from . import github
 
     try:
-        repos = github.list_repos(page=page, per_page=per_page)
+        repos = github.list_repos(page=page, per_page=per_page, search=search)
         return {"repos": repos}
     except RuntimeError as exc:
         return {"error": str(exc)}
     except Exception as exc:
         return {"error": f"Failed to list repos: {exc}"}
+
+
+@router.post("/api/github/repos/create")
+async def github_create_repo(data: dict[str, Any]):
+    """Create a new GitHub repository."""
+    from . import github
+
+    name = (data.get("name") or "").strip()
+    if not name:
+        return {"error": "Repository name is required"}
+
+    try:
+        result = github.create_repo(
+            name,
+            private=data.get("private", False),
+            description=data.get("description", ""),
+            auto_init=data.get("auto_init", True),
+            gitignore_template=data.get("gitignore_template", ""),
+            license_template=data.get("license_template", ""),
+        )
+        return {"ok": True, **result}
+    except (ValueError, RuntimeError) as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": f"Failed to create repo: {exc}"}
+
+
+@router.get("/api/github/repos/info")
+async def github_repo_info(full_name: str):
+    """Get info about any GitHub repo (for review of foreign repos)."""
+    from . import github
+
+    try:
+        info = github.get_repo_info(full_name)
+        return {"ok": True, **info}
+    except (ValueError, RuntimeError) as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        return {"error": f"Failed to get repo info: {exc}"}
 
 
 @router.post("/api/github/clone")

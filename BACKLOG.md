@@ -14,50 +14,66 @@ Use `CHANGELOG.md` for shipped changes and `docs/architecture.md` for durable te
 
 ## Now
 
-### Feature: GitHub-Integration (lokal umsetzen)
+### Feature: GitHub-Integration v2 (OAuth Device Flow + neue GUI)
 
-Ziel: GitHub-Repos direkt aus der OMADS-GUI verbinden, klonen und daran arbeiten — inkl. Commit, Push, Pull.
+Kompletter Umbau der GitHub-Integration. PAT-basierte Auth wird durch OAuth Device Flow ersetzt.
+Ergebnis einer Architektur-Diskussion zwischen Claude Code und Codex (2026-03-28).
 
-**Gewünschter Flow:**
-1. OMADS starten → GitHub-Badge im Header klicken
-2. Code auf `github.com/activate` eingeben (einmalig) → verbunden
-3. Repo aus der Liste wählen → wird lokal geklont und als OMADS-Projekt registriert
-4. Mit Claude/Codex daran arbeiten, dann über Git-Button committen/pushen/pullen
+#### Warum der Umbau?
+- PATs sind nicht userfreundlich (manuell erstellen, Scopes pflegen, neue Repos manuell hinzufügen)
+- GitHub empfiehlt PATs nicht für Third-Party-Apps
+- `-c remote.origin.url=` Override wurde von Git ignoriert (Bug)
+- Fehlermeldungen kamen auf Deutsch statt Englisch
 
-**Voraussetzung (einmalig, ~2 Min):**
-GitHub OAuth App anlegen unter `github.com/settings/developers` → `client_id` in `OMADS_GITHUB_CLIENT_ID` env var setzen.
+#### Auth: OAuth App + Device Flow
 
-**Neue Dateien:**
-- `src/omads/gui/github.py` — Device Flow, Token-Speicherung (`~/.config/omads/github_token.json`), GitHub API, Git-Credential-Injection
-- `src/omads/gui/static/js/github_ui.js` — Auth-Modal (3 Zustände), Repo-Browser, Clone-Flow, Git-Ops-Modal
+- Eine zentrale OMADS OAuth App registrieren (`client_id` im Code, kein `client_secret` nötig)
+- Device Flow: User sieht Code → öffnet `github.com/login/device` → autorisiert → fertig
+- Token läuft nicht regelmäßig ab; Re-Auth nur bei Widerruf
+- Bei 401/403: automatisch Re-Auth anbieten
+- Für Git push/pull: zuerst native Git-Credentials probieren, OAuth-Token als Fallback
 
-**Zu erweiternde Dateien:**
-- `src/omads/gui/routes.py` — 6 neue Endpunkte: `/api/github/auth/start`, `/api/github/auth/poll`, `DELETE /api/github/auth`, `/api/github/repos`, `/api/github/clone`, `/api/github/git`
-- `src/omads/gui/state.py` — 2 neue Pydantic-Modelle (`GitHubCloneRequest`, `GitHubGitRequest`)
-- `src/omads/gui/frontend.html` — GitHub-Badge im Header, 2 neue Modals, CSS
-- `src/omads/gui/static/js/app.js` — Import + Globals + WebSocket-Handler für `github_connected`/`github_disconnected`
-- `src/omads/gui/static/js/projects_ui.js` — Git-Button pro Projekt-Karte
+#### GUI-Architektur (3 Integrationspunkte, kein Mega-Tab)
 
-**Sicherheit:**
+**1. Header:** Kleiner Status-Chip (verbunden/nicht verbunden)
+**2. Startscreen / Projekt-Sidebar:** Aktionen (`Neues Repo` | `Repo öffnen` | `Repo reviewen`)
+**3. Offenes Projekt:** Branch, Remote-Status, Pull/Push in der Sidebar
+
+#### Neue Features
+
+**Repo-Picker mit Suche:**
+- Suchbare Liste der eigenen Repos (mit Org-Filter)
+- Direkte Eingabe von `owner/repo` oder GitHub-URL
+- Tabs: `Meine` | `Organisationen` | `Zuletzt` | `URL`
+
+**Neues Repo erstellen:**
+- Kompaktes Modal: Name, Public/Private, README, .gitignore
+- Nach Erstellen: automatisch klonen und als OMADS-Projekt öffnen
+
+**Fremdes Repo reviewen:**
+- User gibt `owner/repo` ein → OMADS validiert per API
+- Quick-Look: README, Metadaten (nur API)
+- Deep Review: temporärer Clone → vollständiges Review
+
+#### Git-Ops-Modal UX-Fixes
+- Auto-Refresh nach Push/Pull (aktuell fehlt)
+- Leere Repos: Buttons disabled + Hinweis statt kryptischer Fehler
+- Commit-Message-Input nach Commit leeren
+
+#### Implementierungs-Phasen
+1. OAuth Device Flow Backend (`github.py` umbauen)
+2. Auth-Routes anpassen (`routes.py`)
+3. Auth-UI umbauen — Device Flow Modal (`github_ui.js`)
+4. Repo-Picker mit Suche + Create Repo
+5. Git-Ops-Modal UX-Fixes
+6. Fremdes Repo reviewen (temp clone)
+
+#### Sicherheit (bleibt bestehen)
 - Token nie an den Browser weitergeben — nur Auth-Status
-- Git-Credentials via `-c remote.origin.url=` (kein Schreiben in `.git/config`)
+- Token nie in `.git/config` schreiben
 - Alle Subprocess-Aufrufe ohne `shell=True`
 - `full_name` gegen `^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$` validieren
 - Token-Fehler-Scrubbing vor jedem Log/Error-Output
-
-**Erweiterung: Hybrid-Modus (Quick Edit ohne Clone)**
-
-Ziel: Kleine Änderungen direkt via GitHub API — ohne lokalen Clone, ohne Overhead.
-
-Zwei Modi im GitHub-Modal:
-- **Quick Edit** — Einzelne Datei über GitHub Contents API lesen/bearbeiten/committen, kein lokales Klonen nötig
-- **Mit OMADS öffnen** — vollständiger Clone, Claude Code / Codex können auf dem Filesystem arbeiten
-
-Wann welcher Modus sinnvoll ist:
-- Quick Edit: einzelne Konfigdatei, Tippfehler-Fix, README-Änderung
-- Mit OMADS öffnen: Code ausführen, testen, großer Refactor über viele Dateien
-
-Technisch: GitHub Contents API (`GET/PUT /repos/{owner}/{repo}/contents/{path}`) — kein `git` nötig, kein lokales Filesystem.
 
 ### Hardening: Copilot-Audit Quick-Fixes
 

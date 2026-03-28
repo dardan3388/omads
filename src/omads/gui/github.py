@@ -1,7 +1,7 @@
 """GitHub integration for the OMADS GUI.
 
-Simple Personal Access Token (PAT) authentication, GitHub API access,
-and Git credential injection for clone/push/pull operations.
+OAuth Device Flow authentication, GitHub API access,
+and Git credential handling for clone/push/pull operations.
 """
 
 from __future__ import annotations
@@ -24,6 +24,14 @@ from .state import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ─── Config ──────────────────────────────────────────────────────
+
+# Public OAuth App client_id — this is NOT a secret.
+# Users can also override via environment variable.
+import os as _os
+
+_GITHUB_CLIENT_ID = _os.environ.get("OMADS_GITHUB_CLIENT_ID", "")
 
 # ─── Paths ────────────────────────────────────────────────────────
 
@@ -80,7 +88,112 @@ def _scrub_token(text: str) -> str:
     return text
 
 
-# ─── Auth: simple PAT login ──────────────────────────────────────
+# ─── Auth: OAuth Device Flow ─────────────────────────────────────
+
+def get_client_id() -> str:
+    """Return the configured GitHub OAuth App client_id."""
+    if not _GITHUB_CLIENT_ID:
+        raise RuntimeError(
+            "GitHub OAuth App not configured. "
+            "Set OMADS_GITHUB_CLIENT_ID environment variable."
+        )
+    return _GITHUB_CLIENT_ID
+
+
+def has_client_id() -> bool:
+    """Check if a GitHub OAuth client_id is configured."""
+    return bool(_GITHUB_CLIENT_ID)
+
+
+def start_device_flow() -> dict[str, Any]:
+    """Start the GitHub OAuth Device Flow.
+
+    Returns device_code, user_code, verification_uri, expires_in, interval.
+    """
+    client_id = get_client_id()
+    resp = httpx.post(
+        "https://github.com/login/device/code",
+        data={
+            "client_id": client_id,
+            "scope": "repo",
+        },
+        headers={"Accept": "application/json"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if "device_code" not in data:
+        raise RuntimeError(f"Device flow failed: {data}")
+
+    return {
+        "device_code": data["device_code"],
+        "user_code": data["user_code"],
+        "verification_uri": data["verification_uri"],
+        "expires_in": data.get("expires_in", 900),
+        "interval": data.get("interval", 5),
+    }
+
+
+def poll_device_flow(device_code: str) -> dict[str, Any]:
+    """Poll GitHub for device flow completion.
+
+    Returns {"status": "pending"} or {"status": "complete", "username": "..."}.
+    """
+    client_id = get_client_id()
+    resp = httpx.post(
+        "https://github.com/login/oauth/access_token",
+        data={
+            "client_id": client_id,
+            "device_code": device_code,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        },
+        headers={"Accept": "application/json"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if data.get("error") == "authorization_pending":
+        return {"status": "pending"}
+    if data.get("error") == "slow_down":
+        return {"status": "pending", "slow_down": True}
+    if data.get("error") == "expired_token":
+        return {"status": "expired"}
+    if data.get("error"):
+        return {"status": "error", "error": data["error_description"] or data["error"]}
+
+    token = data.get("access_token", "")
+    if not token:
+        return {"status": "error", "error": "No access token in response"}
+
+    # Verify token and get username
+    user_resp = httpx.get(
+        "https://api.github.com/user",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+        timeout=10,
+    )
+    if user_resp.status_code != 200:
+        return {"status": "error", "error": "Token verification failed"}
+
+    username = user_resp.json().get("login", "")
+
+    _save_token({
+        "access_token": token,
+        "token_type": data.get("token_type", "bearer"),
+        "scope": data.get("scope", ""),
+        "username": username,
+        "authenticated_at": int(time.time()),
+        "auth_method": "device_flow",
+    })
+
+    return {"status": "complete", "username": username}
+
+
+# ─── Auth: PAT fallback (for users without OAuth App) ────────────
 
 def connect_with_token(token: str) -> dict[str, Any]:
     """Validate a GitHub PAT and store it if valid.
@@ -91,7 +204,6 @@ def connect_with_token(token: str) -> dict[str, Any]:
     if not token:
         raise ValueError("Token is empty")
 
-    # Verify the token by calling /user
     resp = httpx.get(
         "https://api.github.com/user",
         headers={
@@ -112,6 +224,7 @@ def connect_with_token(token: str) -> dict[str, Any]:
         "token_type": "bearer",
         "username": username,
         "authenticated_at": int(time.time()),
+        "auth_method": "pat",
     }
     _save_token(token_data)
 
@@ -126,6 +239,7 @@ def get_auth_status() -> dict[str, Any]:
     return {
         "authenticated": True,
         "username": token_data.get("username", ""),
+        "method": token_data.get("auth_method", "unknown"),
     }
 
 
@@ -153,24 +267,42 @@ def _github_headers() -> dict[str, str]:
     }
 
 
-def list_repos(page: int = 1, per_page: int = 30, sort: str = "updated") -> list[dict[str, Any]]:
-    """List repositories for the authenticated user."""
-    resp = httpx.get(
-        "https://api.github.com/user/repos",
-        params={
-            "sort": sort,
-            "direction": "desc",
-            "per_page": per_page,
-            "page": page,
-            "type": "all",
-        },
-        headers=_github_headers(),
-        timeout=15,
-    )
-    resp.raise_for_status()
+def list_repos(
+    page: int = 1,
+    per_page: int = 30,
+    sort: str = "updated",
+    search: str = "",
+) -> list[dict[str, Any]]:
+    """List repositories for the authenticated user, with optional search."""
+    if search:
+        # Use GitHub search API for filtering
+        query = f"{search} user:@me fork:true"
+        resp = httpx.get(
+            "https://api.github.com/search/repositories",
+            params={"q": query, "sort": "updated", "per_page": per_page, "page": page},
+            headers=_github_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        items = resp.json().get("items", [])
+    else:
+        resp = httpx.get(
+            "https://api.github.com/user/repos",
+            params={
+                "sort": sort,
+                "direction": "desc",
+                "per_page": per_page,
+                "page": page,
+                "type": "all",
+            },
+            headers=_github_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        items = resp.json()
 
     repos = []
-    for r in resp.json():
+    for r in items:
         repos.append({
             "full_name": r["full_name"],
             "description": r.get("description") or "",
@@ -181,6 +313,79 @@ def list_repos(page: int = 1, per_page: int = 30, sort: str = "updated") -> list
             "html_url": r.get("html_url", ""),
         })
     return repos
+
+
+def create_repo(
+    name: str,
+    *,
+    private: bool = False,
+    description: str = "",
+    auto_init: bool = True,
+    gitignore_template: str = "",
+    license_template: str = "",
+) -> dict[str, Any]:
+    """Create a new GitHub repository for the authenticated user."""
+    if not name or not re.match(r"^[a-zA-Z0-9._-]+$", name):
+        raise ValueError(f"Invalid repository name: {name!r}")
+
+    body: dict[str, Any] = {
+        "name": name,
+        "private": private,
+        "auto_init": auto_init,
+    }
+    if description:
+        body["description"] = description
+    if gitignore_template:
+        body["gitignore_template"] = gitignore_template
+    if license_template:
+        body["license_template"] = license_template
+
+    resp = httpx.post(
+        "https://api.github.com/user/repos",
+        json=body,
+        headers=_github_headers(),
+        timeout=15,
+    )
+    if resp.status_code == 422:
+        errors = resp.json().get("errors", [])
+        for e in errors:
+            if "name already exists" in str(e.get("message", "")):
+                raise ValueError(f"Repository '{name}' already exists")
+        raise ValueError(resp.json().get("message", "Failed to create repository"))
+    resp.raise_for_status()
+
+    data = resp.json()
+    return {
+        "full_name": data["full_name"],
+        "html_url": data["html_url"],
+        "default_branch": data.get("default_branch", "main"),
+        "private": data.get("private", False),
+    }
+
+
+def get_repo_info(full_name: str) -> dict[str, Any]:
+    """Get info about any GitHub repo (public or accessible via token)."""
+    _validate_full_name(full_name)
+    resp = httpx.get(
+        f"https://api.github.com/repos/{full_name}",
+        headers=_github_headers(),
+        timeout=15,
+    )
+    if resp.status_code == 404:
+        raise ValueError(f"Repository not found: {full_name}")
+    resp.raise_for_status()
+
+    data = resp.json()
+    return {
+        "full_name": data["full_name"],
+        "description": data.get("description") or "",
+        "private": data.get("private", False),
+        "language": data.get("language") or "",
+        "default_branch": data.get("default_branch", "main"),
+        "html_url": data.get("html_url", ""),
+        "owner": data.get("owner", {}).get("login", ""),
+        "permissions": data.get("permissions", {}),
+    }
 
 
 # ─── Git operations ───────────────────────────────────────────────
@@ -214,7 +419,7 @@ def clone_repo(full_name: str, target_dir: str) -> dict[str, Any]:
         capture_output=True,
         text=True,
         timeout=120,
-        env=_build_cli_env(),
+        env={**_build_cli_env(), "LC_ALL": "C"},
     )
     if result.returncode != 0:
         raise RuntimeError(_scrub_token(result.stderr.strip() or "git clone failed"))
@@ -232,11 +437,7 @@ def clone_repo(full_name: str, target_dir: str) -> dict[str, Any]:
 
 
 def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, Any]:
-    """Run a Git operation (commit, push, pull, status) with token-based auth.
-
-    For push/pull, the token is injected via -c remote.origin.url=...
-    so it never touches .git/config.
-    """
+    """Run a Git operation (commit, push, pull, status) with token-based auth."""
     repo = Path(repo_path).expanduser().resolve()
     if not (repo / ".git").is_dir():
         raise ValueError(f"Not a Git repository: {repo}")
@@ -251,6 +452,14 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         )
         return r.returncode == 0
 
+    def _current_branch() -> str:
+        r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, cwd=str(repo),
+            timeout=5, env=env,
+        )
+        return r.stdout.strip() or "main"
+
     if operation == "status":
         result = subprocess.run(
             ["git", "status", "--short"],
@@ -258,7 +467,10 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
             timeout=15, env=env,
         )
         lines = [l.rstrip() for l in result.stdout.splitlines() if l.strip()]
-        return {"status_lines": lines, "clean": len(lines) == 0}
+
+        # Also get branch name and ahead/behind info
+        branch = _current_branch() if _has_commits() else "(no commits)"
+        return {"status_lines": lines, "clean": len(lines) == 0, "branch": branch}
 
     if operation == "commit":
         message = kwargs.get("message", "").strip()
@@ -291,12 +503,7 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         origin_url = origin_result.stdout.strip()
         full_name = _extract_full_name(origin_url)
         auth_url = _auth_remote_url(full_name)
-        branch_result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, cwd=str(repo),
-            timeout=5, env=env,
-        )
-        branch = branch_result.stdout.strip() or "main"
+        branch = _current_branch()
         return auth_url, branch
 
     def _friendly_git_error(stderr: str, op: str) -> str:
@@ -304,9 +511,8 @@ def git_operation(repo_path: str, operation: str, **kwargs: Any) -> dict[str, An
         cleaned = _scrub_token(stderr.strip())
         if "403" in cleaned or "Permission" in cleaned.lower() or "denied" in cleaned.lower():
             return (
-                f"Permission denied — your GitHub token doesn't have access to this repo. "
-                f"Go to github.com/settings/tokens, edit your token, "
-                f"and add this repository to the allowed list."
+                "Permission denied — your GitHub token doesn't have access to this repo. "
+                "Reconnect your GitHub account or check your token permissions."
             )
         if "could not read Username" in cleaned:
             return "GitHub authentication failed — reconnect your account in the GitHub menu."
