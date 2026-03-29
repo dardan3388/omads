@@ -15,6 +15,15 @@ OMADS is a local web workspace for people who want one coding agent to build and
 
 A short tour of the current OMADS interface: workspace, project settings, manual review configuration, review dialog, and built-in diff viewer.
 
+## Demo
+
+Watch the current end-to-end OMADS demo near the top of the project page:
+
+- [GitHub demo release](https://github.com/dardan3388/omads/releases/tag/demo-2026-03-29)
+- [Download the full-resolution MP4 demo (1440x900)](https://github.com/dardan3388/omads/releases/download/demo-2026-03-29/omads-claude-codex-fullreview-english-2026-03-29.mp4)
+
+This demo shows a real browser-only OMADS session where Claude Code builds a Linux GUI calculator, Codex runs the automatic review, Claude applies the fixes, and a full manual review then runs as Claude Code -> Codex -> Claude Code.
+
 ## Why People Use OMADS
 
 - You already use Claude Code or Codex locally and want a GUI instead of juggling terminals.
