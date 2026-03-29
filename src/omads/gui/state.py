@@ -661,12 +661,43 @@ def _probe_claude_limit_status(target_repo: str) -> dict[str, Any]:
 _CHAT_SESSIONS_PATH = Path.home() / ".config" / "omads" / "chat_sessions.json"
 
 
+def _repo_instance_id(repo_path: str | None) -> str | None:
+    """Return a stable token for the current repo instance at one path."""
+    if not repo_path:
+        return None
+
+    repo_root = Path(repo_path).expanduser().resolve(strict=False)
+    marker = repo_root / ".git"
+    identity_path = repo_root
+
+    if marker.is_dir():
+        identity_path = marker.resolve(strict=False)
+    elif marker.is_file():
+        try:
+            raw = marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            raw = ""
+        if raw.startswith("gitdir:"):
+            rel = raw.split(":", 1)[1].strip()
+            identity_path = (marker.parent / rel).resolve(strict=False)
+
+    try:
+        st = identity_path.stat()
+    except OSError:
+        return None
+
+    import hashlib
+
+    payload = f"{identity_path}|{st.st_dev}|{st.st_ino}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _chat_session_key(repo_key: str, scope: str = "builder") -> str:
     """Return one stable session key per repository and conversation scope."""
     return repo_key if scope == "builder" else f"{repo_key}::{scope}"
 
 
-def _load_chat_sessions() -> dict[str, str]:
+def _load_chat_sessions() -> dict[str, Any]:
     if _CHAT_SESSIONS_PATH.exists():
         try:
             return json.loads(_read_json_text(_CHAT_SESSIONS_PATH))
@@ -674,38 +705,78 @@ def _load_chat_sessions() -> dict[str, str]:
             pass
     return {}
 
-def _save_chat_sessions(sessions: dict[str, str]) -> None:
+def _save_chat_sessions(sessions: dict[str, Any]) -> None:
     _write_text_file(_CHAT_SESSIONS_PATH, json.dumps(sessions, indent=2))
 
 _chat_sessions_lock = threading.RLock()
-_chat_sessions: dict[str, str] = _load_chat_sessions()
+_chat_sessions: dict[str, Any] = _load_chat_sessions()
 
 
 def _get_chat_session(
     repo_key: str,
     *,
+    repo_path: str | None = None,
     scope: str = "builder",
     purpose: str | None = None,
 ) -> str | None:
     """Read one stored Claude session consistently under lock."""
     if purpose is not None:
         scope = purpose
+    key = _chat_session_key(repo_key, scope)
     with _chat_sessions_lock:
-        return _chat_sessions.get(_chat_session_key(repo_key, scope))
+        entry = _chat_sessions.get(key)
+        if isinstance(entry, str):
+            # Legacy entries predate repo-instance tracking. Drop them when
+            # a repo path is available so recreated repos do not resume stale sessions.
+            if repo_path:
+                del _chat_sessions[key]
+                _save_chat_sessions(dict(_chat_sessions))
+                return None
+            return entry
+        if not isinstance(entry, dict):
+            return None
+
+        session_id = entry.get("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            _chat_sessions.pop(key, None)
+            _save_chat_sessions(dict(_chat_sessions))
+            return None
+
+        if repo_path:
+            current_repo_instance = _repo_instance_id(repo_path)
+            stored_repo_instance = entry.get("repo_instance_id")
+            if (
+                not isinstance(stored_repo_instance, str)
+                or not current_repo_instance
+                or stored_repo_instance != current_repo_instance
+            ):
+                _chat_sessions.pop(key, None)
+                _save_chat_sessions(dict(_chat_sessions))
+                return None
+
+        return session_id
 
 
 def _set_chat_session(
     repo_key: str,
     session_id: str,
     *,
+    repo_path: str | None = None,
     scope: str = "builder",
     purpose: str | None = None,
 ) -> None:
     """Update one Claude session atomically and persist it."""
     if purpose is not None:
         scope = purpose
+    entry: dict[str, str] | str = session_id
+    repo_instance = _repo_instance_id(repo_path)
+    if repo_instance:
+        entry = {
+            "session_id": session_id,
+            "repo_instance_id": repo_instance,
+        }
     with _chat_sessions_lock:
-        _chat_sessions[_chat_session_key(repo_key, scope)] = session_id
+        _chat_sessions[_chat_session_key(repo_key, scope)] = entry
         _save_chat_sessions(dict(_chat_sessions))
 
 

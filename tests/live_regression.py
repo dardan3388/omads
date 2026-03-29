@@ -117,6 +117,28 @@ def _cleanup_trial_repos() -> None:
             shutil.rmtree(p, ignore_errors=True)
 
 
+async def ensure_project_registered(client: "httpx.AsyncClient", base: str, name: str, path: str):
+    """Create or reuse one registered project for the requested path."""
+    response = await client.post(f"{base}/api/projects", json={"name": name, "path": path})
+    if response.status_code != 200:
+        return None, f"HTTP {response.status_code}"
+
+    payload = response.json()
+    project = payload.get("project")
+    if payload.get("ok") is True and isinstance(project, dict):
+        return project, "created"
+
+    error = payload.get("error", "")
+    if isinstance(error, str) and "already exists" in error.lower():
+        existing = await client.get(f"{base}/api/projects")
+        if existing.status_code == 200:
+            for candidate in existing.json():
+                if isinstance(candidate, dict) and candidate.get("path") == path:
+                    return candidate, "reused"
+
+    return None, error or "Unknown project API response"
+
+
 async def ws_connect(port: int, sid: str | None = None):
     sid = sid or uuid.uuid4().hex[:12]
     uri = WS.format(port=port, sid=sid)
@@ -449,16 +471,14 @@ async def test_6(port: int) -> None:
 
     try:
         async with httpx.AsyncClient() as client:
-            ra = await client.post(f"{base}/api/projects", json={"name": "Trial A", "path": repo_a})
-            rb = await client.post(f"{base}/api/projects", json={"name": "Trial B", "path": repo_b})
-            proj_a = ra.json() if ra.status_code == 200 else None
-            proj_b = rb.json() if rb.status_code == 200 else None
-            print(f"  Project A created: {proj_a is not None}")
-            print(f"  Project B created: {proj_b is not None}")
+            proj_a, note_a = await ensure_project_registered(client, base, "Trial A", repo_a)
+            proj_b, note_b = await ensure_project_registered(client, base, "Trial B", repo_b)
+            print(f"  Project A ready: {proj_a is not None} ({note_a})")
+            print(f"  Project B ready: {proj_b is not None} ({note_b})")
 
             if not proj_a or not proj_b:
                 record(6, "Project creation + switching + folder isolation", "FAIL",
-                       "Could not create projects via API")
+                       f"Project API failed: A={note_a}; B={note_b}")
                 return
 
         ws, _ = await ws_connect(port)

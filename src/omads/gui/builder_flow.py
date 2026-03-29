@@ -419,7 +419,7 @@ def run_claude_session_thread(
                     "--append-system-prompt",
                     omads_context,
                 ]
-                fix_session = ctx.get_chat_session(repo_key)
+                fix_session = ctx.get_chat_session(repo_key, scope="builder:claude")
                 if fix_session:
                     fix_cmd.extend(["--resume", fix_session])
 
@@ -503,7 +503,7 @@ def run_claude_session_thread(
                     )
                 else:
                     if fix_session_id and fix_process.returncode == 0:
-                        ctx.set_builder_session(repo_key, fix_session_id)
+                        ctx.set_builder_session(repo_key, fix_session_id, scope="builder:claude")
                     send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes applied"})
 
     except FileNotFoundError:

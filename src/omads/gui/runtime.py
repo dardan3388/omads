@@ -468,6 +468,7 @@ def _builder_runtime_context(
     owner_ws: WebSocket | None,
 ) -> BuilderRuntimeContext:
     """Build the dependency bundle used by builder-specific runtime helpers."""
+    target_repo = settings_snapshot.get("target_repo", "")
 
     def process_started(process: subprocess.Popen) -> None:
         global _active_process
@@ -486,8 +487,21 @@ def _builder_runtime_context(
     def get_active_project_id() -> str | None:
         return frozen_proj_id
 
+    def get_builder_session(
+        repo_key: str,
+        *,
+        scope: str = "builder",
+        purpose: str | None = None,
+    ) -> str | None:
+        return _get_chat_session(
+            repo_key,
+            repo_path=target_repo,
+            scope=scope,
+            purpose=purpose,
+        )
+
     def set_builder_session(repo_key: str, session_id: str, *, scope: str = "builder") -> None:
-        _set_chat_session(repo_key, session_id, scope=scope)
+        _set_chat_session(repo_key, session_id, repo_path=target_repo, scope=scope)
 
     def set_last_files_changed(files: list[str]) -> None:
         record_last_task_files(owner_ws, files)
@@ -500,7 +514,7 @@ def _builder_runtime_context(
         capture_repo_change_snapshot=_capture_repo_change_snapshot,
         forward_codex_stream_line=_forward_codex_stream_line,
         get_active_project_id=get_active_project_id,
-        get_chat_session=_get_chat_session,
+        get_chat_session=get_builder_session,
         get_settings_snapshot=lambda: dict(settings_snapshot),
         is_task_cancelled=is_task_cancelled,
         load_project_memory=_load_project_memory,
@@ -552,6 +566,7 @@ def _run_codex_session_thread(ws: WebSocket, user_text: str) -> None:
 
 def _review_runtime_context(settings_snapshot: dict[str, Any]) -> ReviewRuntimeContext:
     """Build the small dependency bundle used by review-specific helpers."""
+    target_repo = settings_snapshot.get("target_repo", "")
 
     def process_started(process: subprocess.Popen) -> None:
         global _active_process
@@ -568,7 +583,7 @@ def _review_runtime_context(settings_snapshot: dict[str, Any]) -> ReviewRuntimeC
         return _task_cancelled
 
     def store_review_session(repo_key: str, session_id: str) -> None:
-        _set_chat_session(repo_key, session_id, scope="review")
+        _set_chat_session(repo_key, session_id, repo_path=target_repo, scope="review")
 
     return ReviewRuntimeContext(
         build_cli_env=_build_cli_env,
@@ -693,7 +708,7 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
         ),
     })
 
-    first_session_id = _get_chat_session(repo_key, scope="review")
+    first_session_id = _get_chat_session(repo_key, repo_path=target_repo, scope="review")
 
     try:
         # ── STEP 1: Reviewer 1 ────────────────────────────────────
@@ -751,7 +766,11 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                     agent_label=second_step_label,
                     repo_key=repo_key,
                     send=send,
-                    prior_session_id=_get_chat_session(repo_key, scope="review"),
+                    prior_session_id=_get_chat_session(
+                        repo_key,
+                        repo_path=target_repo,
+                        scope="review",
+                    ),
                     rate_limit_source="review_stream",
                 )
             else:
@@ -792,7 +811,11 @@ def _run_review_thread(ws: WebSocket, scope: str, focus: str, custom_scope: str,
                     effort=effort,
                     repo_key=repo_key,
                     send=send,
-                    prior_session_id=_get_chat_session(repo_key, scope="review"),
+                    prior_session_id=_get_chat_session(
+                        repo_key,
+                        repo_path=target_repo,
+                        scope="review",
+                    ),
                     first_label=_review_display_name(review_first),
                     second_label=_review_display_name(review_second),
                     first_review=first_review,
