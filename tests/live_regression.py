@@ -60,6 +60,11 @@ except ImportError:
 BASE = "http://localhost:{port}"
 WS = "ws://localhost:{port}/ws?client_session_id={sid}"
 TIMEOUT_TASK = 180  # seconds per task
+BETWEEN_TESTS_DELAY = 3.0
+FILE_SETTLE_TIMEOUT = 5.0
+
+RUN_ID = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+RUN_ROOT = Path.home() / "Downloads" / f"omads-live-regression-{RUN_ID}"
 
 TRIAL_DIRS = [
     "omads-trial-auto-codex",
@@ -71,6 +76,16 @@ TRIAL_DIRS = [
     "omads-trial-cli-to-claude",
 ]
 
+TRIAL_PROJECT_LABELS = {
+    "omads-trial-auto-codex": "Auto Codex",
+    "omads-trial-auto-claude": "Auto Claude",
+    "omads-trial-manual-review-claude": "Manual Review Claude",
+    "omads-trial-manual-review-codex": "Manual Review Codex",
+    "omads-trial-project-a": "Trial A",
+    "omads-trial-project-b": "Trial B",
+    "omads-trial-cli-to-claude": "CLI Claude",
+}
+
 RESULTS: dict[str, str] = {}
 NOTES: dict[str, str] = {}
 
@@ -80,10 +95,11 @@ NOTES: dict[str, str] = {}
 
 
 def _trial_path(name: str) -> Path:
-    return Path.home() / "Downloads" / name
+    return RUN_ROOT / name
 
 
 def _setup_trial_repos() -> None:
+    RUN_ROOT.mkdir(parents=True, exist_ok=True)
     for name in TRIAL_DIRS:
         p = _trial_path(name)
         if p.exists():
@@ -111,10 +127,8 @@ def _setup_trial_repos() -> None:
 
 
 def _cleanup_trial_repos() -> None:
-    for name in TRIAL_DIRS:
-        p = _trial_path(name)
-        if p.exists():
-            shutil.rmtree(p, ignore_errors=True)
+    if RUN_ROOT.exists():
+        shutil.rmtree(RUN_ROOT, ignore_errors=True)
 
 
 async def ensure_project_registered(client: "httpx.AsyncClient", base: str, name: str, path: str):
@@ -137,6 +151,23 @@ async def ensure_project_registered(client: "httpx.AsyncClient", base: str, name
                     return candidate, "reused"
 
     return None, error or "Unknown project API response"
+
+
+async def register_trial_projects(port: int) -> None:
+    """Register the run-local repos so the suite follows the normal GUI path."""
+    base = BASE.format(port=port)
+    async with httpx.AsyncClient() as client:
+        for trial_name in TRIAL_DIRS:
+            if trial_name not in TRIAL_PROJECT_LABELS:
+                continue
+            project, note = await ensure_project_registered(
+                client,
+                base,
+                TRIAL_PROJECT_LABELS[trial_name],
+                str(_trial_path(trial_name)),
+            )
+            status = "ready" if project else "unavailable"
+            print(f"  Project {TRIAL_PROJECT_LABELS[trial_name]}: {status} ({note})")
 
 
 async def ws_connect(port: int, sid: str | None = None):
@@ -185,6 +216,22 @@ async def send_review(ws, scope: str = "project", focus: str = "security") -> li
 async def send_apply_fixes(ws) -> list[dict]:
     await ws.send(json.dumps({"type": "apply_fixes"}))
     return await _collect_until_unlock(ws)
+
+
+async def wait_for_file(path: Path, timeout: float = FILE_SETTLE_TIMEOUT) -> bool:
+    """Wait briefly for one file to become visible after the UI unlocks."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        await asyncio.sleep(0.25)
+    return path.exists()
+
+
+async def pause_between_tests(reason: str) -> None:
+    """Insert a short human-like pause between test cases."""
+    print(f"  Waiting {BETWEEN_TESTS_DELAY:.0f}s ({reason})...")
+    await asyncio.sleep(BETWEEN_TESTS_DELAY)
 
 
 def has_event(events: list[dict], etype: str) -> bool:
@@ -257,13 +304,14 @@ async def test_1(port: int) -> None:
         text = event_text(events)
         has_unlock = has_event(events, "unlock")
         has_error = has_event(events, "task_error")
-        file_ok = (_trial_path("omads-trial-auto-codex") / "unsafe_calc.py").exists()
+        fp = _trial_path("omads-trial-auto-codex") / "unsafe_calc.py"
+        file_ok = await wait_for_file(fp)
 
         if has_error and _is_codex_quota_error(text):
             record(1, "Auto review Codex -> Claude -> Codex",
                    "BLOCKED (provider quota/auth)", "Codex quota exhausted")
         elif has_unlock and file_ok:
-            content = (_trial_path("omads-trial-auto-codex") / "unsafe_calc.py").read_text()
+            content = fp.read_text()
             safe = "sk-test-demo" not in content and "eval(input" not in content
             record(1, "Auto review Codex -> Claude -> Codex",
                    "PASS" if safe else "FAIL",
@@ -302,7 +350,7 @@ async def test_2(port: int) -> None:
         has_unlock = has_event(events, "unlock")
         has_error = has_event(events, "task_error")
         fp = _trial_path("omads-trial-auto-claude") / "unsafe_calc.py"
-        file_ok = fp.exists()
+        file_ok = await wait_for_file(fp)
 
         if has_error and _is_codex_quota_error(text):
             record(2, "Auto review Claude -> Codex -> Claude",
@@ -492,7 +540,7 @@ async def test_6(port: int) -> None:
         print("  Creating marker in project A...")
         await send_chat(ws, 'Create a file named project_a_marker.txt with the single line '
                              '"project a ok". Do nothing else. Reply with only "done".')
-        a_ok = (_trial_path("omads-trial-project-a") / "project_a_marker.txt").exists()
+        a_ok = await wait_for_file(_trial_path("omads-trial-project-a") / "project_a_marker.txt")
         print(f"    project_a_marker.txt exists: {a_ok}")
 
         await asyncio.sleep(1.5)
@@ -501,7 +549,7 @@ async def test_6(port: int) -> None:
         print("  Creating marker in project B...")
         await send_chat(ws, 'Create a file named project_b_marker.txt with the single line '
                              '"project b ok". Do nothing else. Reply with only "done".')
-        b_ok = (_trial_path("omads-trial-project-b") / "project_b_marker.txt").exists()
+        b_ok = await wait_for_file(_trial_path("omads-trial-project-b") / "project_b_marker.txt")
         print(f"    project_b_marker.txt exists: {b_ok}")
 
         cross_a = (_trial_path("omads-trial-project-b") / "project_a_marker.txt").exists()
@@ -572,7 +620,7 @@ async def test_8(port: int) -> None:
             "Create a file named handover_test.txt with the content 'HANDOVER-42'. "
             "Reply with only: done.")
         a_ok = has_event(ev1, "unlock")
-        file_ok = (_trial_path("omads-trial-cli-to-claude") / "handover_test.txt").exists()
+        file_ok = await wait_for_file(_trial_path("omads-trial-cli-to-claude") / "handover_test.txt")
         print(f"    File created: {file_ok}, unlock: {a_ok}")
 
         await asyncio.sleep(1.5)
@@ -611,6 +659,7 @@ async def main(port: int) -> int:
     print(f"\nOMADS Live Regression Test Suite")
     print(f"Port: {port}")
     print(f"Date: {time.strftime('%Y-%m-%d %H:%M')}")
+    print(f"Run workspace: {RUN_ROOT}")
 
     # Check OMADS is running
     try:
@@ -634,13 +683,22 @@ async def main(port: int) -> int:
     _setup_trial_repos()
 
     try:
+        await register_trial_projects(port)
+        await pause_between_tests("letting the GUI settle before the first task")
         await test_1(port)
+        await pause_between_tests("matching the normal pause before switching to the next project")
         await test_2(port)
+        await pause_between_tests("letting provider state settle before manual review")
         await test_3(port)
+        await pause_between_tests("switching review order")
         await test_4(port)
+        await pause_between_tests("starting the dialogue test")
         await test_5(port)
+        await pause_between_tests("switching into the project isolation test")
         await test_6(port)
+        await pause_between_tests("starting the provider sanity check")
         await test_7(port)
+        await pause_between_tests("starting the handover test")
         await test_8(port)
     finally:
         _cleanup_trial_repos()
