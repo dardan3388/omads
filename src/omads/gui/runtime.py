@@ -337,13 +337,25 @@ async def broadcast(msg: dict) -> None:
                 _connection_last_task_files.pop(ws, None)
 
 
+def _sanitize_timeline_event(msg: dict) -> dict:
+    """Strip large payload fields before persisting to the timeline."""
+    event = dict(msg)
+    detail = event.get("detail")
+    if isinstance(detail, str) and len(detail) > 500:
+        event["detail"] = detail[:500] + "…"
+    text = event.get("text")
+    if isinstance(text, str) and len(text) > 8000:
+        event["text"] = text[:8000] + "…"
+    return event
+
+
 def broadcast_sync(msg: dict, *, proj_id_override: str | None = None) -> None:
     """Synchronous wrapper for `broadcast` used from worker threads."""
     # Persist all live runtime events through the unified per-project timeline.
     proj_id = proj_id_override or _get_active_project_id()
     if proj_id:
         try:
-            _append_timeline_event(proj_id, dict(msg))
+            _append_timeline_event(proj_id, _sanitize_timeline_event(msg))
         except Exception:
             logging.getLogger("omads").debug("Timeline write failed for %s", proj_id, exc_info=True)
     with _connections_lock:
@@ -369,7 +381,7 @@ def send_to_ws_sync(
     proj_id = proj_id_override or _project_id_from_settings_snapshot(get_connection_settings_snapshot(ws))
     if proj_id:
         try:
-            _append_timeline_event(proj_id, dict(msg))
+            _append_timeline_event(proj_id, _sanitize_timeline_event(msg))
         except Exception:
             logging.getLogger("omads").debug("Timeline write failed for %s", proj_id, exc_info=True)
 

@@ -47,6 +47,7 @@ export function renderProjects() {
         </div>
         <div style="display:flex;align-items:center;gap:4px;">
           <button class="gh-git-btn" data-path="${esc(project.path)}" data-name="${esc(project.name)}" title="Git operations">Git</button>
+          <button class="btn-clear-context" data-id="${esc(project.id)}" data-name="${esc(project.name)}" title="Clear conversation history" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:12px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='var(--cyan)'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&#x1F5D1;</button>
           <button class="btn-delete-project" data-id="${esc(project.id)}" data-name="${esc(project.name)}" title="Delete project" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 4px;opacity:0.4;transition:opacity .2s;" onmouseenter="this.style.opacity='1';this.style.color='#e74c3c'" onmouseleave="this.style.opacity='0.4';this.style.color='var(--text-dim)'">&times;</button>
         </div>
       </div>
@@ -56,6 +57,13 @@ export function renderProjects() {
       gitBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         openGitOps(gitBtn.dataset.path, gitBtn.dataset.name);
+      });
+    }
+    const clearBtn = div.querySelector(".btn-clear-context");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        clearProjectContext(clearBtn.dataset.id, clearBtn.dataset.name);
       });
     }
     const deleteBtn = div.querySelector(".btn-delete-project");
@@ -98,6 +106,21 @@ export async function deleteProject(projectId, projectName) {
     await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
     if (appState.activeProjectId === projectId) appState.activeProjectId = null;
     await loadProjects();
+  } catch {}
+}
+
+async function clearProjectContext(projectId, projectName) {
+  if (!confirm(`Clear conversation history for "${projectName}"?\nThis removes all chat and log entries but keeps the project.`)) return;
+  try {
+    await fetch(`/api/projects/${projectId}/clear-context`, { method: "POST" });
+    if (appState.activeProjectId === projectId) {
+      el("stream").innerHTML = `<div class="msg-system">Context cleared. Start fresh!</div>`;
+      el("livelogContent").innerHTML = '<div class="livelog-empty">Waiting for activity...</div>';
+      appState.timelineEntries = [];
+      appState.timelineHasMore = false;
+      appState.timelineNextBefore = null;
+      appState.timelineTotalCount = 0;
+    }
   } catch {}
 }
 
@@ -182,6 +205,7 @@ export async function createProject() {
   syncSelectedRepo(data.project.path);
   await loadProjects();
   el("stream").innerHTML = `<div class="msg-system">New project: ${esc(name)}. What should I build?</div>`;
+  el("livelogContent").innerHTML = '<div class="livelog-empty">Waiting for activity...</div>';
 }
 
 function createLoadOlderButton(label) {

@@ -574,6 +574,18 @@ async function doCloneAndReview(fullName, targetDir) {
 
     info.innerHTML = `<div class="gh-success">Cloned! Starting review...</div>`;
     await loadProjects();
+
+    // Actually start the review after cloning
+    if (appState.ws && appState.ws.readyState === WebSocket.OPEN) {
+      appState.ws.send(JSON.stringify({
+        type: "review",
+        scope: "project",
+        focus: "all",
+        custom_scope: "",
+        custom_focus: "",
+      }));
+    }
+
     setTimeout(() => closeGitHub(), 1500);
   } catch (err) {
     info.innerHTML = `<div class="gh-error">Clone failed: ${esc(String(err))}</div>`;

@@ -24,6 +24,8 @@ from .state import (
     GitHubGitRequest,
     SwitchProjectRequest,
     UpdateSettingsRequest,
+    _clear_project_timeline,
+    _delete_project_data,
     _detect_lan_ip,
     _find_project_by_path,
     _get_setting,
@@ -368,6 +370,18 @@ async def delete_project(project_id: str):
     projects = _load_projects()
     projects = [p for p in projects if p["id"] != project_id]
     _save_projects(projects)
+    _delete_project_data(project_id)
+    return {"ok": True}
+
+
+@router.post("/api/projects/{project_id}/clear-context")
+async def clear_project_context(project_id: str):
+    """Clear the conversation history / timeline for one project."""
+    try:
+        _validate_project_id(project_id)
+    except ValueError:
+        return {"error": "Invalid project ID"}
+    _clear_project_timeline(project_id)
     return {"ok": True}
 
 

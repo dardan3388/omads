@@ -558,6 +558,36 @@ def _build_chat_handover_context(project_id: str) -> str:
     return "\n".join(entries)
 
 
+def _delete_project_data(project_id: str) -> None:
+    """Remove timeline, history, and log files for one project."""
+    _validate_project_id(project_id)
+    for path in (
+        _get_project_timeline_path(project_id),
+        _get_project_history_path(project_id),
+        _get_project_log_path(project_id),
+    ):
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+            pass
+
+
+def _clear_project_timeline(project_id: str) -> None:
+    """Clear the timeline for one project (user-initiated context reset)."""
+    _validate_project_id(project_id)
+    for path in (
+        _get_project_timeline_path(project_id),
+        _get_project_history_path(project_id),
+        _get_project_log_path(project_id),
+    ):
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+            pass
+
+
 def _find_project_by_path(path: str) -> dict | None:
     """Find one project by its path."""
     resolved = str(Path(path).resolve())
