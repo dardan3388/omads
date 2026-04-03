@@ -278,6 +278,16 @@ def test_update_settings_persists_codex_execution_mode(client: TestClient, isola
     assert client.get("/api/settings").json()["codex_execution_mode"] == "full-auto"
 
 
+def test_update_settings_drops_codex_specific_model_variants(client: TestClient, isolated_server):
+    response = client.post(
+        "/api/settings",
+        json={"codex_model": "gpt-5.3-Codex"},
+    )
+    assert response.status_code == 200
+    assert response.json()["settings"]["codex_model"] == ""
+    assert client.get("/api/settings").json()["codex_model"] == ""
+
+
 def test_session_settings_websocket_patch_keeps_claude_permission_mode(isolated_server):
     normalized = websocket._normalize_session_settings(
         {
@@ -298,6 +308,16 @@ def test_session_settings_websocket_patch_keeps_codex_execution_mode(isolated_se
     assert normalized["codex_execution_mode"] == "read-only"
 
 
+def test_session_settings_websocket_patch_drops_codex_specific_model_variants(isolated_server):
+    normalized = websocket._normalize_session_settings(
+        {
+            "codex_model": "gpt-5.3-Codex",
+        }
+    )
+
+    assert normalized["codex_model"] == ""
+
+
 def test_load_config_coerces_legacy_boolean_strings(isolated_server):
     state._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     state._CONFIG_PATH.write_text(
@@ -307,6 +327,7 @@ def test_load_config_coerces_legacy_boolean_strings(isolated_server):
                 "auto_review": "true",
                 "lan_access": "1",
                 "claude_permission_mode": "bypass",
+                "codex_model": "gpt-5.3-Codex",
                 "codex_execution_mode": "full_auto",
             }
         ),
@@ -319,6 +340,7 @@ def test_load_config_coerces_legacy_boolean_strings(isolated_server):
     assert loaded["auto_review"] is True
     assert loaded["lan_access"] is True
     assert loaded["claude_permission_mode"] == "bypassPermissions"
+    assert loaded["codex_model"] == ""
     assert loaded["codex_execution_mode"] == "full-auto"
 
 

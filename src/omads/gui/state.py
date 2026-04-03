@@ -204,6 +204,18 @@ def _normalize_codex_execution_mode(value: Any, *, default: str = "default") -> 
     return default
 
 
+def _normalize_codex_model(value: Any, *, default: str = "") -> str:
+    """Normalize Codex model names and drop account-incompatible Codex-specific variants."""
+    if not isinstance(value, str):
+        return default
+    normalized = value.strip()
+    if not normalized:
+        return default
+    if "codex" in normalized.lower():
+        return default
+    return normalized
+
+
 class _RequestModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -269,6 +281,10 @@ def _load_config() -> dict[str, Any]:
     settings["claude_permission_mode"] = _normalize_claude_permission_mode(
         settings.get("claude_permission_mode"),
         default=_DEFAULT_SETTINGS["claude_permission_mode"],
+    )
+    settings["codex_model"] = _normalize_codex_model(
+        settings.get("codex_model"),
+        default=_DEFAULT_SETTINGS["codex_model"],
     )
     settings["codex_execution_mode"] = _normalize_codex_execution_mode(
         settings.get("codex_execution_mode"),

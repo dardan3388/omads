@@ -61,11 +61,11 @@ def _normalize_session_settings(payload: dict[str, Any]) -> dict[str, Any]:
     elif claude_permission_mode == "auto-accept":
         normalized["claude_permission_mode"] = "auto"
     elif claude_permission_mode == "bypass":
-        normalized["claude_permission_mode"] = "bypassPermissions"
+            normalized["claude_permission_mode"] = "bypassPermissions"
 
     codex_model = payload.get("codex_model")
     if isinstance(codex_model, str):
-        normalized["codex_model"] = codex_model
+        normalized["codex_model"] = state._normalize_codex_model(codex_model, default="")
 
     codex_reasoning = payload.get("codex_reasoning")
     if codex_reasoning in {"low", "medium", "high", "xhigh"}:

@@ -1016,8 +1016,15 @@
       <div class="section-title">Model</div>
       <div class="form-group">
         <label>Codex model</label>
-        <input type="text" id="sCodexModel" value="" placeholder="Standard (gpt-5.4)" style="font-family:monospace;">
-        <div class="hint">Leave empty to use the Codex default (`gpt-5.4`). Other options include `o4-mini`, `gpt-4.1`, and more.</div>
+        <select id="sCodexModelPreset" onchange="syncCodexModelPreset()">
+          <option value="">Default (`gpt-5.4`)</option>
+          <option value="gpt-5.4">gpt-5.4</option>
+          <option value="o4-mini">o4-mini</option>
+          <option value="gpt-4.1">gpt-4.1</option>
+          <option value="__custom__">Custom...</option>
+        </select>
+        <input type="text" id="sCodexModelCustom" value="" placeholder="Type a custom Codex model" style="font-family:monospace;display:none;margin-top:8px;">
+        <div class="hint">Pick a common model from the list, or choose Custom if you need a different one. Codex-specific variants such as `*-Codex` are filtered out when the current account does not support them.</div>
       </div>
 
       <div class="section-title">Reasoning</div>

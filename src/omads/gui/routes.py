@@ -34,6 +34,7 @@ from .state import (
     _load_projects,
     _normalize_claude_permission_mode,
     _normalize_codex_execution_mode,
+    _normalize_codex_model,
     _read_history,
     _read_log,
     _read_timeline_page,
@@ -137,6 +138,10 @@ async def update_settings(data: UpdateSettingsRequest):
         )
         if settings.get("claude_effort") not in ("low", "medium", "high", "max"):
             settings["claude_effort"] = "high"
+        settings["codex_model"] = _normalize_codex_model(
+            settings.get("codex_model"),
+            default="",
+        )
         if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
             settings["codex_reasoning"] = "high"
         settings["codex_fast"] = _coerce_bool_setting(settings.get("codex_fast"), default=False)
