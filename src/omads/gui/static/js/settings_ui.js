@@ -10,13 +10,21 @@ function parseBoolSetting(value, fallback = false) {
   return fallback;
 }
 
-export function selectCodexModel(model) {
-  const hidden = el("sCodexModel");
-  const value = (model || "").trim();
-  if (hidden) hidden.value = value;
-  document.querySelectorAll("[data-codex-model]").forEach((button) => {
-    button.classList.toggle("active", (button.dataset.codexModel || "") === value);
+function setActiveChoice(selector, datasetKey, value, hiddenId) {
+  const hidden = el(hiddenId);
+  const normalized = (value || "").trim();
+  if (hidden) hidden.value = normalized;
+  document.querySelectorAll(selector).forEach((button) => {
+    button.classList.toggle("active", (button.dataset[datasetKey] || "") === normalized);
   });
+}
+
+export function selectCodexModel(model) {
+  setActiveChoice("[data-codex-model]", "codexModel", model, "sCodexModel");
+}
+
+export function selectCodexEffort(effort) {
+  setActiveChoice("[data-codex-effort]", "codexEffort", effort, "sCodexReasoning");
 }
 
 export function switchTab(tabId) {
@@ -180,7 +188,7 @@ export async function loadSettings() {
     el("sClaude").value = settings.claude_model || "sonnet";
     el("sClaudeEffort").value = settings.claude_effort || "high";
     selectCodexModel(settings.codex_model || "");
-    el("sCodexReasoning").value = settings.codex_reasoning || "high";
+    selectCodexEffort(settings.codex_reasoning || "high");
     el("sCodexExecutionMode").value = settings.codex_execution_mode || "default";
     const codexFastEnabled = parseBoolSetting(settings.codex_fast, false);
     const autoReviewEnabled = parseBoolSetting(settings.auto_review, true);

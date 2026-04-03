@@ -27,6 +27,7 @@ import {
   saveSettings,
   switchTab,
   selectCodexModel,
+  selectCodexEffort,
   syncReviewReviewerOptions,
   toggleTheme,
 } from "./settings_ui.js";
@@ -256,6 +257,7 @@ function exposeGlobals() {
   window.closeDiffViewer = closeDiffViewer;
   window.loadDiffViewer = loadDiffViewer;
   window.selectCodexModel = selectCodexModel;
+  window.selectCodexEffort = selectCodexEffort;
   window.syncReviewReviewerOptions = syncReviewReviewerOptions;
   window.openLanModal = openLanModal;
   window.closeLanModal = closeLanModal;

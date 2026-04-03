@@ -1095,7 +1095,7 @@
         <label>Codex model</label>
         <div class="codex-model-picker">
           <div class="codex-model-header">
-            <div class="codex-model-title">Select Model and Effort</div>
+            <div class="codex-model-title">Select Model</div>
             <div class="codex-model-subtitle">Access legacy models by running <code>codex -m &lt;model_name&gt;</code> or in your <code>config.toml</code>.</div>
           </div>
           <div class="codex-model-list" id="codexModelList">
@@ -1143,13 +1143,36 @@
       <div class="section-title">Reasoning</div>
       <div class="form-group">
         <label>Reasoning effort</label>
-        <select id="sCodexReasoning">
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High (default)</option>
-          <option value="xhigh">XHigh (most thorough)</option>
-        </select>
-        <div class="hint">Controls how deeply Codex reasons. XHigh is usually the most thorough, but also slower.</div>
+        <div class="codex-model-picker">
+          <div class="codex-model-header">
+            <div class="codex-model-title">Select Reasoning Effort</div>
+            <div class="codex-model-subtitle">Matches the Codex CLI effort selector and controls how deeply Codex thinks before responding.</div>
+          </div>
+          <div class="codex-model-list">
+            <button type="button" class="codex-model-choice" data-codex-effort="low" onclick="selectCodexEffort('low')">
+              <span class="choice-num">1.</span>
+              <span class="choice-label">low</span>
+              <span class="choice-desc">Fastest, least thorough.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-effort="medium" onclick="selectCodexEffort('medium')">
+              <span class="choice-num">2.</span>
+              <span class="choice-label">medium</span>
+              <span class="choice-desc">Balanced default for most tasks.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-effort="high" onclick="selectCodexEffort('high')">
+              <span class="choice-num">3.</span>
+              <span class="choice-label">high <span class="choice-tag">default</span></span>
+              <span class="choice-desc">Strong default for most tasks.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-effort="xhigh" onclick="selectCodexEffort('xhigh')">
+              <span class="choice-num">4.</span>
+              <span class="choice-label">xhigh</span>
+              <span class="choice-desc">Most thorough, slower.</span>
+            </button>
+          </div>
+          <input type="hidden" id="sCodexReasoning" value="high">
+        </div>
+        <div class="hint">Higher values usually improve results but take longer.</div>
       </div>
 
       <div class="section-title">Execution</div>
