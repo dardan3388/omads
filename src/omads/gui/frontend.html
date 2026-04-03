@@ -496,6 +496,83 @@
     font-family: inherit; font-size: 13px;
   }
   .form-group select:focus, .form-group input:focus { outline: none; border-color: var(--blue); }
+  .codex-model-picker {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    overflow: hidden;
+  }
+  .codex-model-header {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .codex-model-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .codex-model-subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+  .codex-model-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .codex-model-choice {
+    appearance: none;
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    padding: 10px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1.2fr) minmax(0, 1.4fr);
+    gap: 10px;
+    align-items: start;
+  }
+  .codex-model-choice:last-child { border-bottom: none; }
+  .codex-model-choice:hover { background: rgba(255,255,255,0.04); }
+  .codex-model-choice.active {
+    background: rgba(86,182,194,0.14);
+    color: var(--cyan);
+  }
+  .codex-model-choice .choice-num {
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--text-dim);
+    padding-top: 1px;
+  }
+  .codex-model-choice.active .choice-num { color: var(--cyan); }
+  .codex-model-choice .choice-label {
+    font-size: 13px;
+    font-weight: bold;
+    line-height: 1.35;
+  }
+  .codex-model-choice .choice-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.45;
+  }
+  .codex-model-choice.active .choice-desc { color: var(--cyan); }
+  .codex-model-choice .choice-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(86,182,194,0.5);
+    color: var(--cyan);
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
   .btn-m {
     padding: 7px 18px; border-radius: 6px; border: none;
@@ -1016,15 +1093,51 @@
       <div class="section-title">Model</div>
       <div class="form-group">
         <label>Codex model</label>
-        <select id="sCodexModelPreset" onchange="syncCodexModelPreset()">
-          <option value="">Default (`gpt-5.4`)</option>
-          <option value="gpt-5.4">gpt-5.4</option>
-          <option value="o4-mini">o4-mini</option>
-          <option value="gpt-4.1">gpt-4.1</option>
-          <option value="__custom__">Custom...</option>
-        </select>
-        <input type="text" id="sCodexModelCustom" value="" placeholder="Type a custom Codex model" style="font-family:monospace;display:none;margin-top:8px;">
-        <div class="hint">Pick a common model from the list, or choose Custom if you need a different one. Codex-specific variants such as `*-Codex` are filtered out when the current account does not support them.</div>
+        <div class="codex-model-picker">
+          <div class="codex-model-header">
+            <div class="codex-model-title">Select Model and Effort</div>
+            <div class="codex-model-subtitle">Access legacy models by running <code>codex -m &lt;model_name&gt;</code> or in your <code>config.toml</code>.</div>
+          </div>
+          <div class="codex-model-list" id="codexModelList">
+            <button type="button" class="codex-model-choice" data-codex-model="" onclick="selectCodexModel('')">
+              <span class="choice-num">1.</span>
+              <span class="choice-label">gpt-5.4 <span class="choice-tag">default</span></span>
+              <span class="choice-desc">Latest frontier agentic coding model.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.4-mini" onclick="selectCodexModel('gpt-5.4-mini')">
+              <span class="choice-num">2.</span>
+              <span class="choice-label">gpt-5.4-mini</span>
+              <span class="choice-desc">Smaller frontier agentic coding model.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.3-codex" onclick="selectCodexModel('gpt-5.3-codex')">
+              <span class="choice-num">3.</span>
+              <span class="choice-label">gpt-5.3-codex</span>
+              <span class="choice-desc">Frontier Codex-optimized agentic coding model.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.2-codex" onclick="selectCodexModel('gpt-5.2-codex')">
+              <span class="choice-num">4.</span>
+              <span class="choice-label">gpt-5.2-codex</span>
+              <span class="choice-desc">Frontier agentic coding model.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.2" onclick="selectCodexModel('gpt-5.2')">
+              <span class="choice-num">5.</span>
+              <span class="choice-label">gpt-5.2</span>
+              <span class="choice-desc">Optimized for professional work and long-running agents.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.1-codex-max" onclick="selectCodexModel('gpt-5.1-codex-max')">
+              <span class="choice-num">6.</span>
+              <span class="choice-label">gpt-5.1-codex-max</span>
+              <span class="choice-desc">Codex-optimized model for deep and fast reasoning.</span>
+            </button>
+            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.1-codex-mini" onclick="selectCodexModel('gpt-5.1-codex-mini')">
+              <span class="choice-num">7.</span>
+              <span class="choice-label">gpt-5.1-codex-mini</span>
+              <span class="choice-desc">Optimized for codex. Cheaper, faster, but less capable.</span>
+            </button>
+          </div>
+          <input type="hidden" id="sCodexModel" value="">
+        </div>
+        <div class="hint">Pick one of the same models shown by the Codex CLI model picker. The selected entry is applied to every Codex run in OMADS.</div>
       </div>
 
       <div class="section-title">Reasoning</div>

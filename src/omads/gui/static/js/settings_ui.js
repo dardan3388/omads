@@ -10,53 +10,13 @@ function parseBoolSetting(value, fallback = false) {
   return fallback;
 }
 
-const CODEX_MODEL_PRESETS = new Set(["", "gpt-5.4", "o4-mini", "gpt-4.1"]);
-
-function applyCodexModelPreset(model) {
-  const preset = el("sCodexModelPreset");
-  const custom = el("sCodexModelCustom");
-  const normalized = (model || "").trim();
-
-  if (!preset || !custom) return;
-
-  if (!normalized) {
-    preset.value = "";
-    custom.value = "";
-    custom.style.display = "none";
-    return;
-  }
-
-  if (CODEX_MODEL_PRESETS.has(normalized)) {
-    preset.value = normalized;
-    custom.value = "";
-    custom.style.display = "none";
-    return;
-  }
-
-  preset.value = "__custom__";
-  custom.value = normalized;
-  custom.style.display = "block";
-}
-
-function readCodexModelPreset() {
-  const preset = el("sCodexModelPreset");
-  const custom = el("sCodexModelCustom");
-  if (!preset || !custom) return "";
-  if (preset.value === "__custom__") {
-    return custom.value.trim();
-  }
-  return preset.value;
-}
-
-export function syncCodexModelPreset() {
-  const preset = el("sCodexModelPreset");
-  const custom = el("sCodexModelCustom");
-  if (!preset || !custom) return;
-  const showCustom = preset.value === "__custom__";
-  custom.style.display = showCustom ? "block" : "none";
-  if (!showCustom) {
-    custom.value = "";
-  }
+export function selectCodexModel(model) {
+  const hidden = el("sCodexModel");
+  const value = (model || "").trim();
+  if (hidden) hidden.value = value;
+  document.querySelectorAll("[data-codex-model]").forEach((button) => {
+    button.classList.toggle("active", (button.dataset.codexModel || "") === value);
+  });
 }
 
 export function switchTab(tabId) {
@@ -219,7 +179,7 @@ export async function loadSettings() {
     el("sPerms").value = settings.claude_permission_mode || "default";
     el("sClaude").value = settings.claude_model || "sonnet";
     el("sClaudeEffort").value = settings.claude_effort || "high";
-    applyCodexModelPreset(settings.codex_model || "");
+    selectCodexModel(settings.codex_model || "");
     el("sCodexReasoning").value = settings.codex_reasoning || "high";
     el("sCodexExecutionMode").value = settings.codex_execution_mode || "default";
     const codexFastEnabled = parseBoolSetting(settings.codex_fast, false);
@@ -248,7 +208,7 @@ export async function saveSettings() {
     claude_permission_mode: el("sPerms").value,
     claude_model: el("sClaude").value,
     claude_effort: el("sClaudeEffort").value,
-    codex_model: readCodexModelPreset(),
+    codex_model: el("sCodexModel").value,
     codex_reasoning: el("sCodexReasoning").value,
     codex_execution_mode: el("sCodexExecutionMode").value,
     codex_fast: el("sCodexFast").value === "true",

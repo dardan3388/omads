@@ -65,7 +65,7 @@ def _normalize_session_settings(payload: dict[str, Any]) -> dict[str, Any]:
 
     codex_model = payload.get("codex_model")
     if isinstance(codex_model, str):
-        normalized["codex_model"] = state._normalize_codex_model(codex_model, default="")
+        normalized["codex_model"] = codex_model.strip()
 
     codex_reasoning = payload.get("codex_reasoning")
     if codex_reasoning in {"low", "medium", "high", "xhigh"}:
