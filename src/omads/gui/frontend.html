@@ -980,12 +980,12 @@
       <div class="form-group">
         <label>Permission mode</label>
         <select id="sPerms">
-          <option value="default">Default (asks when needed)</option>
-          <option value="auto">Auto-accept (approves everything)</option>
-          <option value="plan">Plan mode (read-only, no writing)</option>
-          <option value="bypassPermissions">Bypass (no checks)</option>
+          <option value="default">Default (`--permission-mode default`)</option>
+          <option value="auto">Auto-accept (`--permission-mode auto`)</option>
+          <option value="plan">Plan mode (`--permission-mode plan`)</option>
+          <option value="bypassPermissions">Bypass (`--permission-mode bypassPermissions`)</option>
         </select>
-        <div class="hint">Auto-accept lets Claude proceed without asking. Use it only for trusted projects.</div>
+        <div class="hint">This setting is passed directly to Claude Code via `--permission-mode`, so the selected mode now takes effect on the next run.</div>
       </div>
 
       <div class="section-title">Reasoning</div>
