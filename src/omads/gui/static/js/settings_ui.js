@@ -1,5 +1,15 @@
 import { appState, el, esc, sessionApiUrl, shortPath } from "./shared.js";
 
+function parseBoolSetting(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return fallback;
+}
+
 export function switchTab(tabId) {
   document.querySelectorAll(".tab-content").forEach((tab) => tab.classList.remove("active"));
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.remove("active"));
@@ -162,16 +172,19 @@ export async function loadSettings() {
     el("sClaudeEffort").value = settings.claude_effort || "high";
     el("sCodexModel").value = settings.codex_model || "";
     el("sCodexReasoning").value = settings.codex_reasoning || "high";
-    el("sCodexFast").value = settings.codex_fast ? "true" : "false";
-    el("sAutoReview").value = settings.auto_review !== false ? "true" : "false";
+    const codexFastEnabled = parseBoolSetting(settings.codex_fast, false);
+    const autoReviewEnabled = parseBoolSetting(settings.auto_review, true);
+    const lanAccessEnabled = parseBoolSetting(settings.lan_access, false);
+    el("sCodexFast").value = codexFastEnabled ? "true" : "false";
+    el("sAutoReview").value = autoReviewEnabled ? "true" : "false";
     el("sTheme").value = settings.ui_theme || "dark";
-    el("sLanAccess").value = settings.lan_access ? "true" : "false";
+    el("sLanAccess").value = lanAccessEnabled ? "true" : "false";
     const lanGroup = el("lanInfoGroup");
-    if (lanGroup) lanGroup.style.display = settings.lan_access ? "block" : "none";
+    if (lanGroup) lanGroup.style.display = lanAccessEnabled ? "block" : "none";
     applyTheme(settings.ui_theme || "dark");
     applyBuilderAgent(settings.builder_agent || "claude");
     applyReviewPipeline(settings.review_first_reviewer || "claude", settings.review_second_reviewer || "codex");
-    applyAutoReviewEnabled(settings.auto_review !== false);
+    applyAutoReviewEnabled(autoReviewEnabled);
   } catch {}
 }
 

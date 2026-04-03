@@ -18,6 +18,24 @@ from .streaming import extract_codex_changed_files, parse_claude_stream_line
 _REAL_THREAD = threading.Thread
 
 
+def _coerce_bool(value: object, default: bool = False) -> bool:
+    """Parse one potentially legacy bool-like setting value."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _codex_service_tier_arg(codex_fast: object) -> str:
+    """Return an explicit service-tier override so local config cannot shadow GUI settings."""
+    return 'service_tier="fast"' if _coerce_bool(codex_fast, default=False) else 'service_tier="flex"'
+
+
 def _validate_target_repo(target_repo: str) -> None:
     """Raise early if the target repository directory does not exist."""
     if not Path(target_repo).is_dir():
@@ -600,8 +618,7 @@ def run_codex_session_thread(
             cmd.extend(["-m", codex_model])
         if codex_reasoning:
             cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
-        if codex_fast:
-            cmd.extend(["-c", 'service_tier="fast"'])
+        cmd.extend(["-c", _codex_service_tier_arg(codex_fast)])
         cmd.append("-")
 
         if ctx.is_task_cancelled():
@@ -726,8 +743,7 @@ def run_codex_session_thread(
                     fix_cmd.extend(["-m", codex_model])
                 if codex_reasoning:
                     fix_cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
-                if codex_fast:
-                    fix_cmd.extend(["-c", 'service_tier="fast"'])
+                fix_cmd.extend(["-c", _codex_service_tier_arg(codex_fast)])
                 fix_cmd.append("-")
 
                 if ctx.is_task_cancelled():
@@ -868,8 +884,7 @@ If there are no issues, write exactly: "No issues found."
             cmd.extend(["-m", codex_model])
         if codex_reasoning:
             cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
-        if codex_fast:
-            cmd.extend(["-c", 'service_tier="fast"'])
+        cmd.extend(["-c", _codex_service_tier_arg(codex_fast)])
         cmd.append("-")
 
         send({"type": "stream_text", "agent": breaker_label, "text": f"Starting review: {file_list}"})

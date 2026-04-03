@@ -13,6 +13,7 @@ from typing import Callable
 from .builder_flow import (
     _build_codex_empty_output_warning,
     _build_codex_failure_detail,
+    _codex_service_tier_arg,
     _scrub_token_errors,
 )
 from .streaming import strip_fixes_needed_marker
@@ -377,8 +378,7 @@ def run_codex_manual_review_step(
         cmd.extend(["-m", codex_model])
     if codex_reasoning:
         cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
-    if codex_fast:
-        cmd.extend(["-c", 'service_tier="fast"'])
+    cmd.extend(["-c", _codex_service_tier_arg(codex_fast)])
     cmd.append("-")
 
     if ctx.is_task_cancelled():
@@ -582,8 +582,7 @@ def run_codex_manual_synthesis_step(
         cmd.extend(["-m", codex_model])
     if codex_reasoning:
         cmd.extend(["-c", f'model_reasoning_effort="{codex_reasoning}"'])
-    if codex_fast:
-        cmd.extend(["-c", 'service_tier="fast"'])
+    cmd.extend(["-c", _codex_service_tier_arg(codex_fast)])
     cmd.append("-")
 
     if ctx.is_task_cancelled():

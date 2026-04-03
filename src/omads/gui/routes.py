@@ -24,6 +24,7 @@ from .state import (
     GitHubGitRequest,
     SwitchProjectRequest,
     UpdateSettingsRequest,
+    _coerce_bool_setting,
     _clear_project_timeline,
     _delete_project_data,
     _detect_lan_ip,
@@ -131,6 +132,9 @@ async def update_settings(data: UpdateSettingsRequest):
             settings["claude_effort"] = "high"
         if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
             settings["codex_reasoning"] = "high"
+        settings["codex_fast"] = _coerce_bool_setting(settings.get("codex_fast"), default=False)
+        settings["auto_review"] = _coerce_bool_setting(settings.get("auto_review"), default=True)
+        settings["lan_access"] = _coerce_bool_setting(settings.get("lan_access"), default=False)
         if settings.get("ui_theme") not in ("dark", "light"):
             settings["ui_theme"] = "dark"
 

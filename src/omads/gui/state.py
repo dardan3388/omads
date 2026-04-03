@@ -159,6 +159,22 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 
+def _coerce_bool_setting(value: Any, *, default: bool) -> bool:
+    """Convert legacy string/int bool-like values into strict booleans."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return default
+    if isinstance(value, int):
+        return value != 0
+    return default
+
+
 class _RequestModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -208,6 +224,18 @@ def _load_config() -> dict[str, Any]:
             settings.update(saved)
         except (json.JSONDecodeError, OSError):
             pass
+    settings["codex_fast"] = _coerce_bool_setting(
+        settings.get("codex_fast"),
+        default=_DEFAULT_SETTINGS["codex_fast"],
+    )
+    settings["auto_review"] = _coerce_bool_setting(
+        settings.get("auto_review"),
+        default=_DEFAULT_SETTINGS["auto_review"],
+    )
+    settings["lan_access"] = _coerce_bool_setting(
+        settings.get("lan_access"),
+        default=_DEFAULT_SETTINGS["lan_access"],
+    )
     return settings
 
 

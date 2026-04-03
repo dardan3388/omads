@@ -250,6 +250,26 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     assert settings["review_second_reviewer"] == "claude"
 
 
+def test_load_config_coerces_legacy_boolean_strings(isolated_server):
+    state._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    state._CONFIG_PATH.write_text(
+        json.dumps(
+            {
+                "codex_fast": "false",
+                "auto_review": "true",
+                "lan_access": "1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = state._load_config()
+
+    assert loaded["codex_fast"] is False
+    assert loaded["auto_review"] is True
+    assert loaded["lan_access"] is True
+
+
 def test_project_endpoints_enforce_home_boundary_and_missing_paths(
     client: TestClient,
     isolated_server,
@@ -1095,6 +1115,74 @@ def test_codex_builder_task_emits_output_and_unlock(isolated_server, monkeypatch
 
     assert any(msg["type"] == "agent_status" and msg.get("agent") == "Codex" for msg in messages)
     assert any(msg["type"] == "stream_text" and msg.get("text") == "Implemented the requested change." for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_codex_builder_uses_fast_service_tier_when_enabled(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    commands: list[list[str]] = []
+    process = DummyProcess(lines=[
+        json.dumps({
+            "type": "item.completed",
+            "item": {"text": "Done."},
+        }) + "\n"
+    ])
+
+    def popen(*args, **kwargs):
+        commands.append(list(args[0]))
+        return process
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+    state._update_settings(lambda settings: settings.update({"codex_fast": True, "auto_review": False}))
+
+    runtime._run_codex_session_thread(None, "Implement a small feature")
+
+    assert commands
+    codex_commands = [cmd for cmd in commands if cmd and cmd[0] == "codex"]
+    assert codex_commands
+    assert 'service_tier="fast"' in codex_commands[0]
+    assert 'service_tier="flex"' not in codex_commands[0]
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_codex_builder_uses_flex_service_tier_when_fast_mode_disabled(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    commands: list[list[str]] = []
+    process = DummyProcess(lines=[
+        json.dumps({
+            "type": "item.completed",
+            "item": {"text": "Done."},
+        }) + "\n"
+    ])
+
+    def popen(*args, **kwargs):
+        commands.append(list(args[0]))
+        return process
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+    # Simulate a legacy string value to ensure command generation still normalizes correctly.
+    state._update_settings(lambda settings: settings.update({"codex_fast": "false", "auto_review": False}))
+
+    runtime._run_codex_session_thread(None, "Implement a small feature")
+
+    assert commands
+    codex_commands = [cmd for cmd in commands if cmd and cmd[0] == "codex"]
+    assert codex_commands
+    assert 'service_tier="flex"' in codex_commands[0]
+    assert 'service_tier="fast"' not in codex_commands[0]
     assert any(msg["type"] == "unlock" for msg in messages)
 
 
