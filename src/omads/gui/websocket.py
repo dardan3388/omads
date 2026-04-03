@@ -55,6 +55,14 @@ def _normalize_session_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if claude_effort in {"low", "medium", "high", "max"}:
         normalized["claude_effort"] = claude_effort
 
+    claude_permission_mode = payload.get("claude_permission_mode")
+    if claude_permission_mode in {"default", "auto", "plan", "bypassPermissions"}:
+        normalized["claude_permission_mode"] = claude_permission_mode
+    elif claude_permission_mode == "auto-accept":
+        normalized["claude_permission_mode"] = "auto"
+    elif claude_permission_mode == "bypass":
+        normalized["claude_permission_mode"] = "bypassPermissions"
+
     codex_model = payload.get("codex_model")
     if isinstance(codex_model, str):
         normalized["codex_model"] = codex_model

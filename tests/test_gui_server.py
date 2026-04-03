@@ -268,6 +268,16 @@ def test_update_settings_persists_claude_permission_mode(client: TestClient, iso
     assert client.get("/api/settings").json()["claude_permission_mode"] == "auto"
 
 
+def test_session_settings_websocket_patch_keeps_claude_permission_mode(isolated_server):
+    normalized = websocket._normalize_session_settings(
+        {
+            "claude_permission_mode": "plan",
+        }
+    )
+
+    assert normalized["claude_permission_mode"] == "plan"
+
+
 def test_load_config_coerces_legacy_boolean_strings(isolated_server):
     state._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     state._CONFIG_PATH.write_text(
