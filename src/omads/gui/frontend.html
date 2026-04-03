@@ -522,7 +522,6 @@
     flex-direction: column;
   }
   .codex-model-choice {
-    appearance: none;
     width: 100%;
     border: none;
     border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -533,12 +532,17 @@
     cursor: pointer;
     font-family: inherit;
     display: grid;
-    grid-template-columns: 34px minmax(0, 1.2fr) minmax(0, 1.4fr);
+    grid-template-columns: 20px minmax(0, 1.2fr) minmax(0, 1.4fr);
     gap: 10px;
     align-items: start;
   }
   .codex-model-choice:last-child { border-bottom: none; }
   .codex-model-choice:hover { background: rgba(255,255,255,0.04); }
+  .codex-model-choice:focus-within { background: rgba(86,182,194,0.10); }
+  .codex-model-choice input[type="radio"] {
+    margin-top: 2px;
+    accent-color: var(--cyan);
+  }
   .codex-model-choice.active {
     background: rgba(86,182,194,0.14);
     color: var(--cyan);
@@ -1099,43 +1103,49 @@
             <div class="codex-model-subtitle">Access legacy models by running <code>codex -m &lt;model_name&gt;</code> or in your <code>config.toml</code>.</div>
           </div>
           <div class="codex-model-list" id="codexModelList">
-            <button type="button" class="codex-model-choice" data-codex-model="" onclick="selectCodexModel('')">
+            <label class="codex-model-choice" data-codex-model="">
+              <input type="radio" name="codexModel" value="" checked>
               <span class="choice-num">1.</span>
               <span class="choice-label">gpt-5.4 <span class="choice-tag">default</span></span>
               <span class="choice-desc">Latest frontier agentic coding model.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.4-mini" onclick="selectCodexModel('gpt-5.4-mini')">
+            </label>
+            <label class="codex-model-choice" data-codex-model="gpt-5.4-mini">
+              <input type="radio" name="codexModel" value="gpt-5.4-mini">
               <span class="choice-num">2.</span>
               <span class="choice-label">gpt-5.4-mini</span>
               <span class="choice-desc">Smaller frontier agentic coding model.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.3-codex" onclick="selectCodexModel('gpt-5.3-codex')">
+            </label>
+            <label class="codex-model-choice" data-codex-model="gpt-5.3-codex">
+              <input type="radio" name="codexModel" value="gpt-5.3-codex">
               <span class="choice-num">3.</span>
               <span class="choice-label">gpt-5.3-codex</span>
               <span class="choice-desc">Frontier Codex-optimized agentic coding model.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.2-codex" onclick="selectCodexModel('gpt-5.2-codex')">
+            </label>
+            <label class="codex-model-choice" data-codex-model="gpt-5.2-codex">
+              <input type="radio" name="codexModel" value="gpt-5.2-codex">
               <span class="choice-num">4.</span>
               <span class="choice-label">gpt-5.2-codex</span>
               <span class="choice-desc">Frontier agentic coding model.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.2" onclick="selectCodexModel('gpt-5.2')">
+            </label>
+            <label class="codex-model-choice" data-codex-model="gpt-5.2">
+              <input type="radio" name="codexModel" value="gpt-5.2">
               <span class="choice-num">5.</span>
               <span class="choice-label">gpt-5.2</span>
               <span class="choice-desc">Optimized for professional work and long-running agents.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.1-codex-max" onclick="selectCodexModel('gpt-5.1-codex-max')">
+            </label>
+            <label class="codex-model-choice" data-codex-model="gpt-5.1-codex-max">
+              <input type="radio" name="codexModel" value="gpt-5.1-codex-max">
               <span class="choice-num">6.</span>
               <span class="choice-label">gpt-5.1-codex-max</span>
               <span class="choice-desc">Codex-optimized model for deep and fast reasoning.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-model="gpt-5.1-codex-mini" onclick="selectCodexModel('gpt-5.1-codex-mini')">
+            </label>
+            <label class="codex-model-choice" data-codex-model="gpt-5.1-codex-mini">
+              <input type="radio" name="codexModel" value="gpt-5.1-codex-mini">
               <span class="choice-num">7.</span>
               <span class="choice-label">gpt-5.1-codex-mini</span>
               <span class="choice-desc">Optimized for codex. Cheaper, faster, but less capable.</span>
-            </button>
+            </label>
           </div>
-          <input type="hidden" id="sCodexModel" value="">
         </div>
         <div class="hint">Pick one of the same models shown by the Codex CLI model picker. The selected entry is applied to every Codex run in OMADS.</div>
       </div>
@@ -1149,28 +1159,31 @@
             <div class="codex-model-subtitle">Matches the Codex CLI effort selector and controls how deeply Codex thinks before responding.</div>
           </div>
           <div class="codex-model-list">
-            <button type="button" class="codex-model-choice" data-codex-effort="low" onclick="selectCodexEffort('low')">
+            <label class="codex-model-choice" data-codex-effort="low">
+              <input type="radio" name="codexEffort" value="low">
               <span class="choice-num">1.</span>
               <span class="choice-label">low</span>
               <span class="choice-desc">Fastest, least thorough.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-effort="medium" onclick="selectCodexEffort('medium')">
+            </label>
+            <label class="codex-model-choice" data-codex-effort="medium">
+              <input type="radio" name="codexEffort" value="medium">
               <span class="choice-num">2.</span>
               <span class="choice-label">medium</span>
               <span class="choice-desc">Balanced default for most tasks.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-effort="high" onclick="selectCodexEffort('high')">
+            </label>
+            <label class="codex-model-choice" data-codex-effort="high">
+              <input type="radio" name="codexEffort" value="high" checked>
               <span class="choice-num">3.</span>
               <span class="choice-label">high <span class="choice-tag">default</span></span>
               <span class="choice-desc">Strong default for most tasks.</span>
-            </button>
-            <button type="button" class="codex-model-choice" data-codex-effort="xhigh" onclick="selectCodexEffort('xhigh')">
+            </label>
+            <label class="codex-model-choice" data-codex-effort="xhigh">
+              <input type="radio" name="codexEffort" value="xhigh">
               <span class="choice-num">4.</span>
               <span class="choice-label">xhigh</span>
               <span class="choice-desc">Most thorough, slower.</span>
-            </button>
+            </label>
           </div>
-          <input type="hidden" id="sCodexReasoning" value="high">
         </div>
         <div class="hint">Higher values usually improve results but take longer.</div>
       </div>

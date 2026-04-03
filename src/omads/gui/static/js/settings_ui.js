@@ -10,21 +10,11 @@ function parseBoolSetting(value, fallback = false) {
   return fallback;
 }
 
-function setActiveChoice(selector, datasetKey, value, hiddenId) {
-  const hidden = el(hiddenId);
+function setCheckedRadio(name, value) {
   const normalized = (value || "").trim();
-  if (hidden) hidden.value = normalized;
-  document.querySelectorAll(selector).forEach((button) => {
-    button.classList.toggle("active", (button.dataset[datasetKey] || "") === normalized);
+  document.querySelectorAll(`input[type="radio"][name="${name}"]`).forEach((radio) => {
+    radio.checked = (radio.value || "") === normalized;
   });
-}
-
-export function selectCodexModel(model) {
-  setActiveChoice("[data-codex-model]", "codexModel", model, "sCodexModel");
-}
-
-export function selectCodexEffort(effort) {
-  setActiveChoice("[data-codex-effort]", "codexEffort", effort, "sCodexReasoning");
 }
 
 export function switchTab(tabId) {
@@ -187,8 +177,8 @@ export async function loadSettings() {
     el("sPerms").value = settings.claude_permission_mode || "default";
     el("sClaude").value = settings.claude_model || "sonnet";
     el("sClaudeEffort").value = settings.claude_effort || "high";
-    selectCodexModel(settings.codex_model || "");
-    selectCodexEffort(settings.codex_reasoning || "high");
+    setCheckedRadio("codexModel", settings.codex_model || "");
+    setCheckedRadio("codexEffort", settings.codex_reasoning || "high");
     el("sCodexExecutionMode").value = settings.codex_execution_mode || "default";
     const codexFastEnabled = parseBoolSetting(settings.codex_fast, false);
     const autoReviewEnabled = parseBoolSetting(settings.auto_review, true);
@@ -216,8 +206,8 @@ export async function saveSettings() {
     claude_permission_mode: el("sPerms").value,
     claude_model: el("sClaude").value,
     claude_effort: el("sClaudeEffort").value,
-    codex_model: el("sCodexModel").value,
-    codex_reasoning: el("sCodexReasoning").value,
+    codex_model: (document.querySelector('input[name="codexModel"]:checked')?.value || ""),
+    codex_reasoning: (document.querySelector('input[name="codexEffort"]:checked')?.value || "high"),
     codex_execution_mode: el("sCodexExecutionMode").value,
     codex_fast: el("sCodexFast").value === "true",
     auto_review: el("sAutoReview").value === "true",
