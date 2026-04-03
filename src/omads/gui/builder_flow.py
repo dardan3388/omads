@@ -36,6 +36,16 @@ def _codex_service_tier_arg(codex_fast: object) -> str:
     return 'service_tier="fast"' if _coerce_bool(codex_fast, default=False) else 'service_tier="flex"'
 
 
+def _claude_permission_mode_arg(permission_mode: object) -> str:
+    """Return the explicit Claude permission mode for one run."""
+    if not isinstance(permission_mode, str):
+        return "default"
+    normalized = permission_mode.strip()
+    if normalized in {"default", "auto", "plan", "bypassPermissions"}:
+        return normalized
+    return "default"
+
+
 def _validate_target_repo(target_repo: str) -> None:
     """Raise early if the target repository directory does not exist."""
     if not Path(target_repo).is_dir():
@@ -235,6 +245,7 @@ def run_claude_session_thread(
     repo_key = str(Path(target_repo).resolve())
     model = settings_snapshot.get("claude_model", "sonnet")
     effort = settings_snapshot.get("claude_effort", "high")
+    permission_mode = _claude_permission_mode_arg(settings_snapshot.get("claude_permission_mode", "default"))
     auto_review = settings_snapshot.get("auto_review", True)
     agent_label = "Claude Code"
 
@@ -291,6 +302,8 @@ def run_claude_session_thread(
             model,
             "--effort",
             effort,
+            "--permission-mode",
+            permission_mode,
             "--append-system-prompt",
             omads_context,
         ]
@@ -434,6 +447,8 @@ def run_claude_session_thread(
                     model,
                     "--effort",
                     effort,
+                    "--permission-mode",
+                    permission_mode,
                     "--append-system-prompt",
                     omads_context,
                 ]

@@ -175,6 +175,20 @@ def _coerce_bool_setting(value: Any, *, default: bool) -> bool:
     return default
 
 
+def _normalize_claude_permission_mode(value: Any, *, default: str = "default") -> str:
+    """Normalize legacy Claude permission values into the CLI-supported modes."""
+    if not isinstance(value, str):
+        return default
+    normalized = value.strip()
+    if normalized in {"default", "auto", "plan", "bypassPermissions"}:
+        return normalized
+    if normalized == "auto-accept":
+        return "auto"
+    if normalized == "bypass":
+        return "bypassPermissions"
+    return default
+
+
 class _RequestModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -235,6 +249,10 @@ def _load_config() -> dict[str, Any]:
     settings["lan_access"] = _coerce_bool_setting(
         settings.get("lan_access"),
         default=_DEFAULT_SETTINGS["lan_access"],
+    )
+    settings["claude_permission_mode"] = _normalize_claude_permission_mode(
+        settings.get("claude_permission_mode"),
+        default=_DEFAULT_SETTINGS["claude_permission_mode"],
     )
     return settings
 

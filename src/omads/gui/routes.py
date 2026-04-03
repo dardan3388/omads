@@ -32,6 +32,7 @@ from .state import (
     _get_setting,
     _get_settings_snapshot,
     _load_projects,
+    _normalize_claude_permission_mode,
     _read_history,
     _read_log,
     _read_timeline_page,
@@ -128,6 +129,10 @@ async def update_settings(data: UpdateSettingsRequest):
             settings["review_second_reviewer"] = (
                 "codex" if settings.get("review_first_reviewer") == "claude" else "claude"
             )
+        settings["claude_permission_mode"] = _normalize_claude_permission_mode(
+            settings.get("claude_permission_mode"),
+            default="default",
+        )
         if settings.get("claude_effort") not in ("low", "medium", "high", "max"):
             settings["claude_effort"] = "high"
         if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):

@@ -250,6 +250,24 @@ def test_update_settings_validates_target_repo_and_bounds(client: TestClient, is
     assert settings["review_second_reviewer"] == "claude"
 
 
+def test_update_settings_persists_claude_permission_mode(client: TestClient, isolated_server):
+    response = client.post(
+        "/api/settings",
+        json={"claude_permission_mode": "plan"},
+    )
+    assert response.status_code == 200
+    assert response.json()["settings"]["claude_permission_mode"] == "plan"
+    assert client.get("/api/settings").json()["claude_permission_mode"] == "plan"
+
+    response = client.post(
+        "/api/settings",
+        json={"claude_permission_mode": "auto-accept"},
+    )
+    assert response.status_code == 200
+    assert response.json()["settings"]["claude_permission_mode"] == "auto"
+    assert client.get("/api/settings").json()["claude_permission_mode"] == "auto"
+
+
 def test_load_config_coerces_legacy_boolean_strings(isolated_server):
     state._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     state._CONFIG_PATH.write_text(
@@ -258,6 +276,7 @@ def test_load_config_coerces_legacy_boolean_strings(isolated_server):
                 "codex_fast": "false",
                 "auto_review": "true",
                 "lan_access": "1",
+                "claude_permission_mode": "bypass",
             }
         ),
         encoding="utf-8",
@@ -268,6 +287,7 @@ def test_load_config_coerces_legacy_boolean_strings(isolated_server):
     assert loaded["codex_fast"] is False
     assert loaded["auto_review"] is True
     assert loaded["lan_access"] is True
+    assert loaded["claude_permission_mode"] == "bypassPermissions"
 
 
 def test_project_endpoints_enforce_home_boundary_and_missing_paths(
@@ -1714,13 +1734,54 @@ def test_claude_task_runs_fix_pass_after_auto_review_findings(
 
     runtime._run_claude_session_thread(None, "Implement a feature")
 
-    assert state._get_chat_session(repo_key) == "claude-session-2"
+    assert state._get_chat_session(repo_key, purpose="builder:claude") == "claude-session-2"
     assert runtime._last_files_changed == ["src/app.py"]
     assert any(
         msg["type"] == "agent_status" and msg.get("status") == "Fixing Codex findings..."
         for msg in messages
     )
     assert any(msg["type"] == "agent_status" and msg.get("status") == "Fixes applied" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_claude_task_uses_selected_permission_mode(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    commands: list[list[str]] = []
+    process = DummyProcess(lines=[
+        json.dumps({
+            "session_id": "claude-session-permissions",
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "Done"}]},
+        }) + "\n"
+    ])
+
+    def popen(*args, **kwargs):
+        commands.append(list(args[0]))
+        return process
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_capture_repo_change_snapshot", lambda *args, **kwargs: {"status_lines": [], "changed_files": [], "diff_text": ""})
+    state._update_settings(
+        lambda settings: settings.update(
+            {
+                "claude_permission_mode": "plan",
+                "auto_review": False,
+            }
+        )
+    )
+
+    runtime._run_claude_session_thread(None, "Implement a feature")
+
+    claude_commands = [cmd for cmd in commands if cmd and cmd[0] == "claude"]
+    assert claude_commands
+    assert "--permission-mode" in claude_commands[0]
+    assert claude_commands[0][claude_commands[0].index("--permission-mode") + 1] == "plan"
     assert any(msg["type"] == "unlock" for msg in messages)
 
 
