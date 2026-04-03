@@ -13,6 +13,7 @@ from typing import Callable
 from .builder_flow import (
     _build_codex_empty_output_warning,
     _build_codex_failure_detail,
+    _codex_execution_mode_args,
     _codex_service_tier_arg,
     _scrub_token_errors,
 )
@@ -360,6 +361,7 @@ def run_codex_manual_review_step(
     codex_model = settings_snapshot.get("codex_model", "")
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
     codex_fast = settings_snapshot.get("codex_fast", False)
+    codex_execution_mode = settings_snapshot.get("codex_execution_mode", "default")
 
     review_prompt = (
         "You are a code reviewer. Perform a thorough review.\n"
@@ -373,7 +375,8 @@ def run_codex_manual_review_step(
         "Always respond in English."
     )
 
-    cmd = ["codex", "exec", "-s", "read-only", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+    cmd = ["codex", "exec", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+    cmd.extend(_codex_execution_mode_args(codex_execution_mode))
     if codex_model:
         cmd.extend(["-m", codex_model])
     if codex_reasoning:
@@ -569,6 +572,7 @@ def run_codex_manual_synthesis_step(
     codex_model = settings_snapshot.get("codex_model", "")
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
     codex_fast = settings_snapshot.get("codex_fast", False)
+    codex_execution_mode = settings_snapshot.get("codex_execution_mode", "default")
 
     synthesis_prompt = build_manual_synthesis_prompt(
         first_label=first_label,
@@ -577,7 +581,8 @@ def run_codex_manual_synthesis_step(
         second_review=second_review,
     )
 
-    cmd = ["codex", "exec", "-s", "read-only", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+    cmd = ["codex", "exec", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+    cmd.extend(_codex_execution_mode_args(codex_execution_mode))
     if codex_model:
         cmd.extend(["-m", codex_model])
     if codex_reasoning:

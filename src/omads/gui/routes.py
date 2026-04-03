@@ -33,6 +33,7 @@ from .state import (
     _get_settings_snapshot,
     _load_projects,
     _normalize_claude_permission_mode,
+    _normalize_codex_execution_mode,
     _read_history,
     _read_log,
     _read_timeline_page,
@@ -82,6 +83,7 @@ _ALLOWED_SETTINGS = {
     "codex_model": str,
     "codex_reasoning": str,
     "codex_fast": bool,
+    "codex_execution_mode": str,
     "auto_review": bool,
     "ui_theme": str,
     "lan_access": bool,
@@ -138,6 +140,10 @@ async def update_settings(data: UpdateSettingsRequest):
         if settings.get("codex_reasoning") not in ("low", "medium", "high", "xhigh"):
             settings["codex_reasoning"] = "high"
         settings["codex_fast"] = _coerce_bool_setting(settings.get("codex_fast"), default=False)
+        settings["codex_execution_mode"] = _normalize_codex_execution_mode(
+            settings.get("codex_execution_mode"),
+            default="default",
+        )
         settings["auto_review"] = _coerce_bool_setting(settings.get("auto_review"), default=True)
         settings["lan_access"] = _coerce_bool_setting(settings.get("lan_access"), default=False)
         if settings.get("ui_theme") not in ("dark", "light"):

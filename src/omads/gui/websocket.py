@@ -71,6 +71,13 @@ def _normalize_session_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if codex_reasoning in {"low", "medium", "high", "xhigh"}:
         normalized["codex_reasoning"] = codex_reasoning
 
+    codex_execution_mode = payload.get("codex_execution_mode")
+    if isinstance(codex_execution_mode, str):
+        normalized["codex_execution_mode"] = state._normalize_codex_execution_mode(
+            codex_execution_mode,
+            default="default",
+        )
+
     if isinstance(payload.get("codex_fast"), bool):
         normalized["codex_fast"] = payload["codex_fast"]
 

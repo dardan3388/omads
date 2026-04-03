@@ -172,6 +172,7 @@ export async function loadSettings() {
     el("sClaudeEffort").value = settings.claude_effort || "high";
     el("sCodexModel").value = settings.codex_model || "";
     el("sCodexReasoning").value = settings.codex_reasoning || "high";
+    el("sCodexExecutionMode").value = settings.codex_execution_mode || "default";
     const codexFastEnabled = parseBoolSetting(settings.codex_fast, false);
     const autoReviewEnabled = parseBoolSetting(settings.auto_review, true);
     const lanAccessEnabled = parseBoolSetting(settings.lan_access, false);
@@ -200,6 +201,7 @@ export async function saveSettings() {
     claude_effort: el("sClaudeEffort").value,
     codex_model: el("sCodexModel").value,
     codex_reasoning: el("sCodexReasoning").value,
+    codex_execution_mode: el("sCodexExecutionMode").value,
     codex_fast: el("sCodexFast").value === "true",
     auto_review: el("sAutoReview").value === "true",
     ui_theme: el("sTheme").value,

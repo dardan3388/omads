@@ -1032,6 +1032,18 @@
         <div class="hint">Controls how deeply Codex reasons. XHigh is usually the most thorough, but also slower.</div>
       </div>
 
+      <div class="section-title">Execution</div>
+      <div class="form-group">
+        <label>Execution preset</label>
+        <select id="sCodexExecutionMode">
+          <option value="default">Default (workspace-write, ask on request)</option>
+          <option value="auto">Auto (workspace-write, never ask)</option>
+          <option value="read-only">Read-only (inspect only)</option>
+          <option value="full-auto">Full auto (dangerous, no sandbox)</option>
+        </select>
+        <div class="hint">This preset controls Codex sandboxing and approval behavior for every Codex run in OMADS.</div>
+      </div>
+
       <div class="form-group">
         <label>Fast Mode</label>
         <select id="sCodexFast">

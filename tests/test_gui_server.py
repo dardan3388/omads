@@ -268,6 +268,16 @@ def test_update_settings_persists_claude_permission_mode(client: TestClient, iso
     assert client.get("/api/settings").json()["claude_permission_mode"] == "auto"
 
 
+def test_update_settings_persists_codex_execution_mode(client: TestClient, isolated_server):
+    response = client.post(
+        "/api/settings",
+        json={"codex_execution_mode": "full_auto"},
+    )
+    assert response.status_code == 200
+    assert response.json()["settings"]["codex_execution_mode"] == "full-auto"
+    assert client.get("/api/settings").json()["codex_execution_mode"] == "full-auto"
+
+
 def test_session_settings_websocket_patch_keeps_claude_permission_mode(isolated_server):
     normalized = websocket._normalize_session_settings(
         {
@@ -276,6 +286,16 @@ def test_session_settings_websocket_patch_keeps_claude_permission_mode(isolated_
     )
 
     assert normalized["claude_permission_mode"] == "plan"
+
+
+def test_session_settings_websocket_patch_keeps_codex_execution_mode(isolated_server):
+    normalized = websocket._normalize_session_settings(
+        {
+            "codex_execution_mode": "read_only",
+        }
+    )
+
+    assert normalized["codex_execution_mode"] == "read-only"
 
 
 def test_load_config_coerces_legacy_boolean_strings(isolated_server):
@@ -287,6 +307,7 @@ def test_load_config_coerces_legacy_boolean_strings(isolated_server):
                 "auto_review": "true",
                 "lan_access": "1",
                 "claude_permission_mode": "bypass",
+                "codex_execution_mode": "full_auto",
             }
         ),
         encoding="utf-8",
@@ -298,6 +319,7 @@ def test_load_config_coerces_legacy_boolean_strings(isolated_server):
     assert loaded["auto_review"] is True
     assert loaded["lan_access"] is True
     assert loaded["claude_permission_mode"] == "bypassPermissions"
+    assert loaded["codex_execution_mode"] == "full-auto"
 
 
 def test_project_endpoints_enforce_home_boundary_and_missing_paths(
@@ -1177,6 +1199,41 @@ def test_codex_builder_uses_fast_service_tier_when_enabled(isolated_server, monk
     assert codex_commands
     assert 'service_tier="fast"' in codex_commands[0]
     assert 'service_tier="flex"' not in codex_commands[0]
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_codex_builder_uses_selected_execution_mode_preset(isolated_server, monkeypatch: pytest.MonkeyPatch):
+    messages: list[dict] = []
+    commands: list[list[str]] = []
+    process = DummyProcess(lines=[
+        json.dumps({
+            "type": "item.completed",
+            "item": {"text": "Done."},
+        }) + "\n"
+    ])
+
+    def popen(*args, **kwargs):
+        commands.append(list(args[0]))
+        return process
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr("select.select", lambda read, write, err, timeout: (read, write, err))
+    state._update_settings(lambda settings: settings.update({"codex_execution_mode": "auto", "auto_review": False}))
+
+    runtime._run_codex_session_thread(None, "Implement a small feature")
+
+    assert commands
+    codex_commands = [cmd for cmd in commands if cmd and cmd[0] == "codex"]
+    assert codex_commands
+    assert "-s" in codex_commands[0]
+    assert "workspace-write" in codex_commands[0]
+    assert "-a" in codex_commands[0]
+    assert "never" in codex_commands[0]
+    assert "--dangerously-bypass-approvals-and-sandbox" not in codex_commands[0]
     assert any(msg["type"] == "unlock" for msg in messages)
 
 

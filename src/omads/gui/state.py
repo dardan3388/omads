@@ -153,6 +153,7 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "codex_model": "",  # Empty = Codex default (gpt-5.4)
     "codex_reasoning": "high",  # low, medium, high, xhigh
     "codex_fast": False,  # service_tier: fast vs default
+    "codex_execution_mode": "default",  # default, auto, read-only, full-auto
     "auto_review": True,  # Run the current automatic breaker step after builder code changes
     "ui_theme": "dark",  # dark, light
     "lan_access": False,  # Bind to 0.0.0.0 so the GUI is reachable from LAN devices
@@ -189,6 +190,20 @@ def _normalize_claude_permission_mode(value: Any, *, default: str = "default") -
     return default
 
 
+def _normalize_codex_execution_mode(value: Any, *, default: str = "default") -> str:
+    """Normalize the simplified Codex execution preset into a stable value."""
+    if not isinstance(value, str):
+        return default
+    normalized = value.strip().lower().replace(" ", "-").replace("_", "-")
+    if normalized in {"default", "auto", "read-only", "full-auto"}:
+        return normalized
+    if normalized in {"readonly", "read-only"}:
+        return "read-only"
+    if normalized in {"fullauto", "full-auto"}:
+        return "full-auto"
+    return default
+
+
 class _RequestModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -204,6 +219,7 @@ class UpdateSettingsRequest(_RequestModel):
     codex_model: str | None = None
     codex_reasoning: str | None = None
     codex_fast: bool | None = None
+    codex_execution_mode: str | None = None
     auto_review: bool | None = None
     ui_theme: str | None = None
     lan_access: bool | None = None
@@ -253,6 +269,10 @@ def _load_config() -> dict[str, Any]:
     settings["claude_permission_mode"] = _normalize_claude_permission_mode(
         settings.get("claude_permission_mode"),
         default=_DEFAULT_SETTINGS["claude_permission_mode"],
+    )
+    settings["codex_execution_mode"] = _normalize_codex_execution_mode(
+        settings.get("codex_execution_mode"),
+        default=_DEFAULT_SETTINGS["codex_execution_mode"],
     )
     return settings
 

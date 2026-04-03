@@ -36,6 +36,32 @@ def _codex_service_tier_arg(codex_fast: object) -> str:
     return 'service_tier="fast"' if _coerce_bool(codex_fast, default=False) else 'service_tier="flex"'
 
 
+def _normalize_codex_execution_mode(value: object, default: str = "default") -> str:
+    """Normalize the simplified Codex execution preset into a stable value."""
+    if not isinstance(value, str):
+        return default
+    normalized = value.strip().lower().replace(" ", "-").replace("_", "-")
+    if normalized in {"default", "auto", "read-only", "full-auto"}:
+        return normalized
+    if normalized in {"readonly", "read-only"}:
+        return "read-only"
+    if normalized in {"fullauto", "full-auto"}:
+        return "full-auto"
+    return default
+
+
+def _codex_execution_mode_args(codex_execution_mode: object) -> list[str]:
+    """Return explicit Codex sandbox/approval flags for the selected preset."""
+    mode = _normalize_codex_execution_mode(codex_execution_mode)
+    if mode == "auto":
+        return ["-s", "workspace-write", "-a", "never"]
+    if mode == "read-only":
+        return ["-s", "read-only", "-a", "untrusted"]
+    if mode == "full-auto":
+        return ["--dangerously-bypass-approvals-and-sandbox"]
+    return ["-s", "workspace-write", "-a", "on-request"]
+
+
 def _claude_permission_mode_arg(permission_mode: object) -> str:
     """Return the explicit Claude permission mode for one run."""
     if not isinstance(permission_mode, str):
@@ -580,6 +606,7 @@ def run_codex_session_thread(
     codex_model = settings_snapshot.get("codex_model", "")
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
     codex_fast = settings_snapshot.get("codex_fast", False)
+    codex_execution_mode = settings_snapshot.get("codex_execution_mode", "default")
     claude_model = settings_snapshot.get("claude_model", "sonnet")
     claude_effort = settings_snapshot.get("claude_effort", "high")
     auto_review = settings_snapshot.get("auto_review", True)
@@ -622,13 +649,12 @@ def run_codex_session_thread(
         cmd = [
             "codex",
             "exec",
-            "-s",
-            "workspace-write",
             "--skip-git-repo-check",
             "--json",
             "-C",
             str(target_repo),
         ]
+        cmd.extend(_codex_execution_mode_args(codex_execution_mode))
         if codex_model:
             cmd.extend(["-m", codex_model])
         if codex_reasoning:
@@ -747,13 +773,12 @@ def run_codex_session_thread(
                 fix_cmd = [
                     "codex",
                     "exec",
-                    "-s",
-                    "workspace-write",
                     "--skip-git-repo-check",
                     "--json",
                     "-C",
                     str(target_repo),
                 ]
+                fix_cmd.extend(_codex_execution_mode_args(codex_execution_mode))
                 if codex_model:
                     fix_cmd.extend(["-m", codex_model])
                 if codex_reasoning:
@@ -861,6 +886,7 @@ def run_codex_auto_review(
     codex_model = settings_snapshot.get("codex_model", "")
     codex_reasoning = settings_snapshot.get("codex_reasoning", "high")
     codex_fast = settings_snapshot.get("codex_fast", False)
+    codex_execution_mode = settings_snapshot.get("codex_execution_mode", "default")
 
     short_files = [f.rsplit("/", 1)[-1] if "/" in f else f for f in files_changed[:10]]
     file_list = ", ".join(short_files)
@@ -894,7 +920,8 @@ If there are no issues, write exactly: "No issues found."
 """
 
     try:
-        cmd = ["codex", "exec", "-s", "read-only", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+        cmd = ["codex", "exec", "--ephemeral", "--skip-git-repo-check", "--json", "-C", str(target_repo)]
+        cmd.extend(_codex_execution_mode_args(codex_execution_mode))
         if codex_model:
             cmd.extend(["-m", codex_model])
         if codex_reasoning:
