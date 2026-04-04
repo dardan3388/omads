@@ -531,7 +531,6 @@ def run_claude_session_thread(
             for file_path in attempt_files_changed:
                 if file_path not in files_changed:
                     files_changed.append(file_path)
-            output_lines.extend(attempt_output_lines)
 
             failure_result_text = attempt_final_result if attempt_final_result else "\n".join(attempt_output_lines)
             failure_detail = _build_claude_failure_detail(
@@ -548,10 +547,11 @@ def run_claude_session_thread(
 
             if returncode == 0:
                 final_result = attempt_final_result
+                output_lines = list(attempt_output_lines)
                 break
 
-            if attempt < max_main_attempts and not output_lines and not final_result:
-                retry_note = "Claude task stopped before producing usable output. OMADS retries once with the same session."
+            if attempt < max_main_attempts:
+                retry_note = "Claude task stopped unexpectedly. OMADS retries once with the same session."
                 if failure_detail:
                     retry_note += f" Details: {failure_detail[:220]}"
                 send({"type": "stream_text", "agent": agent_label, "text": retry_note})
@@ -565,7 +565,7 @@ def run_claude_session_thread(
                         "Claude Code Task",
                         returncode,
                         result_text=failure_detail,
-                        output_lines=output_lines,
+                        output_lines=attempt_output_lines,
                     ),
                 }
             )
