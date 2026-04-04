@@ -1831,6 +1831,111 @@ def test_claude_task_runs_fix_pass_after_auto_review_findings(
     assert any(msg["type"] == "unlock" for msg in messages)
 
 
+def test_claude_fix_run_retries_once_after_nonzero_exit(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    popen_calls: list[list[str]] = []
+    processes = [
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "claude-session-1",
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "name": "Write", "input": {"file_path": "src/app.py", "content": "print('hi')"}},
+                        {"type": "text", "text": "Initial implementation done"},
+                    ]
+                },
+            }) + "\n"
+        ]),
+        DummyProcess(returncode=1, stderr_lines=["network glitch while starting stream\n"]),
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "claude-session-2",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "Applied fixes after retry"}]},
+            }) + "\n"
+        ]),
+    ]
+
+    def popen(*args, **kwargs):
+        popen_calls.append(list(args[0]))
+        return processes.pop(0)
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "_capture_repo_change_snapshot",
+        lambda *args, **kwargs: {"status_lines": [], "changed_files": [], "diff_text": ""},
+    )
+    monkeypatch.setattr(runtime, "_run_codex_auto_review", lambda ws, target_repo, files_changed, send: "Fix this issue")
+
+    runtime._run_claude_session_thread(None, "Implement a feature")
+
+    assert len(popen_calls) == 3
+    assert state._get_chat_session(repo_key, purpose="builder:claude") == "claude-session-2"
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "Retrying fix run..." for msg in messages)
+    assert any(
+        msg["type"] == "stream_text"
+        and "retries once" in msg.get("text", "")
+        for msg in messages
+    )
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "Fixes applied" for msg in messages)
+    assert not any(msg["type"] == "task_error" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_claude_fix_run_final_failure_is_nonfatal_and_unlocks(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    processes = [
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "claude-session-1",
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "name": "Write", "input": {"file_path": "src/app.py", "content": "print('hi')"}},
+                        {"type": "text", "text": "Initial implementation done"},
+                    ]
+                },
+            }) + "\n"
+        ]),
+        DummyProcess(returncode=1, stderr_lines=["transport disconnected\n"]),
+        DummyProcess(returncode=1, stderr_lines=["transport disconnected again\n"]),
+    ]
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: processes.pop(0))
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_build_cli_env", lambda: {})
+    monkeypatch.setattr(runtime, "_save_project_memory", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        runtime,
+        "_capture_repo_change_snapshot",
+        lambda *args, **kwargs: {"status_lines": [], "changed_files": [], "diff_text": ""},
+    )
+    monkeypatch.setattr(runtime, "_run_codex_auto_review", lambda ws, target_repo, files_changed, send: "Fix this issue")
+
+    runtime._run_claude_session_thread(None, "Implement a feature")
+
+    assert any(
+        msg["type"] == "stream_text"
+        and "could not finish" in msg.get("text", "")
+        for msg in messages
+    )
+    assert any(msg["type"] == "agent_status" and msg.get("status") == "Fix run incomplete" for msg in messages)
+    assert not any(msg["type"] == "task_error" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
 def test_claude_task_uses_selected_permission_mode(
     isolated_server,
     monkeypatch: pytest.MonkeyPatch,

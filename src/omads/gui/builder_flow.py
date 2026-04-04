@@ -97,12 +97,17 @@ def _scrub_token_errors(text: str) -> str:
     return scrubbed
 
 
-def _summarize_codex_stderr(stderr_lines: list[str], *, limit: int = 6) -> str:
-    """Return one compact, already-scrubbed stderr summary."""
-    cleaned = [line.strip() for line in stderr_lines if line and line.strip()]
+def _summarize_recent_lines(lines: list[str], *, limit: int = 6) -> str:
+    """Return one compact summary from already-scrubbed text lines."""
+    cleaned = [line.strip() for line in lines if line and line.strip()]
     if not cleaned:
         return ""
     return " ".join(cleaned[-limit:])[:400]
+
+
+def _summarize_codex_stderr(stderr_lines: list[str], *, limit: int = 6) -> str:
+    """Return one compact, already-scrubbed stderr summary."""
+    return _summarize_recent_lines(stderr_lines, limit=limit)
 
 
 def _build_codex_failure_detail(*, stdout_text: str, stderr_lines: list[str]) -> str:
@@ -115,6 +120,48 @@ def _build_codex_failure_detail(*, stdout_text: str, stderr_lines: list[str]) ->
     if stdout_summary:
         detail_parts.append(f"stdout: {stdout_summary[:220]}")
     return " | ".join(detail_parts)
+
+
+def _build_claude_failure_detail(
+    *,
+    result_text: str,
+    output_lines: list[str],
+    stderr_lines: list[str],
+    raw_stdout_lines: list[str],
+) -> str:
+    """Combine parsed Claude output, raw stdout, and stderr into one detail string."""
+    detail_parts: list[str] = []
+    stderr_summary = _summarize_recent_lines(stderr_lines)
+    if stderr_summary:
+        detail_parts.append(f"stderr: {stderr_summary}")
+
+    result_summary = " ".join(result_text.split()).strip()
+    if result_summary:
+        detail_parts.append(f"result: {result_summary[:220]}")
+    else:
+        streamed_summary = " ".join(" ".join(output_lines[-4:]).split()).strip()
+        if streamed_summary:
+            detail_parts.append(f"stream: {streamed_summary[:220]}")
+
+    raw_summary = _summarize_recent_lines(raw_stdout_lines, limit=3)
+    if raw_summary:
+        detail_parts.append(f"raw: {raw_summary}")
+
+    return " | ".join(detail_parts)
+
+
+def _looks_like_claude_limit_failure(*, stderr_lines: list[str], raw_stdout_lines: list[str], result_text: str) -> bool:
+    """Detect common Claude usage/rate-limit failures from collected process output."""
+    joined = " ".join(
+        part for part in [result_text, " ".join(stderr_lines), " ".join(raw_stdout_lines)] if part
+    ).lower()
+    if not joined:
+        return False
+    if "you've hit your limit" in joined or "you have hit your limit" in joined:
+        return True
+    if "rate limit" in joined or "usage limit" in joined or "quota exceeded" in joined:
+        return True
+    return "limit" in joined and ("reset" in joined or "resets" in joined)
 
 
 def _build_codex_empty_output_warning(
@@ -131,6 +178,25 @@ def _build_codex_empty_output_warning(
     if stderr_summary:
         text += f" Last stderr: {stderr_summary}"
     return text
+
+
+def _drain_stderr_thread(stream, *, stderr_lines: list[str]) -> threading.Thread | None:
+    """Read stderr in the background so it does not block the main stdout loop."""
+    if stream is None:
+        return None
+
+    def _reader() -> None:
+        try:
+            for raw_line in stream:
+                cleaned = _scrub_token_errors(raw_line.strip())
+                if cleaned:
+                    stderr_lines.append(cleaned)
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    thread = _REAL_THREAD(target=_reader, daemon=True)
+    thread.start()
+    return thread
 
 
 def _start_stream_reader(
@@ -339,63 +405,73 @@ def run_claude_session_thread(
         if ctx.is_task_cancelled():
             return
         start_time = time.time()
+        stderr_lines: list[str] = []
+        raw_stdout_lines: list[str] = []
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             cwd=target_repo,
             env=env,
         )
         ctx.process_started(process)
+        stderr_thread = _drain_stderr_thread(process.stderr, stderr_lines=stderr_lines)
 
         final_result = ""
         captured_session_id = None
         files_changed: list[str] = []
 
-        for line in process.stdout:
-            if ctx.is_task_cancelled():
-                process.kill()
-                send({"type": "task_stopped", "text": "Stopped."})
-                break
+        if process.stdout is not None:
+            for line in process.stdout:
+                if ctx.is_task_cancelled():
+                    process.kill()
+                    send({"type": "task_stopped", "text": "Stopped."})
+                    break
 
-            for event in ctx.parse_claude_stream_line(line):
-                kind = event["kind"]
-                if kind == "session_id" and not captured_session_id:
-                    captured_session_id = event["session_id"]
-                elif kind == "tool":
-                    if event["tool"] in ("Write", "Edit"):
-                        file_path = event.get("file_path", "")
-                        if file_path and file_path not in files_changed:
-                            files_changed.append(file_path)
-                    send(
-                        {
-                            "type": "stream_tool",
-                            "agent": agent_label,
-                            "tool": event["tool"],
-                            "description": event["description"],
-                            "detail": event["detail"],
-                        }
-                    )
-                elif kind == "text":
-                    send({"type": "stream_text", "agent": agent_label, "text": event["text"]})
-                    output_lines.append(event["text"])
-                elif kind == "thinking":
-                    send({"type": "stream_thinking", "agent": agent_label, "text": event["text"]})
-                elif kind == "tool_result":
-                    send(
-                        {
-                            "type": "stream_result",
-                            "agent": agent_label,
-                            "text": event["text"],
-                            "is_error": event["is_error"],
-                        }
-                    )
-                elif kind == "result":
-                    final_result = event["text"]
-                elif kind == "rate_limit":
-                    limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="task_stream")
-                    send({"type": "claude_limit_update", "limit": limit})
+                parsed_events = ctx.parse_claude_stream_line(line)
+                if not parsed_events:
+                    raw_line = _scrub_token_errors(line.strip())
+                    if raw_line:
+                        raw_stdout_lines.append(raw_line)
+
+                for event in parsed_events:
+                    kind = event["kind"]
+                    if kind == "session_id" and not captured_session_id:
+                        captured_session_id = event["session_id"]
+                    elif kind == "tool":
+                        if event["tool"] in ("Write", "Edit"):
+                            file_path = event.get("file_path", "")
+                            if file_path and file_path not in files_changed:
+                                files_changed.append(file_path)
+                        send(
+                            {
+                                "type": "stream_tool",
+                                "agent": agent_label,
+                                "tool": event["tool"],
+                                "description": event["description"],
+                                "detail": event["detail"],
+                            }
+                        )
+                    elif kind == "text":
+                        send({"type": "stream_text", "agent": agent_label, "text": event["text"]})
+                        output_lines.append(event["text"])
+                    elif kind == "thinking":
+                        send({"type": "stream_thinking", "agent": agent_label, "text": event["text"]})
+                    elif kind == "tool_result":
+                        send(
+                            {
+                                "type": "stream_result",
+                                "agent": agent_label,
+                                "text": event["text"],
+                                "is_error": event["is_error"],
+                            }
+                        )
+                    elif kind == "result":
+                        final_result = event["text"]
+                    elif kind == "rate_limit":
+                        limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="task_stream")
+                        send({"type": "claude_limit_update", "limit": limit})
 
         try:
             process.wait(timeout=30)
@@ -404,19 +480,27 @@ def run_claude_session_thread(
             process.wait()
         finally:
             ctx.process_finished()
+            if stderr_thread is not None:
+                stderr_thread.join(timeout=0.2)
 
         elapsed = round(time.time() - start_time)
         success = process.returncode == 0 and not ctx.is_task_cancelled()
 
         if not ctx.is_task_cancelled() and process.returncode != 0:
             result_text = final_result if final_result else "\n".join(output_lines)
+            failure_detail = _build_claude_failure_detail(
+                result_text=result_text,
+                output_lines=output_lines,
+                stderr_lines=stderr_lines,
+                raw_stdout_lines=raw_stdout_lines,
+            )
             send(
                 {
                     "type": "task_error",
                     "text": ctx.build_process_failure_text(
                         "Claude Code Task",
                         process.returncode,
-                        result_text=result_text,
+                        result_text=failure_detail,
                         output_lines=output_lines,
                     ),
                 }
@@ -484,86 +568,166 @@ def run_claude_session_thread(
 
                 if ctx.is_task_cancelled():
                     return
-                fix_process = subprocess.Popen(
-                    fix_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    cwd=target_repo,
-                    env=env,
-                )
-                ctx.process_started(fix_process)
 
-                fix_output_lines: list[str] = []
-                fix_session_id = None
+                def _upsert_resume_arg(run_cmd: list[str], new_session_id: str) -> list[str]:
+                    updated = list(run_cmd)
+                    if "--resume" in updated:
+                        idx = updated.index("--resume")
+                        if idx + 1 < len(updated):
+                            updated[idx + 1] = new_session_id
+                            return updated
+                    updated.extend(["--resume", new_session_id])
+                    return updated
 
-                for fline in fix_process.stdout:
-                    if ctx.is_task_cancelled():
-                        fix_process.kill()
-                        break
-                    parsed_session_id = None
-                    parsed_result = ""
-                    for event in ctx.parse_claude_stream_line(fline):
-                        kind = event["kind"]
-                        if kind == "session_id" and not parsed_session_id:
-                            parsed_session_id = event["session_id"]
-                        elif kind == "tool":
-                            send(
-                                {
-                                    "type": "stream_tool",
-                                    "agent": "Claude Code",
-                                    "tool": event["tool"],
-                                    "description": event["description"],
-                                    "detail": event["detail"],
-                                }
-                            )
-                        elif kind == "text":
-                            send({"type": "stream_text", "agent": "Claude Code", "text": event["text"]})
-                            fix_output_lines.append(event["text"])
-                        elif kind == "thinking":
-                            send({"type": "stream_thinking", "agent": "Claude Code", "text": event["text"]})
-                        elif kind == "tool_result":
-                            send(
-                                {
-                                    "type": "stream_result",
-                                    "agent": "Claude Code",
-                                    "text": event["text"],
-                                    "is_error": event["is_error"],
-                                }
-                            )
-                        elif kind == "result":
-                            parsed_result = event["text"]
-                        elif kind == "rate_limit":
-                            limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="fix_stream")
-                            send({"type": "claude_limit_update", "limit": limit})
-                    if parsed_session_id and not fix_session_id:
-                        fix_session_id = parsed_session_id
-                    if parsed_result and not fix_output_lines:
-                        send({"type": "chat_response", "agent": "Claude Code", "text": parsed_result})
+                def _run_claude_fix_attempt(
+                    run_cmd: list[str],
+                ) -> tuple[int, list[str], list[str], list[str], str | None, str]:
+                    fix_stderr_lines: list[str] = []
+                    fix_raw_stdout_lines: list[str] = []
+                    fix_output_lines: list[str] = []
+                    fix_session_id: str | None = None
+                    final_fix_result = ""
 
-                try:
-                    fix_process.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    fix_process.kill()
-                    fix_process.wait()
-                finally:
-                    ctx.process_finished()
-
-                if fix_process.returncode != 0 and not ctx.is_task_cancelled():
-                    send(
-                        {
-                            "type": "task_error",
-                            "text": ctx.build_process_failure_text(
-                                "Claude Code fix run",
-                                fix_process.returncode,
-                                output_lines=fix_output_lines,
-                            ),
-                        }
+                    fix_process = subprocess.Popen(
+                        run_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        cwd=target_repo,
+                        env=env,
                     )
-                else:
-                    if fix_session_id and fix_process.returncode == 0:
-                        ctx.set_builder_session(repo_key, fix_session_id, scope="builder:claude")
-                    send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes applied"})
+                    ctx.process_started(fix_process)
+                    fix_stderr_thread = _drain_stderr_thread(fix_process.stderr, stderr_lines=fix_stderr_lines)
+
+                    if fix_process.stdout is not None:
+                        for fline in fix_process.stdout:
+                            if ctx.is_task_cancelled():
+                                fix_process.kill()
+                                break
+                            parsed_session_id = None
+                            parsed_events = ctx.parse_claude_stream_line(fline)
+                            if not parsed_events:
+                                raw_line = _scrub_token_errors(fline.strip())
+                                if raw_line:
+                                    fix_raw_stdout_lines.append(raw_line)
+                            for event in parsed_events:
+                                kind = event["kind"]
+                                if kind == "session_id" and not parsed_session_id:
+                                    parsed_session_id = event["session_id"]
+                                elif kind == "tool":
+                                    send(
+                                        {
+                                            "type": "stream_tool",
+                                            "agent": "Claude Code",
+                                            "tool": event["tool"],
+                                            "description": event["description"],
+                                            "detail": event["detail"],
+                                        }
+                                    )
+                                elif kind == "text":
+                                    send({"type": "stream_text", "agent": "Claude Code", "text": event["text"]})
+                                    fix_output_lines.append(event["text"])
+                                elif kind == "thinking":
+                                    send({"type": "stream_thinking", "agent": "Claude Code", "text": event["text"]})
+                                elif kind == "tool_result":
+                                    send(
+                                        {
+                                            "type": "stream_result",
+                                            "agent": "Claude Code",
+                                            "text": event["text"],
+                                            "is_error": event["is_error"],
+                                        }
+                                    )
+                                elif kind == "result":
+                                    final_fix_result = event["text"]
+                                elif kind == "rate_limit":
+                                    limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="fix_stream")
+                                    send({"type": "claude_limit_update", "limit": limit})
+                            if parsed_session_id and not fix_session_id:
+                                fix_session_id = parsed_session_id
+
+                    try:
+                        fix_process.wait(timeout=30)
+                    except subprocess.TimeoutExpired:
+                        fix_process.kill()
+                        fix_process.wait()
+                    finally:
+                        ctx.process_finished()
+                        if fix_stderr_thread is not None:
+                            fix_stderr_thread.join(timeout=0.2)
+
+                    if final_fix_result and not fix_output_lines:
+                        send({"type": "chat_response", "agent": "Claude Code", "text": final_fix_result})
+
+                    return (
+                        fix_process.returncode,
+                        fix_output_lines,
+                        fix_stderr_lines,
+                        fix_raw_stdout_lines,
+                        fix_session_id,
+                        final_fix_result,
+                    )
+
+                max_fix_attempts = 2
+                run_cmd = list(fix_cmd)
+                for attempt in range(1, max_fix_attempts + 1):
+                    if attempt > 1:
+                        send({"type": "agent_status", "agent": "Claude Code", "status": "Retrying fix run..."})
+
+                    (
+                        fix_returncode,
+                        fix_output_lines,
+                        fix_stderr_lines,
+                        fix_raw_stdout_lines,
+                        fix_session_id,
+                        final_fix_result,
+                    ) = _run_claude_fix_attempt(run_cmd)
+
+                    if ctx.is_task_cancelled():
+                        return
+
+                    if fix_session_id:
+                        run_cmd = _upsert_resume_arg(run_cmd, fix_session_id)
+
+                    fix_result_text = final_fix_result if final_fix_result else "\n".join(fix_output_lines).strip()
+                    fix_failure_detail = _build_claude_failure_detail(
+                        result_text=fix_result_text,
+                        output_lines=fix_output_lines,
+                        stderr_lines=fix_stderr_lines,
+                        raw_stdout_lines=fix_raw_stdout_lines,
+                    )
+
+                    if fix_returncode == 0:
+                        if fix_session_id:
+                            ctx.set_builder_session(repo_key, fix_session_id, scope="builder:claude")
+                        send({"type": "agent_status", "agent": "Claude Code", "status": "Fixes applied"})
+                        break
+
+                    if attempt < max_fix_attempts:
+                        retry_note = (
+                            "Claude auto-fix run stopped unexpectedly. OMADS retries once with the same session."
+                        )
+                        if fix_failure_detail:
+                            retry_note += f" Details: {fix_failure_detail[:220]}"
+                        send({"type": "stream_text", "agent": "Claude Code", "text": retry_note})
+                        continue
+
+                    final_warning = (
+                        "Claude auto-fix run could not finish. The main task result is preserved and OMADS stays unlocked."
+                    )
+                    if _looks_like_claude_limit_failure(
+                        stderr_lines=fix_stderr_lines,
+                        raw_stdout_lines=fix_raw_stdout_lines,
+                        result_text=fix_result_text,
+                    ):
+                        final_warning = (
+                            "Claude hit a usage limit during the auto-fix run. "
+                            "The main task result is preserved and OMADS stays unlocked."
+                        )
+                    if fix_failure_detail:
+                        final_warning += f" Details: {fix_failure_detail[:240]}"
+                    send({"type": "stream_text", "agent": "Claude Code", "text": final_warning})
+                    send({"type": "agent_status", "agent": "Claude Code", "status": "Fix run incomplete"})
 
     except FileNotFoundError:
         send(
@@ -1073,6 +1237,8 @@ No issues found.
 """
 
     try:
+        stderr_lines: list[str] = []
+        raw_stdout_lines: list[str] = []
         process = subprocess.Popen(
             [
                 "claude",
@@ -1089,58 +1255,78 @@ No issues found.
                 reviewer_context,
             ],
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             cwd=target_repo,
             env=ctx.build_cli_env(),
         )
         ctx.process_started(process)
+        stderr_thread = _drain_stderr_thread(process.stderr, stderr_lines=stderr_lines)
 
         output_lines: list[str] = []
         final_result = ""
-        for line in process.stdout:
-            if ctx.is_task_cancelled():
-                process.kill()
-                process.wait()
-                return None
-            for event in ctx.parse_claude_stream_line(line):
-                kind = event["kind"]
-                if kind == "tool":
-                    send(
-                        {
-                            "type": "stream_tool",
-                            "agent": breaker_label,
-                            "tool": event["tool"],
-                            "description": event["description"],
-                            "detail": event["detail"],
-                        }
-                    )
-                elif kind == "text":
-                    send({"type": "stream_text", "agent": breaker_label, "text": event["text"]})
-                    output_lines.append(event["text"])
-                elif kind == "thinking":
-                    send({"type": "stream_thinking", "agent": breaker_label, "text": event["text"]})
-                elif kind == "tool_result":
-                    send(
-                        {
-                            "type": "stream_result",
-                            "agent": breaker_label,
-                            "text": event["text"],
-                            "is_error": event["is_error"],
-                        }
-                    )
-                elif kind == "result":
-                    final_result = event["text"]
-                elif kind == "rate_limit":
-                    limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="auto_review_stream")
-                    send({"type": "claude_limit_update", "limit": limit})
+        if process.stdout is not None:
+            for line in process.stdout:
+                if ctx.is_task_cancelled():
+                    process.kill()
+                    process.wait()
+                    return None
+                parsed_events = ctx.parse_claude_stream_line(line)
+                if not parsed_events:
+                    raw_line = _scrub_token_errors(line.strip())
+                    if raw_line:
+                        raw_stdout_lines.append(raw_line)
+                for event in parsed_events:
+                    kind = event["kind"]
+                    if kind == "tool":
+                        send(
+                            {
+                                "type": "stream_tool",
+                                "agent": breaker_label,
+                                "tool": event["tool"],
+                                "description": event["description"],
+                                "detail": event["detail"],
+                            }
+                        )
+                    elif kind == "text":
+                        send({"type": "stream_text", "agent": breaker_label, "text": event["text"]})
+                        output_lines.append(event["text"])
+                    elif kind == "thinking":
+                        send({"type": "stream_thinking", "agent": breaker_label, "text": event["text"]})
+                    elif kind == "tool_result":
+                        send(
+                            {
+                                "type": "stream_result",
+                                "agent": breaker_label,
+                                "text": event["text"],
+                                "is_error": event["is_error"],
+                            }
+                        )
+                    elif kind == "result":
+                        final_result = event["text"]
+                    elif kind == "rate_limit":
+                        limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="auto_review_stream")
+                        send({"type": "claude_limit_update", "limit": limit})
 
-        process.wait(timeout=30)
-        ctx.process_finished()
+        try:
+            process.wait(timeout=30)
+        finally:
+            ctx.process_finished()
+            if stderr_thread is not None:
+                stderr_thread.join(timeout=0.2)
 
         review_text = final_result if final_result else "\n".join(output_lines).strip()
         if process.returncode != 0:
-            send({"type": "agent_status", "agent": breaker_label, "status": f"Claude error (exit {process.returncode}) - no review result"})
+            failure_detail = _build_claude_failure_detail(
+                result_text=review_text,
+                output_lines=output_lines,
+                stderr_lines=stderr_lines,
+                raw_stdout_lines=raw_stdout_lines,
+            )
+            status = f"Claude error (exit {process.returncode}) - no review result"
+            if failure_detail:
+                status += f" | {failure_detail[:180]}"
+            send({"type": "agent_status", "agent": breaker_label, "status": status})
             return None
 
         if review_text and "no issues found" not in review_text.lower():
