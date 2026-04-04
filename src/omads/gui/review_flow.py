@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Callable
 
 from .builder_flow import (
+    _build_claude_failure_detail,
     _build_codex_empty_output_warning,
     _build_codex_failure_detail,
     _codex_execution_mode_args,
     _codex_service_tier_arg,
+    _drain_stderr_thread,
     _scrub_token_errors,
 )
 from .streaming import strip_fixes_needed_marker
@@ -28,6 +30,18 @@ def _validate_target_repo(target_repo: str) -> None:
         raise FileNotFoundError(
             f"Project directory not found: {target_repo}"
         )
+
+
+def _upsert_resume_arg(run_cmd: list[str], new_session_id: str) -> list[str]:
+    """Update or append one Claude resume argument for a retry attempt."""
+    updated = list(run_cmd)
+    if "--resume" in updated:
+        idx = updated.index("--resume")
+        if idx + 1 < len(updated):
+            updated[idx + 1] = new_session_id
+            return updated
+    updated.extend(["--resume", new_session_id])
+    return updated
 
 
 @dataclass(slots=True)
@@ -286,63 +300,125 @@ def run_claude_manual_review_step(
     if prior_session_id:
         cmd.extend(["--resume", prior_session_id])
 
-    output_lines: list[str] = []
-    final_result = ""
-
     if ctx.is_task_cancelled():
         return "", captured_session_id
 
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        cwd=target_repo,
-        env=ctx.build_cli_env(),
-    )
-    ctx.process_started(process)
+    def _run_attempt(
+        run_cmd: list[str],
+    ) -> tuple[int, list[str], list[str], list[str], str, str | None]:
+        output_lines: list[str] = []
+        stderr_lines: list[str] = []
+        raw_stdout_lines: list[str] = []
+        final_result = ""
+        attempt_session_id: str | None = None
 
-    for line in process.stdout:
-        if ctx.is_task_cancelled():
+        process = subprocess.Popen(
+            run_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=target_repo,
+            env=ctx.build_cli_env(),
+        )
+        ctx.process_started(process)
+        stderr_thread = _drain_stderr_thread(process.stderr, stderr_lines=stderr_lines)
+
+        if process.stdout is not None:
+            for line in process.stdout:
+                if ctx.is_task_cancelled():
+                    process.kill()
+                    process.wait()
+                    ctx.process_finished()
+                    return 0, output_lines, stderr_lines, raw_stdout_lines, final_result, attempt_session_id
+                parsed_session_id, parsed_result = ctx.forward_claude_stream_line(
+                    line,
+                    agent_label=agent_label,
+                    send=send,
+                    text_buffer=output_lines,
+                    rate_limit_source=rate_limit_source,
+                )
+                if not parsed_session_id and not parsed_result:
+                    raw_line = _scrub_token_errors(line.strip())
+                    if raw_line:
+                        raw_stdout_lines.append(raw_line)
+                if parsed_session_id and not attempt_session_id:
+                    attempt_session_id = parsed_session_id
+                if parsed_result:
+                    final_result = parsed_result
+
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+        finally:
             ctx.process_finished()
+            if stderr_thread is not None:
+                stderr_thread.join(timeout=0.2)
+
+        return process.returncode, output_lines, stderr_lines, raw_stdout_lines, final_result, attempt_session_id
+
+    run_cmd = list(cmd)
+    max_attempts = 2
+    last_failure_text = ""
+    for attempt in range(1, max_attempts + 1):
+        (
+            returncode,
+            output_lines,
+            stderr_lines,
+            raw_stdout_lines,
+            final_result,
+            attempt_session_id,
+        ) = _run_attempt(run_cmd)
+
+        if ctx.is_task_cancelled():
             return "", captured_session_id
-        parsed_session_id, parsed_result = ctx.forward_claude_stream_line(
-            line,
-            agent_label=agent_label,
-            send=send,
-            text_buffer=output_lines,
-            rate_limit_source=rate_limit_source,
+
+        review_text = final_result if final_result else "\n".join(output_lines).strip()
+        failure_detail = _build_claude_failure_detail(
+            result_text=review_text,
+            output_lines=output_lines,
+            stderr_lines=stderr_lines,
+            raw_stdout_lines=raw_stdout_lines,
         )
-        if parsed_session_id and not captured_session_id:
-            captured_session_id = parsed_session_id
-        if parsed_result:
-            final_result = parsed_result
+        last_failure_text = failure_detail
 
-    try:
-        process.wait(timeout=30)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
-    finally:
-        ctx.process_finished()
+        if attempt_session_id:
+            captured_session_id = attempt_session_id
+            run_cmd = _upsert_resume_arg(run_cmd, attempt_session_id)
 
-    review_text = final_result if final_result else "\n".join(output_lines).strip()
-    if process.returncode != 0 and not ctx.is_task_cancelled():
-        raise RuntimeError(
-            ctx.build_process_failure_text(
-                agent_label,
-                process.returncode,
-                result_text=review_text,
-                output_lines=output_lines,
+        if returncode == 0 and review_text:
+            if captured_session_id:
+                ctx.store_review_session(repo_key, captured_session_id)
+            return review_text, captured_session_id
+
+        if attempt < max_attempts:
+            send(
+                {
+                    "type": "stream_text",
+                    "agent": agent_label,
+                    "text": f"{agent_label} stopped unexpectedly. OMADS retries once with the same session."
+                            + (f" Details: {failure_detail[:220]}" if failure_detail else ""),
+                }
             )
+            continue
+
+        if returncode != 0:
+            raise RuntimeError(
+                ctx.build_process_failure_text(
+                    agent_label,
+                    returncode,
+                    result_text=failure_detail,
+                    output_lines=output_lines,
+                )
+            )
+
+        raise RuntimeError(
+            f"{agent_label} finished without any user-visible response."
+            + (f" Last details: {last_failure_text[:220]}" if last_failure_text else "")
         )
-    if not review_text and process.returncode == 0 and not ctx.is_task_cancelled():
-        raise RuntimeError(f"{agent_label} finished without any user-visible response.")
-    if captured_session_id and process.returncode == 0:
-        ctx.store_review_session(repo_key, captured_session_id)
-    return review_text, captured_session_id
+
+    return "", captured_session_id
 
 
 def run_codex_manual_review_step(
@@ -495,65 +571,128 @@ def run_claude_manual_synthesis_step(
     if prior_session_id:
         cmd.extend(["--resume", prior_session_id])
 
-    output_lines: list[str] = []
-    captured_session_id: str | None = None
-    final_result = ""
-
     if ctx.is_task_cancelled():
         return "", False, None
 
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        cwd=target_repo,
-        env=ctx.build_cli_env(),
-    )
-    ctx.process_started(process)
+    captured_session_id: str | None = None
 
-    for line in process.stdout:
-        if ctx.is_task_cancelled():
+    def _run_attempt(
+        run_cmd: list[str],
+    ) -> tuple[int, list[str], list[str], list[str], str, str | None]:
+        output_lines: list[str] = []
+        stderr_lines: list[str] = []
+        raw_stdout_lines: list[str] = []
+        final_result = ""
+        attempt_session_id: str | None = None
+
+        process = subprocess.Popen(
+            run_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=target_repo,
+            env=ctx.build_cli_env(),
+        )
+        ctx.process_started(process)
+        stderr_thread = _drain_stderr_thread(process.stderr, stderr_lines=stderr_lines)
+
+        if process.stdout is not None:
+            for line in process.stdout:
+                if ctx.is_task_cancelled():
+                    process.kill()
+                    process.wait()
+                    ctx.process_finished()
+                    return 0, output_lines, stderr_lines, raw_stdout_lines, final_result, attempt_session_id
+                parsed_session_id, parsed_result = ctx.forward_claude_stream_line(
+                    line,
+                    agent_label="Claude Code",
+                    send=send,
+                    text_buffer=output_lines,
+                    rate_limit_source="synthesis_stream",
+                )
+                if not parsed_session_id and not parsed_result:
+                    raw_line = _scrub_token_errors(line.strip())
+                    if raw_line:
+                        raw_stdout_lines.append(raw_line)
+                if parsed_session_id and not attempt_session_id:
+                    attempt_session_id = parsed_session_id
+                if parsed_result:
+                    final_result = parsed_result
+
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+        finally:
             ctx.process_finished()
+            if stderr_thread is not None:
+                stderr_thread.join(timeout=0.2)
+
+        return process.returncode, output_lines, stderr_lines, raw_stdout_lines, final_result, attempt_session_id
+
+    run_cmd = list(cmd)
+    max_attempts = 2
+    last_failure_text = ""
+    for attempt in range(1, max_attempts + 1):
+        (
+            returncode,
+            output_lines,
+            stderr_lines,
+            raw_stdout_lines,
+            final_result,
+            attempt_session_id,
+        ) = _run_attempt(run_cmd)
+
+        if ctx.is_task_cancelled():
             return "", False, captured_session_id
-        parsed_session_id, parsed_result = ctx.forward_claude_stream_line(
-            line,
-            agent_label="Claude Code",
-            send=send,
-            text_buffer=output_lines,
-            rate_limit_source="synthesis_stream",
+
+        synthesis_text = final_result if final_result else "\n".join(output_lines).strip()
+        failure_detail = _build_claude_failure_detail(
+            result_text=synthesis_text,
+            output_lines=output_lines,
+            stderr_lines=stderr_lines,
+            raw_stdout_lines=raw_stdout_lines,
         )
-        if parsed_session_id and not captured_session_id:
-            captured_session_id = parsed_session_id
-        if parsed_result:
-            final_result = parsed_result
+        last_failure_text = failure_detail
 
-    try:
-        process.wait(timeout=30)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
-    finally:
-        ctx.process_finished()
+        if attempt_session_id:
+            captured_session_id = attempt_session_id
+            run_cmd = _upsert_resume_arg(run_cmd, attempt_session_id)
 
-    synthesis_text = final_result if final_result else "\n".join(output_lines).strip()
-    if process.returncode != 0 and not ctx.is_task_cancelled():
-        raise RuntimeError(
-            ctx.build_process_failure_text(
-                "Review step 3 (synthesis)",
-                process.returncode,
-                result_text=synthesis_text,
-                output_lines=output_lines,
+        if returncode == 0 and synthesis_text:
+            if captured_session_id:
+                ctx.store_review_session(repo_key, captured_session_id)
+            cleaned_text, has_fixes = strip_fixes_needed_marker(synthesis_text)
+            return cleaned_text, has_fixes, captured_session_id
+
+        if attempt < max_attempts:
+            send(
+                {
+                    "type": "stream_text",
+                    "agent": "Claude Code",
+                    "text": "Review step 3 (synthesis) stopped unexpectedly. OMADS retries once with the same session."
+                            + (f" Details: {failure_detail[:220]}" if failure_detail else ""),
+                }
             )
+            continue
+
+        if returncode != 0:
+            raise RuntimeError(
+                ctx.build_process_failure_text(
+                    "Review step 3 (synthesis)",
+                    returncode,
+                    result_text=failure_detail,
+                    output_lines=output_lines,
+                )
+            )
+
+        raise RuntimeError(
+            "Review step 3 (synthesis) finished without any user-visible response."
+            + (f" Last details: {last_failure_text[:220]}" if last_failure_text else "")
         )
-    if not synthesis_text and process.returncode == 0 and not ctx.is_task_cancelled():
-        raise RuntimeError("Review step 3 (synthesis) finished without any user-visible response.")
-    if captured_session_id and process.returncode == 0:
-        ctx.store_review_session(repo_key, captured_session_id)
-    cleaned_text, has_fixes = strip_fixes_needed_marker(synthesis_text)
-    return cleaned_text, has_fixes, captured_session_id
+
+    return "", False, captured_session_id
 
 
 def run_codex_manual_synthesis_step(

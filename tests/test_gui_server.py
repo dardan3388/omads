@@ -1752,6 +1752,102 @@ def test_review_thread_falls_back_to_second_reviewer_for_synthesis(
     assert any(msg["type"] == "unlock" for msg in messages)
 
 
+def test_claude_manual_review_step_retries_once_after_nonzero_exit(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    processes = [
+        DummyProcess(returncode=1, stderr_lines=["review stream crashed\n"]),
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "review-session-2",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "## Findings\n- [HIGH] api.py: missing lock"}]},
+            }) + "\n"
+        ]),
+    ]
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: processes.pop(0))
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_append_timeline_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(runtime, "_run_codex_manual_review_step", lambda **kwargs: "## Findings\n- [HIGH] api.py: missing lock")
+    monkeypatch.setattr(
+        runtime,
+        "_run_claude_manual_synthesis_step",
+        lambda **kwargs: ("## Final fix plan\n- api.py:10: add a lock\nFIXES_NEEDED: true", True, "review-session-3"),
+    )
+    state._update_settings(
+        lambda settings: settings.update(
+            {
+                "review_first_reviewer": "claude",
+                "review_second_reviewer": "codex",
+            }
+        )
+    )
+
+    runtime._run_review_thread(None, "project", "bugs", "")
+
+    assert runtime._pending_review_fixes[repo_key].startswith("## Final fix plan")
+    assert any(
+        msg["type"] == "stream_text"
+        and "Claude Review stopped unexpectedly. OMADS retries once" in msg.get("text", "")
+        for msg in messages
+    )
+    assert not any(msg["type"] == "task_error" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
+def test_claude_manual_synthesis_retries_once_after_nonzero_exit(
+    isolated_server,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    messages: list[dict] = []
+    repo_key = str(isolated_server["repo_dir"].resolve())
+    processes = [
+        DummyProcess(returncode=1, stderr_lines=["synthesis stream crashed\n"]),
+        DummyProcess(lines=[
+            json.dumps({
+                "session_id": "review-session-3",
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "## Final fix plan\n- api.py:10: add a lock\nFIXES_NEEDED: true"}]},
+            }) + "\n"
+        ]),
+    ]
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", lambda *args, **kwargs: processes.pop(0))
+    monkeypatch.setattr(runtime, "broadcast_sync", lambda msg, proj_id_override=None: messages.append(msg))
+    monkeypatch.setattr(runtime, "_append_timeline_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, "_load_project_memory", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        runtime,
+        "_run_claude_manual_review_step",
+        lambda **kwargs: ("## Findings\n- [HIGH] api.py: missing lock", "review-session-2"),
+    )
+    monkeypatch.setattr(runtime, "_run_codex_manual_review_step", lambda **kwargs: "## Findings\n- [HIGH] api.py: missing lock")
+    state._update_settings(
+        lambda settings: settings.update(
+            {
+                "review_first_reviewer": "claude",
+                "review_second_reviewer": "codex",
+            }
+        )
+    )
+
+    runtime._run_review_thread(None, "project", "bugs", "")
+
+    assert runtime._pending_review_fixes[repo_key].startswith("## Final fix plan")
+    assert any(
+        msg["type"] == "stream_text"
+        and "Review step 3 (synthesis) stopped unexpectedly. OMADS retries once" in msg.get("text", "")
+        for msg in messages
+    )
+    assert not any(msg["type"] == "task_error" for msg in messages)
+    assert any(msg["type"] == "unlock" for msg in messages)
+
+
 def test_manual_synthesis_prompt_switches_to_limited_mode_for_incomplete_second_review():
     prompt = runtime._build_manual_synthesis_prompt(
         first_label="Codex",
