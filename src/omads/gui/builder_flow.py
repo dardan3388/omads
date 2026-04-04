@@ -405,107 +405,188 @@ def run_claude_session_thread(
         if ctx.is_task_cancelled():
             return
         start_time = time.time()
-        stderr_lines: list[str] = []
-        raw_stdout_lines: list[str] = []
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=target_repo,
-            env=env,
-        )
-        ctx.process_started(process)
-        stderr_thread = _drain_stderr_thread(process.stderr, stderr_lines=stderr_lines)
-
         final_result = ""
         captured_session_id = None
         files_changed: list[str] = []
 
-        if process.stdout is not None:
-            for line in process.stdout:
-                if ctx.is_task_cancelled():
-                    process.kill()
-                    send({"type": "task_stopped", "text": "Stopped."})
-                    break
+        def _upsert_resume_arg(run_cmd: list[str], new_session_id: str) -> list[str]:
+            updated = list(run_cmd)
+            if "--resume" in updated:
+                idx = updated.index("--resume")
+                if idx + 1 < len(updated):
+                    updated[idx + 1] = new_session_id
+                    return updated
+            updated.extend(["--resume", new_session_id])
+            return updated
 
-                parsed_events = ctx.parse_claude_stream_line(line)
-                if not parsed_events:
-                    raw_line = _scrub_token_errors(line.strip())
-                    if raw_line:
-                        raw_stdout_lines.append(raw_line)
+        def _run_claude_main_attempt(
+            run_cmd: list[str],
+        ) -> tuple[int, list[str], list[str], list[str], str, str | None, list[str]]:
+            stderr_lines: list[str] = []
+            raw_stdout_lines: list[str] = []
+            attempt_output_lines: list[str] = []
+            attempt_final_result = ""
+            attempt_session_id: str | None = None
+            attempt_files_changed: list[str] = []
 
-                for event in parsed_events:
-                    kind = event["kind"]
-                    if kind == "session_id" and not captured_session_id:
-                        captured_session_id = event["session_id"]
-                    elif kind == "tool":
-                        if event["tool"] in ("Write", "Edit"):
-                            file_path = event.get("file_path", "")
-                            if file_path and file_path not in files_changed:
-                                files_changed.append(file_path)
-                        send(
-                            {
-                                "type": "stream_tool",
-                                "agent": agent_label,
-                                "tool": event["tool"],
-                                "description": event["description"],
-                                "detail": event["detail"],
-                            }
-                        )
-                    elif kind == "text":
-                        send({"type": "stream_text", "agent": agent_label, "text": event["text"]})
-                        output_lines.append(event["text"])
-                    elif kind == "thinking":
-                        send({"type": "stream_thinking", "agent": agent_label, "text": event["text"]})
-                    elif kind == "tool_result":
-                        send(
-                            {
-                                "type": "stream_result",
-                                "agent": agent_label,
-                                "text": event["text"],
-                                "is_error": event["is_error"],
-                            }
-                        )
-                    elif kind == "result":
-                        final_result = event["text"]
-                    elif kind == "rate_limit":
-                        limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="task_stream")
-                        send({"type": "claude_limit_update", "limit": limit})
+            process = subprocess.Popen(
+                run_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=target_repo,
+                env=env,
+            )
+            ctx.process_started(process)
+            stderr_thread = _drain_stderr_thread(process.stderr, stderr_lines=stderr_lines)
 
-        try:
-            process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        finally:
-            ctx.process_finished()
-            if stderr_thread is not None:
-                stderr_thread.join(timeout=0.2)
+            if process.stdout is not None:
+                for line in process.stdout:
+                    if ctx.is_task_cancelled():
+                        process.kill()
+                        send({"type": "task_stopped", "text": "Stopped."})
+                        break
 
-        elapsed = round(time.time() - start_time)
-        success = process.returncode == 0 and not ctx.is_task_cancelled()
+                    parsed_events = ctx.parse_claude_stream_line(line)
+                    if not parsed_events:
+                        raw_line = _scrub_token_errors(line.strip())
+                        if raw_line:
+                            raw_stdout_lines.append(raw_line)
 
-        if not ctx.is_task_cancelled() and process.returncode != 0:
-            result_text = final_result if final_result else "\n".join(output_lines)
+                    for event in parsed_events:
+                        kind = event["kind"]
+                        if kind == "session_id" and not attempt_session_id:
+                            attempt_session_id = event["session_id"]
+                        elif kind == "tool":
+                            if event["tool"] in ("Write", "Edit"):
+                                file_path = event.get("file_path", "")
+                                if file_path and file_path not in attempt_files_changed:
+                                    attempt_files_changed.append(file_path)
+                            send(
+                                {
+                                    "type": "stream_tool",
+                                    "agent": agent_label,
+                                    "tool": event["tool"],
+                                    "description": event["description"],
+                                    "detail": event["detail"],
+                                }
+                            )
+                        elif kind == "text":
+                            send({"type": "stream_text", "agent": agent_label, "text": event["text"]})
+                            attempt_output_lines.append(event["text"])
+                        elif kind == "thinking":
+                            send({"type": "stream_thinking", "agent": agent_label, "text": event["text"]})
+                        elif kind == "tool_result":
+                            send(
+                                {
+                                    "type": "stream_result",
+                                    "agent": agent_label,
+                                    "text": event["text"],
+                                    "is_error": event["is_error"],
+                                }
+                            )
+                        elif kind == "result":
+                            attempt_final_result = event["text"]
+                        elif kind == "rate_limit":
+                            limit = ctx.update_claude_limit_status(event["rate_limit_info"], source="task_stream")
+                            send({"type": "claude_limit_update", "limit": limit})
+
+            try:
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            finally:
+                ctx.process_finished()
+                if stderr_thread is not None:
+                    stderr_thread.join(timeout=0.2)
+
+            return (
+                process.returncode,
+                stderr_lines,
+                raw_stdout_lines,
+                attempt_output_lines,
+                attempt_final_result,
+                attempt_session_id,
+                attempt_files_changed,
+            )
+
+        run_cmd = list(cmd)
+        max_main_attempts = 2
+        last_failure_detail = ""
+        for attempt in range(1, max_main_attempts + 1):
+            (
+                returncode,
+                stderr_lines,
+                raw_stdout_lines,
+                attempt_output_lines,
+                attempt_final_result,
+                attempt_session_id,
+                attempt_files_changed,
+            ) = _run_claude_main_attempt(run_cmd)
+
+            if ctx.is_task_cancelled():
+                return
+
+            for file_path in attempt_files_changed:
+                if file_path not in files_changed:
+                    files_changed.append(file_path)
+            output_lines.extend(attempt_output_lines)
+
+            failure_result_text = attempt_final_result if attempt_final_result else "\n".join(attempt_output_lines)
             failure_detail = _build_claude_failure_detail(
-                result_text=result_text,
-                output_lines=output_lines,
+                result_text=failure_result_text,
+                output_lines=attempt_output_lines,
                 stderr_lines=stderr_lines,
                 raw_stdout_lines=raw_stdout_lines,
             )
+            last_failure_detail = failure_detail
+
+            if attempt_session_id:
+                captured_session_id = attempt_session_id
+                run_cmd = _upsert_resume_arg(run_cmd, attempt_session_id)
+
+            if returncode == 0:
+                final_result = attempt_final_result
+                break
+
+            if attempt < max_main_attempts and not output_lines and not final_result:
+                retry_note = "Claude task stopped before producing usable output. OMADS retries once with the same session."
+                if failure_detail:
+                    retry_note += f" Details: {failure_detail[:220]}"
+                send({"type": "stream_text", "agent": agent_label, "text": retry_note})
+                send({"type": "agent_status", "agent": agent_label, "status": "Retrying task..."})
+                continue
+
             send(
                 {
                     "type": "task_error",
                     "text": ctx.build_process_failure_text(
                         "Claude Code Task",
-                        process.returncode,
+                        returncode,
                         result_text=failure_detail,
                         output_lines=output_lines,
                     ),
                 }
             )
             return
+
+        else:
+            send(
+                {
+                    "type": "task_error",
+                    "text": ctx.build_process_failure_text(
+                        "Claude Code Task",
+                        1,
+                        result_text=last_failure_detail,
+                        output_lines=output_lines,
+                    ),
+                }
+            )
+            return
+
+        elapsed = round(time.time() - start_time)
+        success = not ctx.is_task_cancelled()
 
         if captured_session_id and success:
             ctx.set_builder_session(repo_key, captured_session_id, scope="builder:claude")
